@@ -1,10 +1,18 @@
 import { USERS, type UserId } from './constants';
+import type { PinStore } from './pin';
 
-export type Task = { id: string; title: string; dueDate?: string; completed: boolean };
+export type Task = {
+  id: string;
+  title: string;
+  dueDate: string;
+  completed: boolean;
+  waiting: boolean;
+};
 export type Event = { id: string; title: string; date: string; type: 'event' | 'appointment' };
 export type Payment = {
   id: string;
   title: string;
+  category: string;
   amount: number;
   dueDate: string;
   paid: boolean;
@@ -27,6 +35,7 @@ export type Reminder = { id: string; title: string; date: string };
 
 export type FamilyHubState = {
   users: typeof USERS;
+  userPins: PinStore;
   activeUserId: UserId | null;
   tasks: Task[];
   events: Event[];
@@ -43,6 +52,7 @@ const STORAGE_KEY = 'family-hub-state';
 
 export const createInitialState = (): FamilyHubState => ({
   users: USERS,
+  userPins: {},
   activeUserId: null,
   tasks: [],
   events: [],
@@ -59,7 +69,8 @@ export const loadState = (): FamilyHubState => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return createInitialState();
   try {
-    return { ...createInitialState(), ...JSON.parse(raw) as Partial<FamilyHubState> };
+    const parsed = JSON.parse(raw) as Partial<FamilyHubState>;
+    return { ...createInitialState(), ...parsed };
   } catch {
     return createInitialState();
   }

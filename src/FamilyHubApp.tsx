@@ -1,118 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarScreen } from './components/family-hub/CalendarScreen';
 import { HomeScreen } from './components/family-hub/HomeScreen';
+import { LoginScreen } from './components/family-hub/LoginScreen';
 import { MoneyScreen } from './components/family-hub/MoneyScreen';
 import { MoreScreen } from './components/family-hub/MoreScreen';
 import { TasksScreen } from './components/family-hub/TasksScreen';
-import { TABS, USER_PINS, type Tab, type User, type UserId } from './lib/family-hub/constants';
+import { TABS, type Tab, type UserId } from './lib/family-hub/constants';
 import { getTodayIso } from './lib/family-hub/date';
+import { verifyPin, encodePin } from './lib/family-hub/pin';
 import { createInitialState, loadState, saveState, type FamilyHubState } from './lib/family-hub/storage';
 
 const createId = () => Math.random().toString(36).slice(2, 10);
 
-const tabIcons: Record<Tab, string> = {
-  Home: '⌂',
-  Calendar: '◷',
-  Tasks: '✓',
-  Money: '◉',
-  More: '⋯'
-};
-
-const LoginScreen = ({ users, onLogin }: { users: User[]; onLogin: (userId: UserId, pin: string) => boolean }) => {
-  const activeUsers = users.filter((user) => user.active);
-  const inactiveUsers = users.filter((user) => !user.active);
-  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
-  const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
-
-  const submit = () => {
-    const ok = onLogin(selectedUser, pin);
-    if (!ok) {
-      setError('Invalid PIN. Please try again.');
-      return;
-    }
-    setPin('');
-    setError('');
-  };
-
-  return (
-    <main className="login-shell">
-      <div className="bg-orb bg-orb--top" />
-      <div className="bg-orb bg-orb--bottom" />
-      <section className="glass-card login-card">
-        <div className="screen-title">
-          <p className="eyebrow">Family Hub</p>
-          <h1>Welcome back</h1>
-          <p className="subtitle">Securely access your household tasks, plans, and shared money in one place.</p>
-        </div>
-
-        <label className="field-label" htmlFor="user-select">
-          Household member
-        </label>
-        <div className="select-wrap">
-          <select id="user-select" value={selectedUser} onChange={(e) => setSelectedUser(e.target.value as UserId)}>
-            {activeUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="field-label" htmlFor="pin-input">
-          4-digit PIN
-        </label>
-        <input
-          id="pin-input"
-          className="pin-input"
-          type="password"
-          maxLength={4}
-          pattern="[0-9]{4}"
-          inputMode="numeric"
-          placeholder="••••"
-          value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-        />
-
-        {error ? <div className="error-banner">{error}</div> : null}
-
-        <button className="btn btn-primary" onClick={submit} disabled={pin.length !== 4}>
-          Login
-        </button>
-
-        <div className="inactive-users">
-          <p className="small-title">Future household profiles</p>
-          <div className="chip-list">
-            {inactiveUsers.map((user) => (
-              <span key={user.id} className="chip chip-muted">
-                {user.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      </section>
-    </main>
-  );
-};
+const tabIcons: Record<Tab, string> = { Home: '⌂', Calendar: '◷', Tasks: '✓', Money: '◉', More: '⋯' };
 
 export const FamilyHubApp = () => {
   const [state, setState] = useState<FamilyHubState>(() => loadState());
   const [activeTab, setActiveTab] = useState<Tab>('Home');
 
-  useEffect(() => {
-    saveState(state);
-  }, [state]);
+  useEffect(() => saveState(state), [state]);
 
-  const activeUser = useMemo(() => state.users.find((user) => user.id === state.activeUserId), [state]);
+  const activeUser = useMemo(() => state.users.find((u) => u.id === state.activeUserId), [state]);
 
   if (!state.activeUserId) {
     return (
       <LoginScreen
         users={state.users}
-        onLogin={(userId, pin) => {
-          if (USER_PINS[userId] !== pin) return false;
-          setState((current) => ({ ...current, activeUserId: userId }));
-          return true;
+        hasPin={(userId) => !!state.userPins[userId]}
+        onCreatePin={(userId, pin) =>
+          setState((current) => ({
+            ...current,
+            userPins: { ...current.userPins, [userId]: encodePin(userId, pin) },
+            activeUserId: userId
+          }))
+        }
+        onUnlock={(userId, pin) => {
+          const ok = verifyPin(userId, pin, state.userPins[userId]);
+          if (ok) setState((current) => ({ ...current, activeUserId: userId }));
+          return ok;
         }}
       />
     );
@@ -126,10 +51,10 @@ export const FamilyHubApp = () => {
         <header className="glass-card app-header">
           <div>
             <p className="eyebrow">Family Hub</p>
-            <h1>Hello, {activeUser?.name}</h1>
+            <h1>{activeUser ? `Hello, ${activeUser.name}` : 'Family Hub'}</h1>
           </div>
-          <button className="btn btn-ghost" onClick={() => setState(createInitialState())}>
-            Log out
+          <button className="btn btn-ghost" onClick={() => setState((current) => ({ ...current, activeUserId: null }))}>
+            Lock
           </button>
         </header>
 
@@ -147,10 +72,10 @@ export const FamilyHubApp = () => {
           {activeTab === 'Tasks' && (
             <TasksScreen
               tasks={state.tasks}
-              onAdd={(title) =>
+              onAdd={(title, dueDate, waiting) =>
                 setState((current) => ({
                   ...current,
-                  tasks: [...current.tasks, { id: createId(), title, completed: false }]
+                  tasks: [...current.tasks, { id: createId(), title, dueDate, completed: false, waiting }]
                 }))
               }
               onToggle={(id) =>
@@ -174,20 +99,18 @@ export const FamilyHubApp = () => {
                   settings: { ...current.settings, autoCreateTransactionFromPayment: value }
                 }))
               }
-              onAddPayment={({ title, amount, dueDate }) =>
+              onAddPayment={({ title, amount, dueDate, category }) =>
                 setState((current) => ({
                   ...current,
-                  payments: [...current.payments, { id: createId(), title, amount, dueDate, paid: false }]
+                  payments: [...current.payments, { id: createId(), title, category, amount, dueDate, paid: false }]
                 }))
               }
               onPayWithProof={(paymentId, proofFile) =>
                 setState((current) => {
                   const payment = current.payments.find((item) => item.id === paymentId);
                   if (!payment || payment.paid || !proofFile?.name) return current;
-
                   const paidAt = getTodayIso();
                   const linkedTransactionId = current.settings.autoCreateTransactionFromPayment ? createId() : undefined;
-
                   return {
                     ...current,
                     transactions: linkedTransactionId
@@ -196,9 +119,9 @@ export const FamilyHubApp = () => {
                           {
                             id: linkedTransactionId,
                             date: paidAt,
-                            description: `Payment: ${payment.title}`,
+                            description: payment.title,
                             amount: -Math.abs(payment.amount),
-                            category: 'Payment',
+                            category: payment.category,
                             note: `Proof file: ${proofFile.name}`
                           }
                         ]
@@ -211,9 +134,42 @@ export const FamilyHubApp = () => {
                   };
                 })
               }
+              onCreateTransaction={(payload) =>
+                setState((current) => ({ ...current, transactions: [...current.transactions, { ...payload, id: createId() }] }))
+              }
             />
           )}
-          {activeTab === 'More' && <MoreScreen users={state.users} places={state.places} reminders={state.reminders} />}
+          {activeTab === 'More' && (
+            <MoreScreen
+              users={state.users}
+              places={state.places}
+              reminders={state.reminders}
+              activeUserId={state.activeUserId}
+              onAddPlace={(name) => setState((current) => ({ ...current, places: [...current.places, { id: createId(), name }] }))}
+              onAddReminder={(title, date) =>
+                setState((current) => ({ ...current, reminders: [...current.reminders, { id: createId(), title, date }] }))
+              }
+              onToggleUserActive={(userId) =>
+                setState((current) => ({
+                  ...current,
+                  users: current.users.map((u) => (u.id === userId ? { ...u, active: !u.active } : u))
+                }))
+              }
+              onChangePin={(userId: UserId, pin: string) =>
+                setState((current) => ({ ...current, userPins: { ...current.userPins, [userId]: encodePin(userId, pin) } }))
+              }
+              onExportData={() => {
+                const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'family-hub-export.json';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              onResetData={() => setState(createInitialState())}
+            />
+          )}
         </section>
 
         <nav className="bottom-nav glass-card" aria-label="Primary">
