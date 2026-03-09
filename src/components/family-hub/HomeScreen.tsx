@@ -11,7 +11,7 @@ export const HomeScreen = ({ state }: Props) => {
 
   return (
     <section className="stack-lg">
-      <div>
+      <div className="screen-title">
         <h2>Home</h2>
         <p className="muted">Your household at a glance.</p>
       </div>

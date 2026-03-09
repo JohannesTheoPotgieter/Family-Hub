@@ -41,7 +41,7 @@ export const MoneyScreen = ({
 
   return (
     <section className="stack-lg">
-      <div>
+      <div className="screen-title">
         <h2>Money</h2>
         <p className="muted">A clean cockpit for shared household finances.</p>
       </div>

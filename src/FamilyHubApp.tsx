@@ -40,9 +40,11 @@ const LoginScreen = ({ users, onLogin }: { users: User[]; onLogin: (userId: User
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
       <section className="glass-card login-card">
-        <p className="eyebrow">Family Hub</p>
-        <h1>Welcome back</h1>
-        <p className="subtitle">Securely access your household tasks, plans, and shared money in one place.</p>
+        <div className="screen-title">
+          <p className="eyebrow">Family Hub</p>
+          <h1>Welcome back</h1>
+          <p className="subtitle">Securely access your household tasks, plans, and shared money in one place.</p>
+        </div>
 
         <label className="field-label" htmlFor="user-select">
           Household member
