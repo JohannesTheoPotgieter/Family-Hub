@@ -11,7 +11,7 @@ type Props = {
 export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => {
   const activeUsers = users.filter((u) => u.active);
   const inactiveUsers = users.filter((u) => !u.active);
-  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
+  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? users[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
@@ -19,6 +19,11 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
   const needsSetup = useMemo(() => !hasPin(selectedUser), [hasPin, selectedUser]);
 
   const submit = () => {
+    if (!selectedUser) {
+      setError('No active profile is available yet.');
+      return;
+    }
+
     if (needsSetup) {
       if (pin.length !== 4 || confirmPin.length !== 4) return;
       if (pin !== confirmPin) {
@@ -52,7 +57,7 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
         <p className="subtitle">A premium shared space for your family plans, tasks, and money.</p>
 
         <div className="profile-grid">
-          {activeUsers.map((user) => (
+          {(activeUsers.length ? activeUsers : users).map((user) => (
             <button
               key={user.id}
               className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`}
