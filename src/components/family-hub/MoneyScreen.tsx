@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { formatCurrency } from '../../lib/family-hub/format';
 import { MONEY_TABS, type MoneyTab } from '../../lib/family-hub/constants';
 import type { Budget, CashflowItem, Payment, Transaction } from '../../lib/family-hub/storage';
@@ -27,6 +27,8 @@ export const MoneyScreen = ({
   const [tab, setTab] = useState<MoneyTab>('Overview');
   const [newPayment, setNewPayment] = useState({ title: '', amount: '', dueDate: '' });
 
+  const openPayments = useMemo(() => payments.filter((p) => !p.paid), [payments]);
+
   return (
     <section className="stack">
       <h2>Money</h2>
@@ -40,8 +42,8 @@ export const MoneyScreen = ({
 
       {tab === 'Overview' && (
         <div className="grid">
-          <div className="card">Open payments: {payments.filter((p) => !p.paid).length}</div>
-          <div className="card">Transactions: {transactions.length || 'No transactions yet'}</div>
+          <div className="card">Open payments: {openPayments.length}</div>
+          <div className="card">Transactions tracked: {transactions.length}</div>
         </div>
       )}
 
@@ -88,7 +90,7 @@ export const MoneyScreen = ({
             onSubmit={(e) => {
               e.preventDefault();
               const amount = Number(newPayment.amount);
-              if (!newPayment.title.trim() || !newPayment.dueDate || Number.isNaN(amount)) return;
+              if (!newPayment.title.trim() || !newPayment.dueDate || Number.isNaN(amount) || amount <= 0) return;
               onAddPayment({ title: newPayment.title.trim(), amount, dueDate: newPayment.dueDate });
               setNewPayment({ title: '', amount: '', dueDate: '' });
             }}
@@ -101,6 +103,8 @@ export const MoneyScreen = ({
             <input
               placeholder="Amount"
               type="number"
+              min="0.01"
+              step="0.01"
               value={newPayment.amount}
               onChange={(e) => setNewPayment((curr) => ({ ...curr, amount: e.target.value }))}
             />
@@ -111,7 +115,7 @@ export const MoneyScreen = ({
             />
             <button type="submit">Create payment</button>
           </form>
-          {!payments.length ? <div className="empty">No payments due yet</div> : null}
+          {!payments.length ? <div className="empty">No payments created yet</div> : null}
           {payments.map((payment) => (
             <PaymentRow key={payment.id} payment={payment} onPayWithProof={onPayWithProof} />
           ))}
@@ -129,6 +133,8 @@ const PaymentRow = ({
   onPayWithProof: (paymentId: string, proofFile?: File) => void;
 }) => {
   const [file, setFile] = useState<File | undefined>();
+  const canPay = Boolean(file);
+
   return (
     <div className="card stack">
       <div className="row spread">
@@ -141,7 +147,9 @@ const PaymentRow = ({
       ) : (
         <>
           <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files?.[0])} />
-          <button onClick={() => onPayWithProof(payment.id, file)}>Pay + proof</button>
+          <button disabled={!canPay} onClick={() => onPayWithProof(payment.id, file)}>
+            Pay + proof
+          </button>
         </>
       )}
     </div>
