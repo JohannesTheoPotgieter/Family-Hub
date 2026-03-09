@@ -11,46 +11,68 @@ type Props = {
 export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
   const [selectedDate, setSelectedDate] = useState(getTodayIso());
   const [title, setTitle] = useState('');
+  const [mode, setMode] = useState<'Month' | 'Week' | 'Day'>('Day');
 
-  const effectiveSelectedDate = selectedDate || getTodayIso();
-
-  const dayItems = useMemo(
-    () => ({
-      events: events.filter((e) => isSameDay(e.date, effectiveSelectedDate)),
-      payments: payments.filter((p) => !p.paid && isSameDay(p.dueDate, effectiveSelectedDate))
-    }),
-    [effectiveSelectedDate, events, payments]
-  );
+  const dayItems = useMemo(() => {
+    const dayEvents = events.filter((event) => isSameDay(event.date, selectedDate));
+    const dayPayments = payments.filter((payment) => !payment.paid && isSameDay(payment.dueDate, selectedDate));
+    return { dayEvents, dayPayments };
+  }, [events, payments, selectedDate]);
 
   return (
-    <section className="stack">
-      <h2>Calendar</h2>
-      <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value || getTodayIso())} />
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!title.trim()) return;
-          onAddEvent(title.trim(), effectiveSelectedDate, 'event');
-          setTitle('');
-        }}
-      >
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add event for selected day" />
-        <button type="submit">Add</button>
-      </form>
-      {dayItems.events.length === 0 && dayItems.payments.length === 0 ? <div className="empty">Nothing scheduled for this day</div> : null}
-      {dayItems.events.map((event) => (
-        <div key={event.id} className={`card ${event.type === 'appointment' ? 'appointment' : ''}`}>
-          <strong>{event.title}</strong>
-          <div className="small">{event.type}</div>
-        </div>
-      ))}
-      {dayItems.payments.map((payment) => (
-        <div key={payment.id} className="card payment-due">
-          <strong>{payment.title}</strong>
-          <div className="small">Payment due</div>
-        </div>
-      ))}
+    <section className="stack-lg">
+      <div>
+        <h2>Calendar</h2>
+        <p className="muted">Plan your family day with clear priorities.</p>
+      </div>
+
+      <div className="segmented-control glass-card">
+        {(['Month', 'Week', 'Day'] as const).map((item) => (
+          <button key={item} className={mode === item ? 'is-active' : ''} onClick={() => setMode(item)}>
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <article className="glass-card stack">
+        <label className="field-label" htmlFor="calendar-date">
+          Selected day ({mode} view)
+        </label>
+        <input id="calendar-date" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+
+        <form
+          className="stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!title.trim()) return;
+            onAddEvent(title.trim(), selectedDate, 'event');
+            setTitle('');
+          }}
+        >
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add event for this day" />
+          <button className="btn btn-primary" type="submit">
+            Save event
+          </button>
+        </form>
+      </article>
+
+      <article className="stack">
+        {dayItems.dayEvents.length === 0 && dayItems.dayPayments.length === 0 ? (
+          <div className="empty-state">Nothing scheduled for this date.</div>
+        ) : null}
+        {dayItems.dayEvents.map((event) => (
+          <div key={event.id} className={`glass-card list-tile ${event.type === 'appointment' ? 'appointment' : ''}`}>
+            <p>{event.title}</p>
+            <span className="chip">{event.type}</span>
+          </div>
+        ))}
+        {dayItems.dayPayments.map((payment) => (
+          <div key={payment.id} className="glass-card list-tile payment-due">
+            <p>{payment.title}</p>
+            <span className="chip">Payment due</span>
+          </div>
+        ))}
+      </article>
     </section>
   );
 };

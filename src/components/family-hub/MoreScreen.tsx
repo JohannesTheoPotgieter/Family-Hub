@@ -8,19 +8,30 @@ type Props = {
 };
 
 export const MoreScreen = ({ users, places, reminders }: Props) => (
-  <section className="stack">
-    <h2>More</h2>
-    <div className="card">
-      <h3>Family users</h3>
-      <ul>
-        {users.map((u) => (
-          <li key={u.id}>
-            {u.name} {u.active ? '' : '(inactive)'}
-          </li>
-        ))}
-      </ul>
+  <section className="stack-lg">
+    <div>
+      <h2>More</h2>
+      <p className="muted">Family members, places, and reminders.</p>
     </div>
-    <div className="card">{places.length ? `${places.length} places saved` : 'No places added yet'}</div>
-    <div className="card">{reminders.length ? `${reminders.length} reminders` : 'No reminders yet'}</div>
+
+    <article className="glass-card stack">
+      <h3>Family users</h3>
+      {users.map((user) => (
+        <div key={user.id} className="list-row">
+          <span>{user.name}</span>
+          <span className={`chip ${user.active ? 'chip-active' : 'chip-muted'}`}>{user.active ? 'Active' : 'Inactive'}</span>
+        </div>
+      ))}
+    </article>
+
+    <article className="glass-card stack">
+      <h3>Saved places</h3>
+      <div className="muted">{places.length ? `${places.length} places added` : 'No places added yet.'}</div>
+    </article>
+
+    <article className="glass-card stack">
+      <h3>Reminders</h3>
+      <div className="muted">{reminders.length ? `${reminders.length} reminders created` : 'No reminders yet.'}</div>
+    </article>
   </section>
 );
