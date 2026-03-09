@@ -9,7 +9,7 @@ type Props = {
 
 export const MoreScreen = ({ users, places, reminders }: Props) => (
   <section className="stack-lg">
-    <div>
+    <div className="screen-title">
       <h2>More</h2>
       <p className="muted">Family members, places, and reminders.</p>
     </div>

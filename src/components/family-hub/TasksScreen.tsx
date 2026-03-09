@@ -19,7 +19,7 @@ export const TasksScreen = ({ tasks, onAdd, onToggle }: Props) => {
 
   return (
     <section className="stack-lg">
-      <div>
+      <div className="screen-title">
         <h2>Tasks</h2>
         <p className="muted">Keep family responsibilities clear and trackable.</p>
       </div>

@@ -40,7 +40,7 @@ button {
   width: min(100%, 520px);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   position: relative;
   z-index: 2;
   padding-bottom: 94px;
@@ -90,7 +90,13 @@ button {
 .screen-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+}
+
+.screen-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .eyebrow {
@@ -118,7 +124,7 @@ button {
 }
 
 .stack-lg {
-  gap: 18px;
+  gap: 20px;
 }
 
 .stack-sm {
@@ -158,10 +164,12 @@ button {
 
 .empty-state {
   border: 1px dashed rgba(84, 104, 148, 0.35);
-  padding: 16px;
+  padding: 18px;
   border-radius: 18px;
   color: #53698f;
   background: rgba(255, 255, 255, 0.42);
+  text-align: center;
+  line-height: 1.45;
 }
 
 .field-label,
@@ -192,7 +200,7 @@ button:focus {
 .btn {
   border: none;
   border-radius: 14px;
-  min-height: 48px;
+  min-height: 50px;
   padding: 10px 16px;
   font-weight: 600;
 }
@@ -227,21 +235,23 @@ button:focus {
 .nav-item {
   border: none;
   border-radius: 14px;
-  min-height: 54px;
+  min-height: 56px;
   background: transparent;
   color: #57698d;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 2px;
-  font-size: 0.74rem;
+  gap: 4px;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
 }
 
 .nav-item.is-active {
   background: rgba(255, 255, 255, 0.78);
   color: #1a3876;
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(56, 95, 180, 0.14);
 }
 
 .segmented-control {
@@ -336,13 +346,14 @@ button:focus {
   padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   position: relative;
   z-index: 2;
 }
 
 .login-card h1 {
   font-size: 1.7rem;
+  line-height: 1.15;
 }
 
 .subtitle {
@@ -386,5 +397,51 @@ button:focus {
 
   .metric-value {
     font-size: 1.38rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-shell,
+  .login-shell {
+    padding: 16px 12px;
+  }
+
+  .app-phone-frame {
+    gap: 14px;
+  }
+
+  .glass-card.app-header,
+  .metric-card,
+  .list-tile,
+  .task-row,
+  .payment-card,
+  .glass-card.stack,
+  .login-card {
+    border-radius: 20px;
+    padding: 12px;
+  }
+
+  .metrics-grid {
+    gap: 10px;
+  }
+
+  .login-card {
+    gap: 12px;
+  }
+
+  .bottom-nav {
+    width: calc(100% - 16px);
+    bottom: 8px;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .nav-item {
+    min-height: 54px;
+    font-size: 0.68rem;
+  }
+
+  .btn {
+    min-height: 52px;
   }
 }

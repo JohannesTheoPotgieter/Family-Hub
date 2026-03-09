@@ -21,7 +21,7 @@ export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
 
   return (
     <section className="stack-lg">
-      <div>
+      <div className="screen-title">
         <h2>Calendar</h2>
         <p className="muted">Plan your family day with clear priorities.</p>
       </div>
