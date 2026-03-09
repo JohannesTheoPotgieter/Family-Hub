@@ -118,7 +118,7 @@ export const FamilyHubApp = () => {
             setState((curr) => {
               const now = getTodayIso();
               const payment = curr.payments.find((p) => p.id === paymentId);
-              if (!payment || payment.paid) return curr;
+              if (!payment || payment.paid || !proofFile?.name) return curr;
 
               const linkedTransactionId = curr.settings.autoCreateTransactionFromPayment ? createId() : undefined;
               const nextTransactions = linkedTransactionId
