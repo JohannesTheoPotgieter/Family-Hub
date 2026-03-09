@@ -1,0 +1,6 @@
+modules = ["nodejs-20"]
+
+[deployment]
+build = ["sh", "-c", "npm run build"]
+deploymentTarget = "static"
+publicDir = "dist/"
