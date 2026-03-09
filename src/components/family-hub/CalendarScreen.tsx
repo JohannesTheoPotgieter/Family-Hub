@@ -11,6 +11,7 @@ type Props = {
 export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
   const [selectedDate, setSelectedDate] = useState(getTodayIso());
   const [title, setTitle] = useState('');
+  const [type, setType] = useState<Event['type']>('event');
   const [mode, setMode] = useState<'Month' | 'Week' | 'Day'>('Day');
 
   const dayItems = useMemo(() => {
@@ -21,57 +22,29 @@ export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
 
   return (
     <section className="stack-lg">
-      <div className="screen-title">
-        <h2>Calendar</h2>
-        <p className="muted">Plan your family day with clear priorities.</p>
-      </div>
-
-      <div className="segmented-control glass-card">
-        {(['Month', 'Week', 'Day'] as const).map((item) => (
-          <button key={item} className={mode === item ? 'is-active' : ''} onClick={() => setMode(item)}>
-            {item}
-          </button>
-        ))}
-      </div>
-
+      <div className="screen-title"><h2>Calendar</h2><p className="muted">Simple and reliable scheduling.</p></div>
+      <div className="segmented-control glass-card">{(['Month', 'Week', 'Day'] as const).map((item) => <button key={item} className={mode === item ? 'is-active' : ''} onClick={() => setMode(item)}>{item}</button>)}</div>
       <article className="glass-card stack">
-        <label className="field-label" htmlFor="calendar-date">
-          Selected day ({mode} view)
-        </label>
-        <input id="calendar-date" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-
-        <form
-          className="stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!title.trim()) return;
-            onAddEvent(title.trim(), selectedDate, 'event');
-            setTitle('');
-          }}
-        >
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add event for this day" />
-          <button className="btn btn-primary" type="submit">
-            Save event
-          </button>
+        <label className="field-label">Selected day ({mode})</label>
+        <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+        <form className="stack" onSubmit={(e) => {
+          e.preventDefault();
+          if (!title.trim()) return;
+          onAddEvent(title.trim(), selectedDate, type);
+          setTitle('');
+        }}>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add event or appointment" />
+          <select value={type} onChange={(e) => setType(e.target.value as Event['type'])}>
+            <option value="event">Event</option>
+            <option value="appointment">Special appointment</option>
+          </select>
+          <button className="btn btn-primary" type="submit">Save</button>
         </form>
       </article>
-
       <article className="stack">
-        {dayItems.dayEvents.length === 0 && dayItems.dayPayments.length === 0 ? (
-          <div className="empty-state">Nothing scheduled for this date.</div>
-        ) : null}
-        {dayItems.dayEvents.map((event) => (
-          <div key={event.id} className={`glass-card list-tile ${event.type === 'appointment' ? 'appointment' : ''}`}>
-            <p>{event.title}</p>
-            <span className="chip">{event.type}</span>
-          </div>
-        ))}
-        {dayItems.dayPayments.map((payment) => (
-          <div key={payment.id} className="glass-card list-tile payment-due">
-            <p>{payment.title}</p>
-            <span className="chip">Payment due</span>
-          </div>
-        ))}
+        {dayItems.dayEvents.length === 0 && dayItems.dayPayments.length === 0 ? <div className="empty-state">No events yet for this date.</div> : null}
+        {dayItems.dayEvents.map((event) => <div key={event.id} className={`glass-card list-tile ${event.type === 'appointment' ? 'appointment' : ''}`}><p>{event.title}</p><span className="chip">{event.type}</span></div>)}
+        {dayItems.dayPayments.map((payment) => <div key={payment.id} className="glass-card list-tile payment-due"><p>{payment.title}</p><span className="chip">Payment due</span></div>)}
       </article>
     </section>
   );
