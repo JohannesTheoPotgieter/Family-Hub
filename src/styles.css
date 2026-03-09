@@ -1,0 +1,21 @@
+:root { font-family: Inter, system-ui, Arial, sans-serif; }
+body { margin: 0; background: #f5f5f7; color: #111; }
+.app { max-width: 760px; margin: 0 auto; padding: 16px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.wrap { flex-wrap: wrap; }
+.spread { justify-content: space-between; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.card { background: white; border-radius: 12px; padding: 12px; }
+.metric-value { font-size: 1.4rem; font-weight: 700; }
+.small, .muted { color: #666; font-size: 0.9rem; }
+.empty { padding: 14px; border: 1px dashed #bbb; border-radius: 10px; background: #fff; color: #555; }
+button, input, select { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; }
+button.active { background: #1e3a8a; color: white; border-color: #1e3a8a; }
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.payment-due { border-left: 4px solid #f59e0b; }
+.appointment { border-left: 4px solid #9333ea; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: grid; place-items: center; }
+.modal { background: #fff; width: min(500px, 90vw); border-radius: 12px; padding: 12px; }
+.modal-head { display: flex; justify-content: space-between; }
+.login { min-height: 100vh; justify-content: center; }
