@@ -4,157 +4,225 @@ import { HomeScreen } from './components/family-hub/HomeScreen';
 import { MoneyScreen } from './components/family-hub/MoneyScreen';
 import { MoreScreen } from './components/family-hub/MoreScreen';
 import { TasksScreen } from './components/family-hub/TasksScreen';
-import { TABS, USER_PINS, type Tab, type UserId } from './lib/family-hub/constants';
+import { TABS, USER_PINS, type Tab, type User, type UserId } from './lib/family-hub/constants';
 import { getTodayIso } from './lib/family-hub/date';
 import { createInitialState, loadState, saveState, type FamilyHubState } from './lib/family-hub/storage';
 
-const createId = () => Math.random().toString(36).slice(2, 9);
+const createId = () => Math.random().toString(36).slice(2, 10);
+
+const tabIcons: Record<Tab, string> = {
+  Home: '⌂',
+  Calendar: '◷',
+  Tasks: '✓',
+  Money: '◉',
+  More: '⋯'
+};
+
+const LoginScreen = ({ users, onLogin }: { users: User[]; onLogin: (userId: UserId, pin: string) => boolean }) => {
+  const activeUsers = users.filter((user) => user.active);
+  const inactiveUsers = users.filter((user) => !user.active);
+  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = () => {
+    const ok = onLogin(selectedUser, pin);
+    if (!ok) {
+      setError('Invalid PIN. Please try again.');
+      return;
+    }
+    setPin('');
+    setError('');
+  };
+
+  return (
+    <main className="login-shell">
+      <div className="bg-orb bg-orb--top" />
+      <div className="bg-orb bg-orb--bottom" />
+      <section className="glass-card login-card">
+        <p className="eyebrow">Family Hub</p>
+        <h1>Welcome back</h1>
+        <p className="subtitle">Securely access your household tasks, plans, and shared money in one place.</p>
+
+        <label className="field-label" htmlFor="user-select">
+          Household member
+        </label>
+        <div className="select-wrap">
+          <select id="user-select" value={selectedUser} onChange={(e) => setSelectedUser(e.target.value as UserId)}>
+            {activeUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label className="field-label" htmlFor="pin-input">
+          4-digit PIN
+        </label>
+        <input
+          id="pin-input"
+          className="pin-input"
+          type="password"
+          maxLength={4}
+          pattern="[0-9]{4}"
+          inputMode="numeric"
+          placeholder="••••"
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+        />
+
+        {error ? <div className="error-banner">{error}</div> : null}
+
+        <button className="btn btn-primary" onClick={submit} disabled={pin.length !== 4}>
+          Login
+        </button>
+
+        <div className="inactive-users">
+          <p className="small-title">Future household profiles</p>
+          <div className="chip-list">
+            {inactiveUsers.map((user) => (
+              <span key={user.id} className="chip chip-muted">
+                {user.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+};
 
 export const FamilyHubApp = () => {
   const [state, setState] = useState<FamilyHubState>(() => loadState());
   const [activeTab, setActiveTab] = useState<Tab>('Home');
-  const [login, setLogin] = useState({ userId: 'johannes' as UserId, pin: '' });
 
   useEffect(() => {
     saveState(state);
   }, [state]);
 
-  const activeUser = useMemo(() => state.users.find((u) => u.id === state.activeUserId), [state]);
+  const activeUser = useMemo(() => state.users.find((user) => user.id === state.activeUserId), [state]);
 
   if (!state.activeUserId) {
-    const activeUsers = state.users.filter((u) => u.active);
     return (
-      <main className="app stack login">
-        <h1>Family Hub</h1>
-        <p>Sign in to continue.</p>
-        <select value={login.userId} onChange={(e) => setLogin((c) => ({ ...c, userId: e.target.value as UserId }))}>
-          {activeUsers.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
-        <input
-          type="password"
-          pattern="[0-9]{4}"
-          inputMode="numeric"
-          placeholder="4-digit PIN"
-          value={login.pin}
-          onChange={(e) => setLogin((curr) => ({ ...curr, pin: e.target.value }))}
-        />
-        <button
-          onClick={() => {
-            if (USER_PINS[login.userId] === login.pin) {
-              setState((curr) => ({ ...curr, activeUserId: login.userId }));
-              setLogin((curr) => ({ ...curr, pin: '' }));
-            }
-          }}
-        >
-          Login
-        </button>
-      </main>
+      <LoginScreen
+        users={state.users}
+        onLogin={(userId, pin) => {
+          if (USER_PINS[userId] !== pin) return false;
+          setState((current) => ({ ...current, activeUserId: userId }));
+          return true;
+        }}
+      />
     );
   }
 
   return (
-    <main className="app stack">
-      <header className="row spread">
-        <div>
-          <h1>Family Hub</h1>
-          <div className="small">Welcome, {activeUser?.name}</div>
-        </div>
-        <button onClick={() => setState(createInitialState())}>Logout</button>
-      </header>
-
-      <nav className="row wrap">
-        {TABS.map((tab) => (
-          <button key={tab} className={activeTab === tab ? 'active' : ''} onClick={() => setActiveTab(tab)}>
-            {tab}
+    <main className="app-shell">
+      <div className="bg-orb bg-orb--top" />
+      <div className="bg-orb bg-orb--bottom" />
+      <div className="app-phone-frame">
+        <header className="glass-card app-header">
+          <div>
+            <p className="eyebrow">Family Hub</p>
+            <h1>Hello, {activeUser?.name}</h1>
+          </div>
+          <button className="btn btn-ghost" onClick={() => setState(createInitialState())}>
+            Log out
           </button>
-        ))}
-      </nav>
+        </header>
 
-      {activeTab === 'Home' && <HomeScreen state={state} />}
-      {activeTab === 'Tasks' && (
-        <TasksScreen
-          tasks={state.tasks}
-          onAdd={(title) =>
-            setState((curr) => ({ ...curr, tasks: [...curr.tasks, { id: createId(), title, completed: false }] }))
-          }
-          onToggle={(id) =>
-            setState((curr) => ({
-              ...curr,
-              tasks: curr.tasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-            }))
-          }
-        />
-      )}
-      {activeTab === 'Calendar' && (
-        <CalendarScreen
-          events={state.events}
-          payments={state.payments}
-          onAddEvent={(title, date, type) =>
-            setState((curr) => ({ ...curr, events: [...curr.events, { id: createId(), title, date, type }] }))
-          }
-        />
-      )}
-      {activeTab === 'Money' && (
-        <MoneyScreen
-          payments={state.payments}
-          transactions={state.transactions}
-          budgets={state.budgets}
-          cashflowItems={state.cashflowItems}
-          autoCreateTransaction={state.settings.autoCreateTransactionFromPayment}
-          onToggleAutoCreate={(value) =>
-            setState((curr) => ({ ...curr, settings: { ...curr.settings, autoCreateTransactionFromPayment: value } }))
-          }
-          onAddPayment={({ title, amount, dueDate }) =>
-            setState((curr) => ({
-              ...curr,
-              payments: [...curr.payments, { id: createId(), title, amount, dueDate, paid: false }]
-            }))
-          }
-          onPayWithProof={(paymentId, proofFile) =>
-            setState((curr) => {
-              const now = getTodayIso();
-              const payment = curr.payments.find((p) => p.id === paymentId);
-              if (!payment || payment.paid || !proofFile?.name) return curr;
+        <section className="screen-content">
+          {activeTab === 'Home' && <HomeScreen state={state} />}
+          {activeTab === 'Calendar' && (
+            <CalendarScreen
+              events={state.events}
+              payments={state.payments}
+              onAddEvent={(title, date, type) =>
+                setState((current) => ({ ...current, events: [...current.events, { id: createId(), title, date, type }] }))
+              }
+            />
+          )}
+          {activeTab === 'Tasks' && (
+            <TasksScreen
+              tasks={state.tasks}
+              onAdd={(title) =>
+                setState((current) => ({
+                  ...current,
+                  tasks: [...current.tasks, { id: createId(), title, completed: false }]
+                }))
+              }
+              onToggle={(id) =>
+                setState((current) => ({
+                  ...current,
+                  tasks: current.tasks.map((task) => (task.id === id ? { ...task, completed: !task.completed } : task))
+                }))
+              }
+            />
+          )}
+          {activeTab === 'Money' && (
+            <MoneyScreen
+              payments={state.payments}
+              transactions={state.transactions}
+              budgets={state.budgets}
+              cashflowItems={state.cashflowItems}
+              autoCreateTransaction={state.settings.autoCreateTransactionFromPayment}
+              onToggleAutoCreate={(value) =>
+                setState((current) => ({
+                  ...current,
+                  settings: { ...current.settings, autoCreateTransactionFromPayment: value }
+                }))
+              }
+              onAddPayment={({ title, amount, dueDate }) =>
+                setState((current) => ({
+                  ...current,
+                  payments: [...current.payments, { id: createId(), title, amount, dueDate, paid: false }]
+                }))
+              }
+              onPayWithProof={(paymentId, proofFile) =>
+                setState((current) => {
+                  const payment = current.payments.find((item) => item.id === paymentId);
+                  if (!payment || payment.paid || !proofFile?.name) return current;
 
-              const linkedTransactionId = curr.settings.autoCreateTransactionFromPayment ? createId() : undefined;
-              const nextTransactions = linkedTransactionId
-                ? [
-                    ...curr.transactions,
-                    {
-                      id: linkedTransactionId,
-                      date: now,
-                      description: `Payment: ${payment.title}`,
-                      amount: -Math.abs(payment.amount),
-                      category: 'Payment',
-                      note: proofFile?.name ? `Proof file: ${proofFile.name}` : undefined
-                    }
-                  ]
-                : curr.transactions;
+                  const paidAt = getTodayIso();
+                  const linkedTransactionId = current.settings.autoCreateTransactionFromPayment ? createId() : undefined;
 
-              return {
-                ...curr,
-                transactions: nextTransactions,
-                payments: curr.payments.map((p) =>
-                  p.id === paymentId
-                    ? {
-                        ...p,
-                        paid: true,
-                        paidAt: now,
-                        linkedTransactionId,
-                        proofFilename: proofFile?.name
-                      }
-                    : p
-                )
-              };
-            })
-          }
-        />
-      )}
-      {activeTab === 'More' && <MoreScreen users={state.users} places={state.places} reminders={state.reminders} />}
+                  return {
+                    ...current,
+                    transactions: linkedTransactionId
+                      ? [
+                          ...current.transactions,
+                          {
+                            id: linkedTransactionId,
+                            date: paidAt,
+                            description: `Payment: ${payment.title}`,
+                            amount: -Math.abs(payment.amount),
+                            category: 'Payment',
+                            note: `Proof file: ${proofFile.name}`
+                          }
+                        ]
+                      : current.transactions,
+                    payments: current.payments.map((item) =>
+                      item.id === paymentId
+                        ? { ...item, paid: true, paidAt, proofFilename: proofFile.name, linkedTransactionId }
+                        : item
+                    )
+                  };
+                })
+              }
+            />
+          )}
+          {activeTab === 'More' && <MoreScreen users={state.users} places={state.places} reminders={state.reminders} />}
+        </section>
+
+        <nav className="bottom-nav glass-card" aria-label="Primary">
+          {TABS.map((tab) => (
+            <button key={tab} className={`nav-item ${activeTab === tab ? 'is-active' : ''}`} onClick={() => setActiveTab(tab)}>
+              <span aria-hidden>{tabIcons[tab]}</span>
+              <span>{tab}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
     </main>
   );
 };
