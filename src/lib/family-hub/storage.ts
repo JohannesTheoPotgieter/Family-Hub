@@ -80,6 +80,15 @@ export type AvatarProfile = {
   inventory: string[];
 };
 
+export type PlaceItem = {
+  id: string;
+  name: string;
+  location: string;
+  roughCost: string;
+  status: 'planning' | 'booked' | 'visited';
+  notes: string;
+};
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;
@@ -89,6 +98,7 @@ export type FamilyHubState = {
   setupUserId: UserId | null;
   familyPoints: number;
   avatars: Record<UserId, AvatarProfile>;
+  places: PlaceItem[];
   calendar: { events: CalendarEvent[] };
   tasks: { items: TaskItem[] };
   money: {
@@ -168,6 +178,24 @@ export const createInitialState = (): FamilyHubState => ({
   setupUserId: null,
   familyPoints: 120,
   avatars: { ...avatarDefaults },
+  places: [
+    {
+      id: 'place-1',
+      name: 'Sunny Park Picnic',
+      location: 'Riverside Park',
+      roughCost: '$25',
+      status: 'planning',
+      notes: 'Bring blanket, fruit, and bubbles.'
+    },
+    {
+      id: 'place-2',
+      name: 'Mini Aquarium Visit',
+      location: 'Harbor Kids Center',
+      roughCost: '$65',
+      status: 'booked',
+      notes: 'Saturday at 10:30 AM. Pack snacks for after.'
+    }
+  ],
   calendar: { events: [] },
   tasks: { items: [] },
   money: {
@@ -199,6 +227,19 @@ export const loadState = (): FamilyHubState => {
         ella: sanitizeAvatar(parsed.avatars?.ella, initial.avatars.ella),
         oliver: sanitizeAvatar(parsed.avatars?.oliver, initial.avatars.oliver)
       },
+      places: (parsed.places ?? [])
+        .filter(
+          (place) =>
+            typeof place.id === 'string' &&
+            typeof place.name === 'string' &&
+            typeof place.location === 'string' &&
+            typeof place.roughCost === 'string' &&
+            typeof place.notes === 'string'
+        )
+        .map((place) => ({
+          ...place,
+          status: place.status === 'booked' || place.status === 'visited' ? place.status : 'planning'
+        })),
       calendar: {
         events: (parsed.calendar?.events ?? [])
           .filter((event) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')

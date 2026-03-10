@@ -1,117 +1,443 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
-import { FoundationBlock, RoutePill, ScreenIntro } from './BaselineScaffold';
-import { AvatarsSection } from './AvatarsSection';
+import type { CalendarEvent, PlaceItem, TaskItem, AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
+import type { PinStore } from '../../lib/family-hub/pin';
+import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 
 type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
+type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
 
 type Props = {
   users: User[];
   avatars: Record<UserId, AvatarProfile>;
   familyPoints: number;
   activeUser: User | null;
+  setupCompleted: Record<UserId, boolean>;
+  userPins: PinStore;
+  places: PlaceItem[];
+  events: CalendarEvent[];
+  tasks: TaskItem[];
   onChangePin: (currentPin: string, nextPin: string) => boolean;
+  onSetUserPin: (userId: UserId, nextPin: string) => void;
   onCustomizeAvatar: (userId: UserId, look: AvatarLook) => void;
   onAvatarAction: (userId: UserId, action: AvatarAction) => { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number };
+  onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
+  onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
+  onExportData: () => string;
+  onResetData: () => void;
 };
 
-export const MoreScreen = ({ users, avatars, familyPoints, activeUser, onChangePin, onCustomizeAvatar, onAvatarAction }: Props) => {
+const sectionOrder: MoreSection[] = ['avatars', 'places', 'users', 'settings', 'reminders'];
+
+export const MoreScreen = ({
+  users,
+  avatars,
+  familyPoints,
+  activeUser,
+  setupCompleted,
+  userPins,
+  places,
+  events,
+  tasks,
+  onChangePin,
+  onSetUserPin,
+  onCustomizeAvatar,
+  onAvatarAction,
+  onAddPlace,
+  onUpdatePlace,
+  onExportData,
+  onResetData
+}: Props) => {
+  const [section, setSection] = useState<MoreSection>('users');
+
   const [currentPin, setCurrentPin] = useState('');
   const [nextPin, setNextPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-  const [status, setStatus] = useState('');
-  const [isError, setIsError] = useState(false);
-  const [section, setSection] = useState<'settings' | 'avatars'>('settings');
+  const [pinStatus, setPinStatus] = useState('');
+  const [pinError, setPinError] = useState(false);
+
+  const [selectedUserId, setSelectedUserId] = useState<UserId>(users[0]?.id ?? 'johannes');
+  const [newUserPin, setNewUserPin] = useState('');
+  const [userPinStatus, setUserPinStatus] = useState('');
+
+  const [placeName, setPlaceName] = useState('');
+  const [placeLocation, setPlaceLocation] = useState('');
+  const [placeCost, setPlaceCost] = useState('');
+  const [placeStatus, setPlaceStatus] = useState<PlaceItem['status']>('planning');
+  const [placeNotes, setPlaceNotes] = useState('');
+
+  const [settingsStatus, setSettingsStatus] = useState('');
+
+  const reminderGroups = useMemo(() => {
+    const today = new Date();
+    const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const endWeek = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 8);
+
+    const toDate = (iso: string) => {
+      const parsed = new Date(`${iso}T12:00:00`);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const reminders = [
+      ...events.map((event) => ({
+        id: `event-${event.id}`,
+        title: event.title,
+        date: event.date,
+        type: event.kind === 'appointment' ? 'Appointment' : 'Event',
+        urgent: false
+      })),
+      ...tasks
+        .filter((task) => Boolean(task.dueDate) && !task.completed)
+        .map((task) => ({
+          id: `task-${task.id}`,
+          title: task.title,
+          date: task.dueDate as string,
+          type: 'Task',
+          urgent: true
+        }))
+    ].sort((a, b) => a.date.localeCompare(b.date));
+
+    const todayItems = reminders.filter((item) => {
+      const date = toDate(item.date);
+      return date ? date >= startToday && date < endToday : false;
+    });
+
+    const weekItems = reminders.filter((item) => {
+      const date = toDate(item.date);
+      return date ? date >= endToday && date < endWeek : false;
+    });
+
+    return {
+      today: todayItems,
+      week: weekItems,
+      urgent: reminders.filter((item) => item.urgent).slice(0, 4)
+    };
+  }, [events, tasks]);
 
   return (
     <section className="stack-lg">
-      <ScreenIntro badge="Settings" title="More" subtitle="Family controls and your playful avatar space." />
+      <ScreenIntro
+        badge="More"
+        title="Family Utilities"
+        subtitle="Intentional tools for avatars, people, places, reminders, and practical settings."
+      />
 
-      <div className="quick-actions">
-        <button className={`chip-action ${section === 'settings' ? 'is-selected' : ''}`} onClick={() => setSection('settings')} type="button">Settings</button>
-        <button className={`chip-action ${section === 'avatars' ? 'is-selected' : ''}`} onClick={() => setSection('avatars')} type="button">Avatars</button>
+      <div className="more-tab-row">
+        {sectionOrder.map((item) => (
+          <button
+            key={item}
+            className={`more-tab ${section === item ? 'is-selected' : ''}`}
+            onClick={() => setSection(item)}
+            type="button"
+          >
+            {item}
+          </button>
+        ))}
       </div>
 
       {section === 'avatars' ? (
-        <AvatarsSection
-          users={users}
-          avatars={avatars}
-          familyPoints={familyPoints}
-          onCustomizeAvatar={onCustomizeAvatar}
-          onAvatarAction={onAvatarAction}
-        />
-      ) : (
-        <>
-          <FoundationBlock title="Users" description="Account details for the active family member.">
-            <div className="chip-list">
-              <RoutePill label={activeUser ? `Signed in: ${activeUser.name}` : 'No user'} />
-              <RoutePill label="PIN protected" />
+        <FoundationBlock title="Avatar Squad" description="Quick interactions and style shortcuts for each family avatar.">
+          <div className="avatar-squad-grid">
+            {users.map((user) => {
+              const avatar = avatars[user.id];
+              const emojiByMood: Record<AvatarMood, string> = {
+                happy: '😊',
+                sleepy: '😴',
+                excited: '🤩',
+                proud: '😎',
+                silly: '😜'
+              };
+
+              return (
+                <article className="avatar-squad-card" key={user.id}>
+                  <div className="avatar-squad-head">
+                    <p className="avatar-squad-name">{user.name}</p>
+                    <span className="avatar-squad-mood">{emojiByMood[avatar.mood]} {avatar.mood}</span>
+                  </div>
+                  <p className="muted">{avatar.points} pts • {avatar.familyContribution} family points</p>
+                  <div className="avatar-look-grid">
+                    <select
+                      value={avatar.look.body}
+                      onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, body: event.target.value as AvatarLook['body'] })}
+                    >
+                      <option value="fox">Fox</option>
+                      <option value="cat">Cat</option>
+                      <option value="bear">Bear</option>
+                      <option value="bunny">Bunny</option>
+                    </select>
+                    <select
+                      value={avatar.look.outfit}
+                      onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, outfit: event.target.value as AvatarLook['outfit'] })}
+                    >
+                      <option value="cozy">Cozy</option>
+                      <option value="sporty">Sporty</option>
+                      <option value="party">Party</option>
+                      <option value="explorer">Explorer</option>
+                    </select>
+                  </div>
+                  <div className="avatar-action-row">
+                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'feed')}>Feed</button>
+                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'dance')}>Dance</button>
+                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'adventure')}>Adventure</button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <p className="more-kicker">Family total: <strong>{familyPoints} points</strong></p>
+        </FoundationBlock>
+      ) : null}
+
+      {section === 'places' ? (
+        <FoundationBlock title="Places" description="Family places with status, rough cost, and clean notes.">
+          <div className="places-list">
+            {places.map((place) => (
+              <article className="place-card" key={place.id}>
+                <div className="place-head">
+                  <h4>{place.name}</h4>
+                  <select
+                    value={place.status}
+                    onChange={(event) => onUpdatePlace(place.id, { status: event.target.value as PlaceItem['status'] })}
+                  >
+                    <option value="planning">Planning</option>
+                    <option value="booked">Booked</option>
+                    <option value="visited">Visited</option>
+                  </select>
+                </div>
+                <p className="muted">{place.location} • {place.roughCost}</p>
+                <textarea
+                  value={place.notes}
+                  onChange={(event) => onUpdatePlace(place.id, { notes: event.target.value })}
+                  rows={2}
+                />
+              </article>
+            ))}
+          </div>
+
+          <div className="place-form glass-panel stack-sm">
+            <h4>Add place</h4>
+            <input value={placeName} onChange={(event) => setPlaceName(event.target.value)} placeholder="Place name" />
+            <input value={placeLocation} onChange={(event) => setPlaceLocation(event.target.value)} placeholder="Location" />
+            <div className="place-form-row">
+              <input value={placeCost} onChange={(event) => setPlaceCost(event.target.value)} placeholder="Rough cost" />
+              <select value={placeStatus} onChange={(event) => setPlaceStatus(event.target.value as PlaceItem['status'])}>
+                <option value="planning">Planning</option>
+                <option value="booked">Booked</option>
+                <option value="visited">Visited</option>
+              </select>
             </div>
-          </FoundationBlock>
+            <textarea value={placeNotes} onChange={(event) => setPlaceNotes(event.target.value)} placeholder="Notes" rows={2} />
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={!placeName.trim() || !placeLocation.trim()}
+              onClick={() => {
+                onAddPlace({
+                  name: placeName.trim(),
+                  location: placeLocation.trim(),
+                  roughCost: placeCost.trim() || '$0',
+                  status: placeStatus,
+                  notes: placeNotes.trim()
+                });
+                setPlaceName('');
+                setPlaceLocation('');
+                setPlaceCost('');
+                setPlaceNotes('');
+                setPlaceStatus('planning');
+              }}
+            >
+              Add place
+            </button>
+          </div>
+        </FoundationBlock>
+      ) : null}
 
-          <FoundationBlock title="Change PIN" description="Update your 4-digit unlock PIN any time.">
-            <div className="stack-sm">
-              <input
-                className="pin-input"
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={currentPin}
-                placeholder="Current PIN"
-                onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
-              />
-              <input
-                className="pin-input"
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={nextPin}
-                placeholder="New PIN"
-                onChange={(event) => setNextPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
-              />
-              <input
-                className="pin-input"
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={confirmPin}
-                placeholder="Confirm new PIN"
-                onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
-              />
+      {section === 'users' ? (
+        <FoundationBlock title="Users" description="Manage active status, setup progress, avatar shortcut, and future activation.">
+          <div className="users-grid">
+            {users.map((user) => {
+              const isSetupComplete = Boolean(setupCompleted[user.id]);
+              return (
+                <article className="user-card" key={user.id}>
+                  <div className="user-head-row">
+                    <h4>{user.name}</h4>
+                    <span className={`status-dot ${user.active ? 'is-active' : 'is-inactive'}`}>{user.active ? 'Active' : 'Inactive'}</span>
+                  </div>
+                  <div className="chip-list">
+                    <span className="route-pill">Setup: {isSetupComplete ? 'Complete' : 'Pending'}</span>
+                    <span className="route-pill">Avatar: {avatars[user.id].look.body}</span>
+                    <span className="route-pill">PIN: {userPins[user.id] ? 'Set' : 'Missing'}</span>
+                  </div>
+                  {!user.active ? <p className="future-activation-note">Future activation ready for this family member.</p> : null}
+                </article>
+              );
+            })}
+          </div>
 
-              {status ? <p className={`status-banner ${isError ? 'is-error' : 'is-success'}`}>{status}</p> : null}
+          <div className="place-form glass-panel stack-sm">
+            <h4>PIN entry point</h4>
+            <select value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value as UserId)}>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+            <input
+              className="pin-input"
+              value={newUserPin}
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="4-digit PIN"
+              onChange={(event) => setNewUserPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            {userPinStatus ? <p className="status-banner is-success">{userPinStatus}</p> : null}
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={newUserPin.length !== 4}
+              onClick={() => {
+                onSetUserPin(selectedUserId, newUserPin);
+                setUserPinStatus('PIN saved for selected family member.');
+                setNewUserPin('');
+              }}
+            >
+              Save PIN
+            </button>
+          </div>
+        </FoundationBlock>
+      ) : null}
 
-              <button
-                className="btn btn-primary"
-                disabled={currentPin.length !== 4 || nextPin.length !== 4 || confirmPin.length !== 4}
-                onClick={() => {
-                  if (nextPin !== confirmPin) {
-                    setIsError(true);
-                    setStatus('New PIN and confirmation do not match.');
-                    return;
-                  }
+      {section === 'settings' ? (
+        <FoundationBlock title="Settings" description="Minimal but real controls for data safety and PIN management.">
+          <div className="stack-sm">
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={async () => {
+                const serialized = onExportData();
+                try {
+                  await navigator.clipboard.writeText(serialized);
+                  setSettingsStatus('Local data copied to clipboard.');
+                } catch {
+                  setSettingsStatus('Copy failed. You can still export in browser dev tools.');
+                }
+              }}
+            >
+              Export local data
+            </button>
 
-                  const changed = onChangePin(currentPin, nextPin);
-                  if (!changed) {
-                    setIsError(true);
-                    setStatus('Current PIN is incorrect.');
-                    return;
-                  }
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => {
+                onResetData();
+                setSettingsStatus('App data reset to starter state.');
+              }}
+            >
+              Reset app data
+            </button>
 
-                  setIsError(false);
-                  setStatus('PIN updated successfully.');
-                  setCurrentPin('');
-                  setNextPin('');
-                  setConfirmPin('');
-                }}
-              >
-                Save new PIN
-              </button>
-            </div>
-          </FoundationBlock>
-        </>
-      )}
+            <h4>Change your PIN</h4>
+            <input
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={currentPin}
+              placeholder="Current PIN"
+              onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            <input
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={nextPin}
+              placeholder="New PIN"
+              onChange={(event) => setNextPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            <input
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={confirmPin}
+              placeholder="Confirm new PIN"
+              onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+
+            {pinStatus ? <p className={`status-banner ${pinError ? 'is-error' : 'is-success'}`}>{pinStatus}</p> : null}
+            {settingsStatus ? <p className="status-banner is-success">{settingsStatus}</p> : null}
+
+            <button
+              className="btn btn-primary"
+              disabled={currentPin.length !== 4 || nextPin.length !== 4 || confirmPin.length !== 4}
+              onClick={() => {
+                if (nextPin !== confirmPin) {
+                  setPinError(true);
+                  setPinStatus('New PIN and confirmation do not match.');
+                  return;
+                }
+                const changed = onChangePin(currentPin, nextPin);
+                if (!changed) {
+                  setPinError(true);
+                  setPinStatus('Current PIN is incorrect.');
+                  return;
+                }
+                setPinError(false);
+                setPinStatus('PIN updated successfully.');
+                setCurrentPin('');
+                setNextPin('');
+                setConfirmPin('');
+              }}
+            >
+              Save new PIN
+            </button>
+          </div>
+        </FoundationBlock>
+      ) : null}
+
+      {section === 'reminders' ? (
+        <FoundationBlock title="Reminders" description="Urgent and upcoming family reminders grouped for quick action.">
+          <div className="reminder-stack">
+            <article className="reminder-group">
+              <h4>Urgent</h4>
+              {reminderGroups.urgent.length ? reminderGroups.urgent.map((item) => (
+                <button className="reminder-card is-urgent" key={item.id} type="button">
+                  <span>{item.type}</span>
+                  <strong>{item.title}</strong>
+                  <small>{item.date}</small>
+                </button>
+              )) : <p className="muted">No urgent reminders right now.</p>}
+            </article>
+
+            <article className="reminder-group">
+              <h4>Today</h4>
+              {reminderGroups.today.length ? reminderGroups.today.map((item) => (
+                <button className="reminder-card" key={item.id} type="button">
+                  <span>{item.type}</span>
+                  <strong>{item.title}</strong>
+                  <small>{item.date}</small>
+                </button>
+              )) : <p className="muted">Nothing scheduled for today.</p>}
+            </article>
+
+            <article className="reminder-group">
+              <h4>This week</h4>
+              {reminderGroups.week.length ? reminderGroups.week.map((item) => (
+                <button className="reminder-card" key={item.id} type="button">
+                  <span>{item.type}</span>
+                  <strong>{item.title}</strong>
+                  <small>{item.date}</small>
+                </button>
+              )) : <p className="muted">No upcoming reminders this week.</p>}
+            </article>
+          </div>
+        </FoundationBlock>
+      ) : null}
+
+      {activeUser ? <p className="more-kicker">Signed in as {activeUser.name}</p> : null}
     </section>
   );
 };
