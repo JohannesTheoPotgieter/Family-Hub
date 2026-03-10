@@ -354,6 +354,11 @@ export const FamilyHubApp = () => {
               avatars={state.avatars}
               familyPoints={state.familyPoints}
               activeUser={activeUser}
+              setupCompleted={state.setupCompleted}
+              userPins={state.userPins}
+              places={state.places}
+              events={state.calendar.events}
+              tasks={state.tasks.items}
               onCustomizeAvatar={onCustomizeAvatar}
               onAvatarAction={onAvatarAction}
               onChangePin={(currentPin, nextPin) => {
@@ -365,6 +370,37 @@ export const FamilyHubApp = () => {
                   userPins: { ...current.userPins, [activeUser.id]: encodePin(activeUser.id, nextPin) }
                 }));
                 return true;
+              }}
+              onSetUserPin={(userId, nextPin) => {
+                setState((current) => ({
+                  ...current,
+                  userPins: { ...current.userPins, [userId]: encodePin(userId, nextPin) }
+                }));
+              }}
+              onAddPlace={(place) => {
+                setState((current) => ({
+                  ...current,
+                  places: [
+                    {
+                      id: `place-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                      ...place
+                    },
+                    ...current.places
+                  ]
+                }));
+              }}
+              onUpdatePlace={(id, patch) => {
+                setState((current) => ({
+                  ...current,
+                  places: current.places.map((place) => (place.id === id ? { ...place, ...patch } : place))
+                }));
+              }}
+              onExportData={() => JSON.stringify(state, null, 2)}
+              onResetData={() => {
+                setState((current) => ({
+                  ...loadState(),
+                  activeUserId: current.activeUserId
+                }));
               }}
             />
           )}

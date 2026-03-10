@@ -115,6 +115,7 @@ input, select, textarea, button { font: inherit; }
 }
 
 h3 { font-size: 1rem; color: #1a2e56; }
+h4 { margin: 0; font-size: 0.95rem; color: #1b335f; }
 
 .chip-list { display: flex; gap: 8px; flex-wrap: wrap; }
 .route-pill {
@@ -670,8 +671,149 @@ button:focus {
   text-decoration: line-through;
 }
 
+.more-tab-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.more-tab {
+  text-transform: capitalize;
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(132, 159, 213, 0.34);
+  background: rgba(255, 255, 255, 0.6);
+  color: #33578f;
+  font-weight: 600;
+}
+
+.more-tab.is-selected {
+  background: linear-gradient(135deg, #4a7dff, #5ca7ff);
+  color: #fff;
+  border-color: transparent;
+}
+
+.avatar-squad-grid,
+.users-grid,
+.places-list,
+.reminder-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.avatar-squad-card,
+.user-card,
+.place-card,
+.reminder-group {
+  border: 1px solid rgba(125, 151, 204, 0.24);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.52);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.avatar-squad-head,
+.user-head-row,
+.place-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-squad-name {
+  font-weight: 700;
+  color: #1b335f;
+}
+
+.avatar-squad-mood {
+  font-size: 0.78rem;
+  text-transform: capitalize;
+  color: #3e5f97;
+}
+
+.avatar-look-grid,
+.avatar-action-row,
+.place-form-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.avatar-action-row .chip-action:last-child {
+  grid-column: span 2;
+}
+
+.status-dot {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.status-dot.is-active {
+  background: rgba(217, 250, 231, 0.95);
+  color: #245d37;
+}
+
+.status-dot.is-inactive {
+  background: rgba(255, 229, 212, 0.9);
+  color: #935728;
+}
+
+.future-activation-note {
+  color: #47679b;
+  font-size: 0.83rem;
+}
+
+.place-form {
+  border-radius: 18px;
+  padding: 12px;
+}
+
+.reminder-card {
+  width: 100%;
+  border: 1px solid rgba(132, 159, 213, 0.32);
+  border-radius: 14px;
+  min-height: 64px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #204273;
+  display: grid;
+  text-align: left;
+  gap: 2px;
+  padding: 9px 10px;
+}
+
+.reminder-card span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4b6da4;
+}
+
+.reminder-card small {
+  color: #5573a7;
+}
+
+.reminder-card.is-urgent {
+  border-color: rgba(234, 140, 82, 0.5);
+  background: linear-gradient(135deg, rgba(255, 244, 233, 0.95), rgba(255, 255, 255, 0.9));
+}
+
+.more-kicker {
+  text-align: center;
+  color: #3a5f97;
+  font-weight: 600;
+}
+
 @media (max-width: 580px) {
   .metric-row { grid-template-columns: 1fr; }
+  .more-tab-row { grid-template-columns: 1fr 1fr; }
+  .avatar-look-grid,
+  .avatar-action-row,
+  .place-form-row { grid-template-columns: 1fr; }
+  .avatar-action-row .chip-action:last-child { grid-column: auto; }
 }
 
 .calendar-toolbar {
