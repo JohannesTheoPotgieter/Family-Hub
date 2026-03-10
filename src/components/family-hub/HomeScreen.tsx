@@ -4,6 +4,13 @@ import type { FamilyHubState } from '../../lib/family-hub/storage';
 
 type Props = { state: FamilyHubState };
 
+const moodEmoji = {
+  happy: '😊',
+  sleepy: '😴',
+  excited: '✨',
+  chill: '😌'
+} as const;
+
 export const HomeScreen = ({ state }: Props) => {
   const today = getTodayIso();
   const profile = state.activeUserId ? state.usersProfile[state.activeUserId] : null;
@@ -30,7 +37,26 @@ export const HomeScreen = ({ state }: Props) => {
     </article>
     <article className="glass-card stack">
       <h3>Avatar corner</h3>
-      <div className="chip-list">{state.users.map((u) => <span key={u.id} className="chip">{u.name}: {state.usersProfile[u.id].avatar.base} · {state.usersProfile[u.id].avatar.mood}</span>)}</div>
+      <div className="avatar-playground" aria-label="Animated family avatars">
+        {state.users.map((u, index) => {
+          const avatar = state.usersProfile[u.id].avatar;
+          return <article key={u.id} className={`avatar-sprite sprite-${index + 1}`}>
+            <div className={`avatar-creature avatar-bg-${avatar.background.toLowerCase()} animal-${avatar.base.toLowerCase()}`} role="img" aria-label={`${u.name} ${avatar.base} avatar`}>
+              <span className="animal-ear ear-left" aria-hidden />
+              <span className="animal-ear ear-right" aria-hidden />
+              <span className="animal-eye eye-left" aria-hidden />
+              <span className="animal-eye eye-right" aria-hidden />
+              <span className="animal-snout" aria-hidden>
+                <span className="animal-nose" />
+              </span>
+              <span className="animal-cheek cheek-left" aria-hidden />
+              <span className="animal-cheek cheek-right" aria-hidden />
+              <span className="avatar-mood" aria-hidden>{moodEmoji[avatar.mood]}</span>
+            </div>
+            <p className="avatar-tag">{u.name} · {avatar.accessory}</p>
+          </article>;
+        })}
+      </div>
     </article>
   </section>;
 };
