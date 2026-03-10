@@ -3,19 +3,19 @@ import { FoundationBlock, RoutePill, ScreenIntro } from './BaselineScaffold';
 export const TasksScreen = () => (
   <section className="stack-lg">
     <ScreenIntro
-      badge="Baseline"
+      badge="Focus"
       title="Tasks"
-      subtitle="Task route retains stable scaffolding for list, filter, and composer redesign."
+      subtitle="Shared to-dos for smooth handoffs and fewer forgotten details."
     />
 
     <FoundationBlock
-      title="Task workspace"
-      description="Reserved for segmented filters, grouped lists, and completion interactions."
+      title="Family task space"
+      description="Organize responsibilities with clear priority and progress signals."
     >
       <div className="chip-list">
-        <RoutePill label="Filters" />
-        <RoutePill label="List" />
-        <RoutePill label="Composer" />
+        <RoutePill label="Today" />
+        <RoutePill label="This week" />
+        <RoutePill label="Completed" />
       </div>
     </FoundationBlock>
   </section>

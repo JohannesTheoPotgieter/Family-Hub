@@ -3,28 +3,28 @@ import { FoundationBlock, RoutePill, ScreenIntro } from './BaselineScaffold';
 export const MoneyScreen = () => (
   <section className="stack-lg">
     <ScreenIntro
-      badge="Baseline"
+      badge="Money"
       title="Money"
-      subtitle="Financial module reset to a safe shell with no duplicate payment/OCR/file-input logic."
+      subtitle="A clean overview of family finances, budgets, and recurring costs."
     />
 
     <div className="foundation-grid">
       <FoundationBlock
-        title="Overview lane"
-        description="Reserved for balances, commitments, and monthly trend cards."
+        title="Snapshot"
+        description="Track balance and income rhythm in one calm glance."
       >
         <div className="chip-list">
-          <RoutePill label="Overview" />
-          <RoutePill label="Cashflow" />
+          <RoutePill label="Balance" />
+          <RoutePill label="Income flow" />
         </div>
       </FoundationBlock>
       <FoundationBlock
-        title="Records lane"
-        description="Reserved for transaction and payment list redesign with safe event boundaries."
+        title="Commitments"
+        description="See budgets and recurring payments without clutter."
       >
         <div className="chip-list">
-          <RoutePill label="Transactions" />
-          <RoutePill label="Payments" />
+          <RoutePill label="Recurring" />
+          <RoutePill label="Budget plan" />
         </div>
       </FoundationBlock>
     </div>
