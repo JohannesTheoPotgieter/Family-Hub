@@ -4,48 +4,19 @@ import type { User, UserId } from '../../lib/family-hub/constants';
 type Props = {
   users: User[];
   hasPin: (userId: UserId) => boolean;
+  isSetupComplete: (userId: UserId) => boolean;
   onUnlock: (userId: UserId, pin: string) => boolean;
-  onCreatePin: (userId: UserId, pin: string) => void;
+  onStartSetup: (userId: UserId) => void;
 };
 
-export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => {
+export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
   const activeUsers = users.filter((u) => u.active);
   const inactiveUsers = users.filter((u) => !u.active);
-  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? users[0]?.id ?? 'johannes');
+  const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
 
-  const needsSetup = useMemo(() => !hasPin(selectedUser), [hasPin, selectedUser]);
-
-  const submit = () => {
-    if (!selectedUser) {
-      setError('No active profile is available yet.');
-      return;
-    }
-
-    if (needsSetup) {
-      if (pin.length !== 4 || confirmPin.length !== 4) return;
-      if (pin !== confirmPin) {
-        setError('PIN confirmation does not match.');
-        return;
-      }
-      onCreatePin(selectedUser, pin);
-      setPin('');
-      setConfirmPin('');
-      setError('');
-      return;
-    }
-
-    const ok = onUnlock(selectedUser, pin);
-    if (!ok) {
-      setError('Invalid PIN. Try again.');
-      return;
-    }
-    setPin('');
-    setConfirmPin('');
-    setError('');
-  };
+  const needsSetup = useMemo(() => !isSetupComplete(selectedUser) || !hasPin(selectedUser), [isSetupComplete, hasPin, selectedUser]);
 
   return (
     <main className="login-shell">
@@ -53,78 +24,29 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
       <div className="bg-orb bg-orb--bottom" />
       <section className="glass-card login-card">
         <p className="eyebrow">Family Hub</p>
-        <h1>{needsSetup ? 'Set up your 4-digit PIN' : 'Welcome back'}</h1>
-        <p className="subtitle">Choose your profile, then unlock your family dashboard.</p>
-
+        <h1>{needsSetup ? 'Let’s complete your setup' : 'Unlock your household hub'}</h1>
+        <p className="subtitle">A calm, mobile-first family command center.</p>
         <div className="profile-grid">
-          {(activeUsers.length ? activeUsers : users).map((user) => (
-            <button
-              key={user.id}
-              className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`}
-              onClick={() => {
-                setSelectedUser(user.id);
-                setPin('');
-                setConfirmPin('');
-                setError('');
-              }}
-            >
-              {user.name}
-            </button>
-          ))}
+          {activeUsers.map((user) => <button key={user.id} className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`} onClick={() => { setSelectedUser(user.id); setPin(''); setError(''); }}>{user.name}</button>)}
         </div>
 
-        {needsSetup ? <p className="muted">This profile has no PIN yet. Set one now to continue.</p> : null}
-        <label className="field-label">{needsSetup ? 'Create 4-digit PIN' : '4-digit PIN'}</label>
-        <input
-          className="pin-input"
-          type="password"
-          inputMode="numeric"
-          value={pin}
-          maxLength={4}
-          placeholder="••••"
-          onChange={(e) => {
-            setPin(e.target.value.replace(/\D/g, '').slice(0, 4));
-            if (error) setError('');
-          }}
-        />
-
         {needsSetup ? (
+          <button className="btn btn-primary" onClick={() => onStartSetup(selectedUser)}>Start once-off setup</button>
+        ) : (
           <>
-            <label className="field-label">Confirm PIN</label>
-            <input
-              className="pin-input"
-              type="password"
-              inputMode="numeric"
-              value={confirmPin}
-              maxLength={4}
-              placeholder="••••"
-              onChange={(e) => {
-                setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4));
-                if (error) setError('');
-              }}
-            />
+            <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={pin} placeholder="••••" onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+            {error ? <div className="error-banner">{error}</div> : null}
+            <button className="btn btn-primary" disabled={pin.length !== 4} onClick={() => {
+              const ok = onUnlock(selectedUser, pin);
+              if (!ok) setError('Incorrect PIN.');
+              else setPin('');
+            }}>Unlock Family Hub</button>
           </>
-        ) : null}
-
-        {error ? <div className="error-banner">{error}</div> : null}
-
-        <button
-          className="btn btn-primary"
-          onClick={submit}
-          disabled={needsSetup ? pin.length !== 4 || confirmPin.length !== 4 : pin.length !== 4}
-        >
-          {needsSetup ? 'Create PIN and continue' : 'Unlock Family Hub'}
-        </button>
+        )}
 
         <div className="inactive-users">
-          <p className="small-title">Inactive profiles</p>
-          <div className="chip-list">
-            {inactiveUsers.map((user) => (
-              <span key={user.id} className="chip chip-muted">
-                {user.name}
-              </span>
-            ))}
-          </div>
+          <p className="small-title">Future profiles</p>
+          <div className="chip-list">{inactiveUsers.map((user) => <span key={user.id} className="chip chip-muted">{user.name}</span>)}</div>
         </div>
       </section>
     </main>
