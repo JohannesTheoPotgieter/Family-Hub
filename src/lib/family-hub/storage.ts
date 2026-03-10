@@ -26,6 +26,15 @@ export type PaymentItem = {
   paid: boolean;
 };
 
+export type ActualTransaction = {
+  id: string;
+  title: string;
+  amount: number;
+  date: string;
+  kind: 'inflow' | 'outflow';
+  sourcePaymentId?: string;
+};
+
 export type RecurringPayment = {
   id: string;
   title: string;
@@ -55,7 +64,10 @@ export type FamilyHubState = {
   setupUserId: UserId | null;
   calendar: { events: CalendarEvent[] };
   tasks: { items: TaskItem[] };
-  money: { payments: PaymentItem[] };
+  money: {
+    payments: PaymentItem[];
+    actualTransactions: ActualTransaction[];
+  };
 };
 
 const STORAGE_KEY = 'family-hub-state';
@@ -76,7 +88,10 @@ export const createInitialState = (): FamilyHubState => ({
   setupUserId: null,
   calendar: { events: [] },
   tasks: { items: [] },
-  money: { payments: [] }
+  money: {
+    payments: [],
+    actualTransactions: []
+  }
 });
 
 export const loadState = (): FamilyHubState => {
@@ -114,7 +129,17 @@ export const loadState = (): FamilyHubState => {
           }))
           .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
       },
-      money: { payments: parsed.money?.payments ?? [] }
+      money: {
+        payments: parsed.money?.payments ?? [],
+        actualTransactions: (parsed.money?.actualTransactions ?? []).filter(
+          (tx) =>
+            typeof tx.id === 'string' &&
+            typeof tx.title === 'string' &&
+            typeof tx.amount === 'number' &&
+            typeof tx.date === 'string' &&
+            (tx.kind === 'inflow' || tx.kind === 'outflow')
+        )
+      }
     };
   } catch {
     return createInitialState();

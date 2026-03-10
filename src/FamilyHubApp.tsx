@@ -8,7 +8,7 @@ import { SetupWizard } from './components/family-hub/SetupWizard';
 import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab } from './lib/family-hub/constants';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
-import { loadState, saveState, type FamilyHubState } from './lib/family-hub/storage';
+import { loadState, saveState, type ActualTransaction, type FamilyHubState } from './lib/family-hub/storage';
 
 const tabIcons: Record<Tab, string> = {
   Home: '⌂',
@@ -111,6 +111,7 @@ export const FamilyHubApp = () => {
                 setState((current) => ({
                   ...current,
                   money: {
+                    ...current.money,
                     payments: [
                       {
                         id: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -190,6 +191,7 @@ export const FamilyHubApp = () => {
             <MoneyScreen
               profile={state.activeUserId ? state.userSetupProfiles[state.activeUserId] : undefined}
               payments={state.money.payments}
+              actualTransactions={state.money.actualTransactions}
               onSaveProfile={(nextProfile) => {
                 setState((current) => {
                   if (!current.activeUserId) return current;
@@ -207,6 +209,7 @@ export const FamilyHubApp = () => {
                 setState((current) => ({
                   ...current,
                   money: {
+                    ...current.money,
                     payments: [
                       {
                         id: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -218,15 +221,62 @@ export const FamilyHubApp = () => {
                   }
                 }));
               }}
-              onTogglePaymentPaid={(id) => {
+              onAddTransaction={(transaction) => {
                 setState((current) => ({
                   ...current,
                   money: {
-                    payments: current.money.payments.map((payment) =>
-                      payment.id === id ? { ...payment, paid: !payment.paid } : payment
-                    )
+                    ...current.money,
+                    actualTransactions: [
+                      {
+                        id: `txn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        ...transaction
+                      },
+                      ...current.money.actualTransactions
+                    ]
                   }
                 }));
+              }}
+              onTogglePaymentPaid={(id) => {
+                setState((current) => {
+                  const payment = current.money.payments.find((item) => item.id === id);
+                  if (!payment) return current;
+
+                  if (payment.paid) {
+                    return {
+                      ...current,
+                      money: {
+                        payments: current.money.payments.map((item) =>
+                          item.id === id ? { ...item, paid: false } : item
+                        ),
+                        actualTransactions: current.money.actualTransactions.filter((tx) => tx.sourcePaymentId !== id)
+                      }
+                    };
+                  }
+
+                  const alreadyConverted = current.money.actualTransactions.some((tx) => tx.sourcePaymentId === id);
+                  const convertedTransaction: ActualTransaction[] = alreadyConverted
+                    ? []
+                    : [
+                        {
+                          id: `txn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                          title: payment.title,
+                          amount: payment.amount,
+                          date: payment.dueDate,
+                          kind: 'outflow',
+                          sourcePaymentId: id
+                        }
+                      ];
+
+                  return {
+                    ...current,
+                    money: {
+                      payments: current.money.payments.map((item) =>
+                        item.id === id ? { ...item, paid: true } : item
+                      ),
+                      actualTransactions: [...convertedTransaction, ...current.money.actualTransactions]
+                    }
+                  };
+                });
               }}
             />
           )}

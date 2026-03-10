@@ -547,7 +547,7 @@ button:focus {
 
 .metric-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -967,6 +967,21 @@ button:focus {
   justify-items: end;
   gap: 6px;
 }
+
+
+.money-timeline-item {
+  border: 1px solid rgba(125, 151, 207, 0.26);
+  border-radius: 16px;
+  padding: 11px;
+  background: rgba(255, 255, 255, 0.58);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.money-positive { color: #185c39; }
+.money-negative { color: #9a3150; }
 
 @media (max-width: 580px) {
   .money-kpi-grid {
