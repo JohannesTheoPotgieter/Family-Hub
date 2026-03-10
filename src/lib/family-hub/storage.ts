@@ -11,6 +11,10 @@ export type TaskItem = {
   id: string;
   title: string;
   completed: boolean;
+  dueDate: string | null;
+  shared: boolean;
+  notes: string;
+  ownerId: UserId;
 };
 
 export type PaymentItem = {
@@ -82,6 +86,8 @@ export const loadState = (): FamilyHubState => {
     const parsed = JSON.parse(raw) as Partial<FamilyHubState>;
     const initial = createInitialState();
 
+    const parsedTasks = parsed.tasks?.items ?? [];
+
     return {
       ...initial,
       ...parsed,
@@ -89,7 +95,17 @@ export const loadState = (): FamilyHubState => {
       setupCompleted: { ...initial.setupCompleted, ...(parsed.setupCompleted ?? {}) },
       userSetupProfiles: parsed.userSetupProfiles ?? {},
       calendar: { events: parsed.calendar?.events ?? [] },
-      tasks: { items: parsed.tasks?.items ?? [] },
+      tasks: {
+        items: parsedTasks
+          .map((task) => ({
+            ...task,
+            dueDate: task.dueDate ?? null,
+            shared: task.shared ?? false,
+            notes: task.notes ?? '',
+            ownerId: task.ownerId ?? 'johannes'
+          }))
+          .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
+      },
       money: { payments: parsed.money?.payments ?? [] }
     };
   } catch {

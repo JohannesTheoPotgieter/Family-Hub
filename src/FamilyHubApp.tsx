@@ -88,7 +88,45 @@ export const FamilyHubApp = () => {
         <section className="screen-content">
           {activeTab === 'Home' && <HomeScreen state={state} />}
           {activeTab === 'Calendar' && <CalendarScreen />}
-          {activeTab === 'Tasks' && <TasksScreen />}
+          {activeTab === 'Tasks' && (
+            <TasksScreen
+              tasks={state.tasks.items}
+              activeUserId={state.activeUserId}
+              onAddTask={(task) => {
+                setState((current) => ({
+                  ...current,
+                  tasks: {
+                    items: [
+                      {
+                        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        completed: false,
+                        ...task
+                      },
+                      ...current.tasks.items
+                    ]
+                  }
+                }));
+              }}
+              onUpdateTask={(id, update) => {
+                setState((current) => ({
+                  ...current,
+                  tasks: {
+                    items: current.tasks.items.map((task) => (task.id === id ? { ...task, ...update } : task))
+                  }
+                }));
+              }}
+              onToggleTask={(id) => {
+                setState((current) => ({
+                  ...current,
+                  tasks: {
+                    items: current.tasks.items.map((task) =>
+                      task.id === id ? { ...task, completed: !task.completed } : task
+                    )
+                  }
+                }));
+              }}
+            />
+          )}
           {activeTab === 'Money' && <MoneyScreen />}
           {activeTab === 'More' && (
             <MoreScreen
