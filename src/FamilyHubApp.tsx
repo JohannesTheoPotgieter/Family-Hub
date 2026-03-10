@@ -86,7 +86,7 @@ export const FamilyHubApp = () => {
         </header>
 
         <section className="screen-content">
-          {activeTab === 'Home' && <HomeScreen />}
+          {activeTab === 'Home' && <HomeScreen state={state} />}
           {activeTab === 'Calendar' && <CalendarScreen />}
           {activeTab === 'Tasks' && <TasksScreen />}
           {activeTab === 'Money' && <MoneyScreen />}
