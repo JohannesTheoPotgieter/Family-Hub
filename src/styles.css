@@ -1164,3 +1164,42 @@ button:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.avatar-pill-btn {
+  border: none;
+  cursor: pointer;
+}
+
+.avatar-mini-points {
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.chip-action.is-selected {
+  background: linear-gradient(135deg, #4a7dff, #4b95ff);
+  color: #fff;
+  border-color: transparent;
+}
+
+.avatar-family-points,
+.avatar-selector,
+.avatar-detail {
+  padding: 14px;
+}
+
+.avatar-preview {
+  font-size: 3rem;
+  text-align: center;
+}
+
+.avatar-custom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 580px) {
+  .avatar-custom-grid {
+    grid-template-columns: 1fr;
+  }
+}
