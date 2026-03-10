@@ -183,7 +183,7 @@ export const createInitialState = (): FamilyHubState => ({
       id: 'place-1',
       name: 'Sunny Park Picnic',
       location: 'Riverside Park',
-      roughCost: '$25',
+      roughCost: 'R 25',
       status: 'planning',
       notes: 'Bring blanket, fruit, and bubbles.'
     },
@@ -191,7 +191,7 @@ export const createInitialState = (): FamilyHubState => ({
       id: 'place-2',
       name: 'Mini Aquarium Visit',
       location: 'Harbor Kids Center',
-      roughCost: '$65',
+      roughCost: 'R 65',
       status: 'booked',
       notes: 'Saturday at 10:30 AM. Pack snacks for after.'
     }

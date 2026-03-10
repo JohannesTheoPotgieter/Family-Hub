@@ -236,7 +236,7 @@ export const MoreScreen = ({
                 onAddPlace({
                   name: placeName.trim(),
                   location: placeLocation.trim(),
-                  roughCost: placeCost.trim() || '$0',
+                  roughCost: placeCost.trim() || 'R 0',
                   status: placeStatus,
                   notes: placeNotes.trim()
                 });

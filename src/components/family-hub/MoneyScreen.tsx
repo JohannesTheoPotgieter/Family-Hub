@@ -25,6 +25,11 @@ const getPaymentStatus = (payment: PaymentItem, todayIso: string): PaymentFilter
   return 'upcoming';
 };
 
+
+const formatDueDate = (isoDate: string) =>
+  new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(isoDate));
+
+
 export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPayment, onMarkPaymentPaid }: Props) => {
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('upcoming');
   const [quickPaymentTitle, setQuickPaymentTitle] = useState('');
@@ -32,6 +37,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
   const [quickPaymentDate, setQuickPaymentDate] = useState(getTodayIso());
   const [quickPaymentCategory, setQuickPaymentCategory] = useState(PAYMENT_CATEGORIES[0]);
   const [autoCreateTransaction, setAutoCreateTransaction] = useState(true);
+  const [paymentFeedback, setPaymentFeedback] = useState('');
 
   const todayIso = getTodayIso();
   const openingBalance = profile?.openingBalance ?? 0;
@@ -74,6 +80,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
     setQuickPaymentDate(getTodayIso());
     setQuickPaymentCategory(PAYMENT_CATEGORIES[0]);
     setAutoCreateTransaction(true);
+    setPaymentFeedback('Payment added to your plan.');
   };
 
   const handleProofPicked = (paymentId: string) => (event: ChangeEvent<HTMLInputElement>) => {
@@ -81,6 +88,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
     event.target.value = '';
     if (!file) return;
     onMarkPaymentPaid(paymentId, file.name);
+    setPaymentFeedback(`Payment confirmed with proof: ${file.name}`);
   };
 
   return (
@@ -130,6 +138,8 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
           </button>
         </div>
 
+        {paymentFeedback ? <p className="status-banner is-success">{paymentFeedback}</p> : null}
+
         {visiblePayments.length ? (
           <div className="stack-sm">
             {visiblePayments.map((payment) => {
@@ -140,7 +150,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
                   <div className="money-payment-head">
                     <div>
                       <p className="money-activity-title">{payment.title}</p>
-                      <p className="muted">Due {payment.dueDate} · {payment.category}</p>
+                      <p className="muted">Due {formatDueDate(payment.dueDate)} · {payment.category}</p>
                     </div>
                     <strong>{formatCurrency(payment.amount)}</strong>
                   </div>
@@ -166,7 +176,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onAddPaymen
             <p className="money-empty-icon">💳</p>
             <h3>No payments yet</h3>
             <p className="muted">Start with your first family payment and keep proof in one trusted place.</p>
-            <button className="btn btn-primary" onClick={() => setPaymentFilter('upcoming')}>Add first payment</button>
+            <button className="btn btn-primary" onClick={() => setPaymentFilter('upcoming')}>Switch to upcoming</button>
           </article>
         )}
       </FoundationBlock>

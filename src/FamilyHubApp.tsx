@@ -408,7 +408,13 @@ export const FamilyHubApp = () => {
 
         <nav className="bottom-nav glass-card" aria-label="Primary">
           {TABS.map((tab) => (
-            <button key={tab} className={`nav-item ${activeTab === tab ? 'is-active' : ''}`} onClick={() => setActiveTab(tab)}>
+            <button
+              key={tab}
+              type="button"
+              className={`nav-item ${activeTab === tab ? 'is-active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+              aria-current={activeTab === tab ? 'page' : undefined}
+            >
               <span>{tabIcons[tab]}</span>
               <span>{tab}</span>
             </button>

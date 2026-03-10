@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { formatCurrency } from '../../lib/family-hub/format';
 import type { User } from '../../lib/family-hub/constants';
 import type { UserSetupProfile } from '../../lib/family-hub/storage';
 
@@ -10,6 +11,17 @@ type Props = {
 type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 const TOTAL_STEPS = 8;
+
+const stepTitle: Record<WizardStep, string> = {
+  1: 'Create your PIN',
+  2: 'Confirm your PIN',
+  3: 'Starting balance',
+  4: 'Monthly income',
+  5: 'Recurring payments',
+  6: 'Budget categories',
+  7: 'Avatar nickname',
+  8: 'Review and finish'
+};
 
 type InputRow = {
   id: string;
@@ -123,8 +135,10 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
           <div className="wizard-progress-fill" style={{ width: `${progress}%` }} />
         </div>
         <p className="muted">
-          Step {step} of {TOTAL_STEPS}
+          Step {step} of {TOTAL_STEPS} · {stepTitle[step]}
         </p>
+
+        <div key={step} className="wizard-step fade-in">
 
         {step === 1 ? (
           <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={pin} placeholder="Create 4-digit PIN" onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))} />
@@ -199,13 +213,15 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
         {step === 8 ? (
           <div className="setup-summary stack-sm">
             <p className="muted">Review done. Tap finish to save your setup and unlock Family Hub.</p>
-            <p>Opening balance: {openingBalance}</p>
-            <p>Monthly income: {monthlyIncome}</p>
+            <p>Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>
+            <p>Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>
             <p>Recurring payments: {recurringValidCount}</p>
             <p>Budget categories: {budgetValidCount}</p>
             <p>Avatar: {avatarName.trim() || 'Skipped'}</p>
           </div>
         ) : null}
+
+        </div>
 
         {error ? <p className="error-banner">{error}</p> : null}
 
