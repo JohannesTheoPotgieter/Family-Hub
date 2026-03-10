@@ -63,6 +63,23 @@ export type UserSetupProfile = {
   avatarName?: string;
 };
 
+export type AvatarMood = 'happy' | 'sleepy' | 'excited' | 'proud' | 'silly';
+
+export type AvatarLook = {
+  body: 'fox' | 'cat' | 'bear' | 'bunny';
+  outfit: 'cozy' | 'sporty' | 'party' | 'explorer';
+  accessory: 'none' | 'star' | 'flower' | 'sunglasses';
+  collar: 'blue' | 'mint' | 'pink' | 'gold';
+};
+
+export type AvatarProfile = {
+  mood: AvatarMood;
+  points: number;
+  familyContribution: number;
+  look: AvatarLook;
+  inventory: string[];
+};
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;
@@ -70,6 +87,8 @@ export type FamilyHubState = {
   userSetupProfiles: Partial<Record<UserId, UserSetupProfile>>;
   activeUserId: UserId | null;
   setupUserId: UserId | null;
+  familyPoints: number;
+  avatars: Record<UserId, AvatarProfile>;
   calendar: { events: CalendarEvent[] };
   tasks: { items: TaskItem[] };
   money: {
@@ -87,6 +106,59 @@ const setupDefaults: Record<UserId, boolean> = {
   oliver: false
 };
 
+const avatarDefaults: Record<UserId, AvatarProfile> = {
+  johannes: {
+    mood: 'happy',
+    points: 120,
+    familyContribution: 35,
+    look: { body: 'fox', outfit: 'cozy', accessory: 'star', collar: 'blue' },
+    inventory: ['Snack pouch', 'Glow ball']
+  },
+  nicole: {
+    mood: 'proud',
+    points: 140,
+    familyContribution: 40,
+    look: { body: 'cat', outfit: 'party', accessory: 'flower', collar: 'mint' },
+    inventory: ['Sparkle ribbon', 'Picnic coin']
+  },
+  ella: {
+    mood: 'sleepy',
+    points: 80,
+    familyContribution: 20,
+    look: { body: 'bunny', outfit: 'cozy', accessory: 'none', collar: 'pink' },
+    inventory: ['Story shell']
+  },
+  oliver: {
+    mood: 'silly',
+    points: 90,
+    familyContribution: 25,
+    look: { body: 'bear', outfit: 'sporty', accessory: 'sunglasses', collar: 'gold' },
+    inventory: ['Treasure map']
+  }
+};
+
+const sanitizeAvatar = (avatar: Partial<AvatarProfile> | undefined, fallback: AvatarProfile): AvatarProfile => ({
+  mood: avatar?.mood && ['happy', 'sleepy', 'excited', 'proud', 'silly'].includes(avatar.mood) ? avatar.mood : fallback.mood,
+  points: typeof avatar?.points === 'number' ? avatar.points : fallback.points,
+  familyContribution: typeof avatar?.familyContribution === 'number' ? avatar.familyContribution : fallback.familyContribution,
+  look: {
+    body: avatar?.look?.body && ['fox', 'cat', 'bear', 'bunny'].includes(avatar.look.body) ? avatar.look.body : fallback.look.body,
+    outfit:
+      avatar?.look?.outfit && ['cozy', 'sporty', 'party', 'explorer'].includes(avatar.look.outfit)
+        ? avatar.look.outfit
+        : fallback.look.outfit,
+    accessory:
+      avatar?.look?.accessory && ['none', 'star', 'flower', 'sunglasses'].includes(avatar.look.accessory)
+        ? avatar.look.accessory
+        : fallback.look.accessory,
+    collar:
+      avatar?.look?.collar && ['blue', 'mint', 'pink', 'gold'].includes(avatar.look.collar)
+        ? avatar.look.collar
+        : fallback.look.collar
+  },
+  inventory: Array.isArray(avatar?.inventory) ? avatar.inventory.filter((item): item is string => typeof item === 'string') : fallback.inventory
+});
+
 export const createInitialState = (): FamilyHubState => ({
   users: USERS,
   userPins: {},
@@ -94,6 +166,8 @@ export const createInitialState = (): FamilyHubState => ({
   userSetupProfiles: {},
   activeUserId: null,
   setupUserId: null,
+  familyPoints: 120,
+  avatars: { ...avatarDefaults },
   calendar: { events: [] },
   tasks: { items: [] },
   money: {
@@ -118,6 +192,13 @@ export const loadState = (): FamilyHubState => {
       users: USERS,
       setupCompleted: { ...initial.setupCompleted, ...(parsed.setupCompleted ?? {}) },
       userSetupProfiles: parsed.userSetupProfiles ?? {},
+      familyPoints: typeof parsed.familyPoints === 'number' ? parsed.familyPoints : initial.familyPoints,
+      avatars: {
+        johannes: sanitizeAvatar(parsed.avatars?.johannes, initial.avatars.johannes),
+        nicole: sanitizeAvatar(parsed.avatars?.nicole, initial.avatars.nicole),
+        ella: sanitizeAvatar(parsed.avatars?.ella, initial.avatars.ella),
+        oliver: sanitizeAvatar(parsed.avatars?.oliver, initial.avatars.oliver)
+      },
       calendar: {
         events: (parsed.calendar?.events ?? [])
           .filter((event) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')

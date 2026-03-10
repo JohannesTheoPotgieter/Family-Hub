@@ -9,7 +9,13 @@ import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab } from './lib/family-hub/constants';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
 import { getTodayIso } from './lib/family-hub/date';
-import { loadState, saveState, type FamilyHubState } from './lib/family-hub/storage';
+import {
+  loadState,
+  saveState,
+  type AvatarLook,
+  type AvatarMood,
+  type FamilyHubState
+} from './lib/family-hub/storage';
 
 const tabIcons: Record<Tab, string> = {
   Home: '⌂',
@@ -31,6 +37,51 @@ export const FamilyHubApp = () => {
     () => state.users.find((user) => user.id === state.activeUserId) ?? null,
     [state.users, state.activeUserId]
   );
+
+
+  const onAvatarAction = (userId: keyof FamilyHubState['avatars'], action: 'feed' | 'dance' | 'ball' | 'adventure') => {
+    const actionRewards: Record<'feed' | 'dance' | 'ball' | 'adventure', { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number }> = {
+      feed: { mood: 'happy', pointsEarned: 8, familyPointsEarned: 2 },
+      dance: { mood: 'excited', pointsEarned: 10, familyPointsEarned: 3 },
+      ball: { mood: 'silly', pointsEarned: 9, familyPointsEarned: 2 },
+      adventure: { mood: 'proud', pointsEarned: 14, familyPointsEarned: 4 }
+    };
+
+    const reward = actionRewards[action];
+
+    setState((current) => ({
+      ...current,
+      familyPoints: current.familyPoints + reward.familyPointsEarned,
+      avatars: {
+        ...current.avatars,
+        [userId]: {
+          ...current.avatars[userId],
+          mood: reward.mood,
+          points: current.avatars[userId].points + reward.pointsEarned,
+          familyContribution: current.avatars[userId].familyContribution + reward.familyPointsEarned,
+          inventory:
+            action === 'adventure' && !current.avatars[userId].inventory.includes('Adventure pebble')
+              ? [...current.avatars[userId].inventory, 'Adventure pebble']
+              : current.avatars[userId].inventory
+        }
+      }
+    }));
+
+    return reward;
+  };
+
+  const onCustomizeAvatar = (userId: keyof FamilyHubState['avatars'], look: AvatarLook) => {
+    setState((current) => ({
+      ...current,
+      avatars: {
+        ...current.avatars,
+        [userId]: {
+          ...current.avatars[userId],
+          look
+        }
+      }
+    }));
+  };
 
   if (state.setupUserId) {
     const user = state.users.find((item) => item.id === state.setupUserId);
@@ -87,7 +138,7 @@ export const FamilyHubApp = () => {
         </header>
 
         <section className="screen-content">
-          {activeTab === 'Home' && <HomeScreen state={state} />}
+          {activeTab === 'Home' && <HomeScreen state={state} onAvatarAction={onAvatarAction} />}
           {activeTab === 'Calendar' && (
             <CalendarScreen
               activeUserId={state.activeUserId}
@@ -299,7 +350,12 @@ export const FamilyHubApp = () => {
           )}
           {activeTab === 'More' && (
             <MoreScreen
+              users={state.users}
+              avatars={state.avatars}
+              familyPoints={state.familyPoints}
               activeUser={activeUser}
+              onCustomizeAvatar={onCustomizeAvatar}
+              onAvatarAction={onAvatarAction}
               onChangePin={(currentPin, nextPin) => {
                 if (!activeUser) return false;
                 const valid = verifyPin(activeUser.id, currentPin, state.userPins[activeUser.id]);
