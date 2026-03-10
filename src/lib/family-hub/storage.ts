@@ -5,6 +5,7 @@ export type CalendarEvent = {
   id: string;
   title: string;
   date: string;
+  kind?: 'event' | 'appointment';
 };
 
 export type TaskItem = {
@@ -94,7 +95,14 @@ export const loadState = (): FamilyHubState => {
       users: USERS,
       setupCompleted: { ...initial.setupCompleted, ...(parsed.setupCompleted ?? {}) },
       userSetupProfiles: parsed.userSetupProfiles ?? {},
-      calendar: { events: parsed.calendar?.events ?? [] },
+      calendar: {
+        events: (parsed.calendar?.events ?? [])
+          .filter((event) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')
+          .map((event) => ({
+            ...event,
+            kind: event.kind === 'appointment' ? 'appointment' : 'event'
+          }))
+      },
       tasks: {
         items: parsedTasks
           .map((task) => ({

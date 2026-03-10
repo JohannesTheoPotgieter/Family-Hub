@@ -87,7 +87,66 @@ export const FamilyHubApp = () => {
 
         <section className="screen-content">
           {activeTab === 'Home' && <HomeScreen state={state} />}
-          {activeTab === 'Calendar' && <CalendarScreen />}
+          {activeTab === 'Calendar' && (
+            <CalendarScreen
+              activeUserId={state.activeUserId}
+              events={state.calendar.events}
+              payments={state.money.payments}
+              tasks={state.tasks.items}
+              onAddEvent={(event) => {
+                setState((current) => ({
+                  ...current,
+                  calendar: {
+                    events: [
+                      {
+                        id: `event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        ...event
+                      },
+                      ...current.calendar.events
+                    ]
+                  }
+                }));
+              }}
+              onAddPayment={(payment) => {
+                setState((current) => ({
+                  ...current,
+                  money: {
+                    payments: [
+                      {
+                        id: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        paid: false,
+                        ...payment
+                      },
+                      ...current.money.payments
+                    ]
+                  }
+                }));
+              }}
+              onAddTask={(task) => {
+                setState((current) => ({
+                  ...current,
+                  tasks: {
+                    items: [
+                      {
+                        id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        completed: false,
+                        ...task
+                      },
+                      ...current.tasks.items
+                    ]
+                  }
+                }));
+              }}
+              onUpdateTask={(id, update) => {
+                setState((current) => ({
+                  ...current,
+                  tasks: {
+                    items: current.tasks.items.map((task) => (task.id === id ? { ...task, ...update } : task))
+                  }
+                }));
+              }}
+            />
+          )}
           {activeTab === 'Tasks' && (
             <TasksScreen
               tasks={state.tasks.items}
