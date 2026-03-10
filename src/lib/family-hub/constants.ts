@@ -15,13 +15,3 @@ export const USERS: User[] = [
 
 export const TABS = ['Home', 'Calendar', 'Tasks', 'Money', 'More'] as const;
 export type Tab = (typeof TABS)[number];
-
-export const MONEY_TABS = ['Overview', 'Cashflow', 'Budget', 'Transactions', 'Payments'] as const;
-export type MoneyTab = (typeof MONEY_TABS)[number];
-
-export const TASK_FILTERS = ['Today', 'Upcoming', 'Waiting', 'Done'] as const;
-export type TaskFilter = (typeof TASK_FILTERS)[number];
-
-export const AVATAR_BASES = ['Fox', 'Bear', 'Cat', 'Otter'] as const;
-export const AVATAR_ACCESSORIES = ['Sun cap', 'Star collar', 'Rocket scarf', 'Rainbow badge'] as const;
-export const AVATAR_BACKGROUNDS = ['Beach', 'Garden', 'Lounge', 'Moonlight'] as const;

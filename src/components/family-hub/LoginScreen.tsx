@@ -10,44 +10,73 @@ type Props = {
 };
 
 export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
-  const activeUsers = users.filter((u) => u.active);
-  const inactiveUsers = users.filter((u) => !u.active);
+  const activeUsers = users.filter((user) => user.active);
   const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
-  const needsSetup = useMemo(() => !isSetupComplete(selectedUser) || !hasPin(selectedUser), [isSetupComplete, hasPin, selectedUser]);
+  const needsSetup = useMemo(
+    () => !hasPin(selectedUser) || !isSetupComplete(selectedUser),
+    [hasPin, isSetupComplete, selectedUser]
+  );
 
   return (
     <main className="login-shell">
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
-      <section className="glass-card login-card">
+      <section className="glass-card login-card stack">
         <p className="eyebrow">Family Hub</p>
-        <h1>{needsSetup ? 'Let’s complete your setup' : 'Unlock your household hub'}</h1>
-        <p className="subtitle">A calm, mobile-first family command center.</p>
+        <h1>{needsSetup ? 'Set up your profile to continue' : 'Unlock your household hub'}</h1>
+        <p className="muted">Secure local entry point with a redesign-ready glass baseline.</p>
+
         <div className="profile-grid">
-          {activeUsers.map((user) => <button key={user.id} className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`} onClick={() => { setSelectedUser(user.id); setPin(''); setError(''); }}>{user.name}</button>)}
+          {activeUsers.map((user) => (
+            <button
+              key={user.id}
+              className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`}
+              onClick={() => {
+                setSelectedUser(user.id);
+                setPin('');
+                setError('');
+              }}
+            >
+              {user.name}
+            </button>
+          ))}
         </div>
 
         {needsSetup ? (
-          <button className="btn btn-primary" onClick={() => onStartSetup(selectedUser)}>Start once-off setup</button>
+          <button className="btn btn-primary" onClick={() => onStartSetup(selectedUser)}>
+            Start setup
+          </button>
         ) : (
           <>
-            <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={pin} placeholder="••••" onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} />
-            {error ? <div className="error-banner">{error}</div> : null}
-            <button className="btn btn-primary" disabled={pin.length !== 4} onClick={() => {
-              const ok = onUnlock(selectedUser, pin);
-              if (!ok) setError('Incorrect PIN.');
-              else setPin('');
-            }}>Unlock Family Hub</button>
+            <input
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              placeholder="••••"
+              onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            {error ? <p className="error-banner">{error}</p> : null}
+            <button
+              className="btn btn-primary"
+              disabled={pin.length !== 4}
+              onClick={() => {
+                const unlocked = onUnlock(selectedUser, pin);
+                if (!unlocked) {
+                  setError('Incorrect PIN.');
+                  return;
+                }
+                setPin('');
+              }}
+            >
+              Unlock
+            </button>
           </>
         )}
-
-        <div className="inactive-users">
-          <p className="small-title">Future profiles</p>
-          <div className="chip-list">{inactiveUsers.map((user) => <span key={user.id} className="chip chip-muted">{user.name}</span>)}</div>
-        </div>
       </section>
     </main>
   );
