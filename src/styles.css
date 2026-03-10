@@ -1048,3 +1048,97 @@ button:focus {
     grid-template-columns: 1fr;
   }
 }
+
+.money-capture-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.money-upload-btn {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  cursor: pointer;
+}
+
+.money-upload-btn input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.money-editor {
+  padding: 14px;
+  border: 1px solid rgba(114, 142, 198, 0.35);
+}
+
+.money-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.money-editor-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.money-filter-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.filter-pill {
+  border: 1px solid rgba(112, 141, 198, 0.36);
+  background: rgba(255, 255, 255, 0.62);
+  color: #2d4c80;
+  border-radius: 999px;
+  min-height: 42px;
+  font-weight: 600;
+}
+
+.filter-pill.is-active {
+  background: linear-gradient(125deg, rgba(81, 122, 232, 0.93), rgba(84, 191, 203, 0.88));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 8px 20px rgba(71, 108, 189, 0.23);
+}
+
+.money-transaction-item {
+  border: 1px solid rgba(125, 151, 207, 0.26);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.68);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.money-inline-btn {
+  border: 1px solid rgba(120, 145, 198, 0.36);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  padding: 5px 10px;
+  color: #315387;
+  font-size: 0.8rem;
+}
+
+.money-receipt-preview {
+  width: 100%;
+  border-radius: 14px;
+  max-height: 220px;
+  object-fit: cover;
+  border: 1px solid rgba(128, 154, 208, 0.28);
+}
+
+@media (max-width: 580px) {
+  .money-capture-actions,
+  .money-editor-grid {
+    grid-template-columns: 1fr;
+  }
+}
