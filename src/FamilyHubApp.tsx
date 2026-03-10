@@ -38,12 +38,13 @@ export const FamilyHubApp = () => {
     return (
       <SetupWizard
         user={user}
-        onFinish={(pin) => {
+        onFinish={(pin, profile) => {
           setState((current) => ({
             ...current,
             activeUserId: user.id,
             setupUserId: null,
             userPins: { ...current.userPins, [user.id]: encodePin(user.id, pin) },
+            userSetupProfiles: { ...current.userSetupProfiles, [user.id]: profile },
             setupCompleted: { ...current.setupCompleted, [user.id]: true }
           }));
         }}
@@ -89,7 +90,21 @@ export const FamilyHubApp = () => {
           {activeTab === 'Calendar' && <CalendarScreen />}
           {activeTab === 'Tasks' && <TasksScreen />}
           {activeTab === 'Money' && <MoneyScreen />}
-          {activeTab === 'More' && <MoreScreen />}
+          {activeTab === 'More' && (
+            <MoreScreen
+              activeUser={activeUser}
+              onChangePin={(currentPin, nextPin) => {
+                if (!activeUser) return false;
+                const valid = verifyPin(activeUser.id, currentPin, state.userPins[activeUser.id]);
+                if (!valid) return false;
+                setState((current) => ({
+                  ...current,
+                  userPins: { ...current.userPins, [activeUser.id]: encodePin(activeUser.id, nextPin) }
+                }));
+                return true;
+              }}
+            />
+          )}
         </section>
 
         <nav className="bottom-nav glass-card" aria-label="Primary">

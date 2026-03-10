@@ -3,19 +3,19 @@ import { FoundationBlock, RoutePill, ScreenIntro } from './BaselineScaffold';
 export const CalendarScreen = () => (
   <section className="stack-lg">
     <ScreenIntro
-      badge="Baseline"
+      badge="Planning"
       title="Calendar"
-      subtitle="Clean calendar module shell with section anchors and no unstable scheduling handlers."
+      subtitle="Keep everyone in sync with a clear and gentle family schedule."
     />
 
     <FoundationBlock
-      title="Timeline container"
-      description="Reserved for month/week/day visual navigation and date context controls."
+      title="Upcoming moments"
+      description="Switch views and stay aligned on family events and commitments."
     >
       <div className="chip-list">
-        <RoutePill label="Date picker" />
-        <RoutePill label="Views" />
-        <RoutePill label="Agenda" />
+        <RoutePill label="This week" />
+        <RoutePill label="School & work" />
+        <RoutePill label="Family time" />
       </div>
     </FoundationBlock>
   </section>

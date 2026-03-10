@@ -11,6 +11,7 @@ type Props = {
 
 export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
   const activeUsers = users.filter((user) => user.active);
+  const inactiveUsers = users.filter((user) => !user.active);
   const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -24,10 +25,11 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
     <main className="login-shell">
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
+
       <section className="glass-card login-card stack">
-        <p className="eyebrow">Family Hub</p>
-        <h1>{needsSetup ? 'Set up your profile to continue' : 'Unlock your household hub'}</h1>
-        <p className="muted">Secure local entry point with a redesign-ready glass baseline.</p>
+        <p className="eyebrow">Welcome to Family Hub</p>
+        <h1>Pick your profile and unlock your family home.</h1>
+        <p className="muted">Warm, private and designed for quick everyday check-ins.</p>
 
         <div className="profile-grid">
           {activeUsers.map((user) => (
@@ -40,14 +42,26 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                 setError('');
               }}
             >
-              {user.name}
+              <span className="profile-name">{user.name}</span>
+              <span className="profile-meta">Active</span>
             </button>
           ))}
         </div>
 
+        <div className="future-profiles">
+          <p className="future-label">Future profiles</p>
+          <div className="future-grid">
+            {inactiveUsers.map((user) => (
+              <div key={user.id} className="future-chip" aria-label={`${user.name} future profile`}>
+                {user.name}
+              </div>
+            ))}
+          </div>
+        </div>
+
         {needsSetup ? (
           <button className="btn btn-primary" onClick={() => onStartSetup(selectedUser)}>
-            Start setup
+            Start first-time setup
           </button>
         ) : (
           <>
@@ -57,7 +71,7 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
               inputMode="numeric"
               maxLength={4}
               value={pin}
-              placeholder="••••"
+              placeholder="Enter PIN"
               onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
             />
             {error ? <p className="error-banner">{error}</p> : null}
@@ -67,13 +81,13 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
               onClick={() => {
                 const unlocked = onUnlock(selectedUser, pin);
                 if (!unlocked) {
-                  setError('Incorrect PIN.');
+                  setError('That PIN was not correct. Please try again.');
                   return;
                 }
                 setPin('');
               }}
             >
-              Unlock
+              Unlock Family Hub
             </button>
           </>
         )}

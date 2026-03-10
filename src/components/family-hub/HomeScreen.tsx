@@ -3,28 +3,28 @@ import { FoundationBlock, RoutePill, ScreenIntro } from './BaselineScaffold';
 export const HomeScreen = () => (
   <section className="stack-lg">
     <ScreenIntro
-      badge="Baseline"
+      badge="Today"
       title="Home"
-      subtitle="Core home shell is stabilized and ready for visual hierarchy redesign."
+      subtitle="A calm family snapshot with quick access to what matters most."
     />
 
     <div className="foundation-grid">
       <FoundationBlock
-        title="Header zone"
-        description="Reserved for greeting, quick status, and high-priority family snapshot."
+        title="Family pulse"
+        description="At-a-glance highlights for routines, reminders, and shared focus."
       >
         <div className="chip-list">
-          <RoutePill label="Summary" />
-          <RoutePill label="Alerts" />
+          <RoutePill label="Morning checklist" />
+          <RoutePill label="Evening plan" />
         </div>
       </FoundationBlock>
       <FoundationBlock
-        title="Action rail"
-        description="Reserved for top shortcuts and progressive disclosure actions."
+        title="Quick actions"
+        description="Fast taps for common family updates and next steps."
       >
         <div className="chip-list">
-          <RoutePill label="Quick actions" />
-          <RoutePill label="Deep links" />
+          <RoutePill label="Add reminder" />
+          <RoutePill label="Plan weekend" />
         </div>
       </FoundationBlock>
     </div>

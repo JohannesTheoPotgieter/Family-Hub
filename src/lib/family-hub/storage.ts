@@ -21,10 +21,31 @@ export type PaymentItem = {
   paid: boolean;
 };
 
+export type RecurringPayment = {
+  id: string;
+  title: string;
+  amount: number;
+};
+
+export type BudgetCategory = {
+  id: string;
+  label: string;
+  amount: number;
+};
+
+export type UserSetupProfile = {
+  openingBalance: number;
+  monthlyIncome: number;
+  recurringPayments: RecurringPayment[];
+  budgetCategories: BudgetCategory[];
+  avatarName?: string;
+};
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;
   setupCompleted: Record<UserId, boolean>;
+  userSetupProfiles: Partial<Record<UserId, UserSetupProfile>>;
   activeUserId: UserId | null;
   setupUserId: UserId | null;
   calendar: { events: CalendarEvent[] };
@@ -45,6 +66,7 @@ export const createInitialState = (): FamilyHubState => ({
   users: USERS,
   userPins: {},
   setupCompleted: { ...setupDefaults },
+  userSetupProfiles: {},
   activeUserId: null,
   setupUserId: null,
   calendar: { events: [] },
@@ -65,6 +87,7 @@ export const loadState = (): FamilyHubState => {
       ...parsed,
       users: USERS,
       setupCompleted: { ...initial.setupCompleted, ...(parsed.setupCompleted ?? {}) },
+      userSetupProfiles: parsed.userSetupProfiles ?? {},
       calendar: { events: parsed.calendar?.events ?? [] },
       tasks: { items: parsed.tasks?.items ?? [] },
       money: { payments: parsed.money?.payments ?? [] }
