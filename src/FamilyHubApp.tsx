@@ -236,6 +236,18 @@ export const FamilyHubApp = () => {
                   }
                 }));
               }}
+
+              onUpdateTransaction={(id, transaction) => {
+                setState((current) => ({
+                  ...current,
+                  money: {
+                    ...current.money,
+                    actualTransactions: current.money.actualTransactions.map((item) =>
+                      item.id === id ? { ...item, ...transaction } : item
+                    )
+                  }
+                }));
+              }}
               onTogglePaymentPaid={(id) => {
                 setState((current) => {
                   const payment = current.money.payments.find((item) => item.id === id);

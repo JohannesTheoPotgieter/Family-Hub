@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type ChangeEvent, useMemo, useState } from 'react';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { formatCurrency } from '../../lib/family-hub/format';
 import { getTodayIso } from '../../lib/family-hub/date';
@@ -12,390 +12,312 @@ type Props = {
   onAddPayment: (payment: Omit<PaymentItem, 'id' | 'paid'>) => void;
   onTogglePaymentPaid: (id: string) => void;
   onAddTransaction: (transaction: Omit<ActualTransaction, 'id'>) => void;
+  onUpdateTransaction: (id: string, transaction: Omit<ActualTransaction, 'id'>) => void;
 };
 
-type ComposerMode = 'opening' | 'income' | 'payment' | 'budget' | 'inflow' | 'outflow' | null;
+type TransactionFilter = 'all' | 'income' | 'expense';
 
-type TimelineEntry = {
-  id: string;
+type EditorState = {
+  id?: string;
+  title: string;
+  amount: string;
   date: string;
-  label: string;
-  amount: number;
-  type: 'planned' | 'actual' | 'income';
-  direction: 'inflow' | 'outflow';
+  kind: 'inflow' | 'outflow';
+  category: string;
+  receiptImage?: string;
+  receiptFileName?: string;
 };
+
+const CATEGORIES = ['Groceries', 'Home', 'Kids', 'Health', 'Transport', 'Fun', 'Salary', 'Other'];
+
+const newEditorState = (): EditorState => ({
+  title: '',
+  amount: '',
+  date: getTodayIso(),
+  kind: 'outflow',
+  category: 'Other'
+});
+
+const cleanFileName = (fileName: string) =>
+  fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .slice(0, 42);
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not load image.'));
+    reader.readAsDataURL(file);
+  });
 
 const getMonthStamp = (iso: string) => iso.slice(0, 7);
 
-export const MoneyScreen = ({
-  profile,
-  payments,
-  actualTransactions,
-  onSaveProfile,
-  onAddPayment,
-  onTogglePaymentPaid,
-  onAddTransaction
-}: Props) => {
-  const [mode, setMode] = useState<ComposerMode>(null);
-  const [amountInput, setAmountInput] = useState('');
-  const [labelInput, setLabelInput] = useState('');
-  const [dueDateInput, setDueDateInput] = useState(getTodayIso());
+export const MoneyScreen = (props: Props) => {
+  const { profile, payments, actualTransactions, onAddPayment, onTogglePaymentPaid, onAddTransaction, onUpdateTransaction } = props;
+  const [filter, setFilter] = useState<TransactionFilter>('all');
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [isReceiptMode, setIsReceiptMode] = useState(false);
+  const [receiptHelp, setReceiptHelp] = useState<string | null>(null);
+  const [quickPaymentTitle, setQuickPaymentTitle] = useState('');
+  const [quickPaymentAmount, setQuickPaymentAmount] = useState('');
+  const [quickPaymentDate, setQuickPaymentDate] = useState(getTodayIso());
 
   const todayIso = getTodayIso();
   const currentMonth = getMonthStamp(todayIso);
-  const monthStart = `${currentMonth}-01`;
-
-  const monthlyPayments = useMemo(() => payments.filter((item) => getMonthStamp(item.dueDate) === currentMonth), [payments, currentMonth]);
-  const unpaidPlannedPayments = monthlyPayments.filter((item) => !item.paid);
-  const monthlyActualTransactions = useMemo(
+  const monthlyTransactions = useMemo(
     () => actualTransactions.filter((item) => getMonthStamp(item.date) === currentMonth),
     [actualTransactions, currentMonth]
   );
 
-  const openingBalance = profile?.openingBalance ?? 0;
   const monthlyIncome = profile?.monthlyIncome ?? 0;
-  const recurringOutflows = profile?.recurringPayments.reduce((total, payment) => total + payment.amount, 0) ?? 0;
-  const budgetOutflows = profile?.budgetCategories.reduce((total, category) => total + category.amount, 0) ?? 0;
-  const plannedPaymentsOutflow = unpaidPlannedPayments.reduce((total, payment) => total + payment.amount, 0);
+  const openingBalance = profile?.openingBalance ?? 0;
 
-  const actualOutflows = monthlyActualTransactions
-    .filter((item) => item.kind === 'outflow')
-    .reduce((total, item) => total + item.amount, 0);
-  const actualInflows = monthlyActualTransactions
-    .filter((item) => item.kind === 'inflow')
-    .reduce((total, item) => total + item.amount, 0);
+  const spent = monthlyTransactions.filter((tx) => tx.kind === 'outflow').reduce((sum, tx) => sum + tx.amount, 0);
+  const earned = monthlyTransactions.filter((tx) => tx.kind === 'inflow').reduce((sum, tx) => sum + tx.amount, 0);
+  const balance = openingBalance + monthlyIncome + earned - spent;
 
-  const plannedOutflows = recurringOutflows + budgetOutflows + plannedPaymentsOutflow;
-  const inflows = monthlyIncome + actualInflows;
-  const closingForecast = openingBalance + inflows - plannedOutflows - actualOutflows;
-
-  const budgetSnapshot = useMemo(() => {
-    const categories = profile?.budgetCategories ?? [];
-
-    const byCategory = categories.map((category) => {
-      const actual = monthlyActualTransactions
-        .filter((tx) => tx.kind === 'outflow')
-        .filter((tx) => tx.title.toLowerCase().includes(category.label.toLowerCase()))
-        .reduce((sum, tx) => sum + tx.amount, 0);
-
-      const remaining = category.amount - actual;
-      return {
-        ...category,
-        actual,
-        remaining,
-        isOver: remaining < 0
-      };
+  const visibleTransactions = useMemo(() => {
+    const byFilter = actualTransactions.filter((tx) => {
+      if (filter === 'income') return tx.kind === 'inflow';
+      if (filter === 'expense') return tx.kind === 'outflow';
+      return true;
     });
 
-    const totalBudget = byCategory.reduce((sum, item) => sum + item.amount, 0);
-    const totalActual = byCategory.reduce((sum, item) => sum + item.actual, 0);
-    const totalRemaining = totalBudget - totalActual;
+    return byFilter.sort((a, b) => b.date.localeCompare(a.date));
+  }, [actualTransactions, filter]);
 
-    return {
-      byCategory,
-      totalBudget,
-      totalActual,
-      totalRemaining,
-      progress: totalBudget <= 0 ? 0 : Math.min(totalActual / totalBudget, 1)
-    };
-  }, [profile?.budgetCategories, monthlyActualTransactions]);
 
-  const timeline = useMemo<TimelineEntry[]>(() => {
-    const entries: TimelineEntry[] = [
-      {
-        id: 'base-income',
-        date: monthStart,
-        label: 'Monthly income baseline',
-        amount: monthlyIncome,
-        type: 'income',
-        direction: 'inflow'
-      },
-      ...unpaidPlannedPayments.map((payment) => ({
-        id: `planned-${payment.id}`,
-        date: payment.dueDate,
-        label: payment.title,
-        amount: payment.amount,
-        type: 'planned' as const,
-        direction: 'outflow' as const
-      })),
-      ...monthlyActualTransactions.map((tx) => ({
-        id: `actual-${tx.id}`,
-        date: tx.date,
-        label: tx.title,
-        amount: tx.amount,
-        type: 'actual' as const,
-        direction: tx.kind
-      }))
-    ];
+  const openManualEditor = () => {
+    setIsReceiptMode(false);
+    setReceiptHelp(null);
+    setEditor(newEditorState());
+  };
 
-    return entries.sort((a, b) => a.date.localeCompare(b.date));
-  }, [monthStart, monthlyIncome, unpaidPlannedPayments, monthlyActualTransactions]);
-
-  const timelineWithBalance = useMemo(() => {
-    let runningBalance = openingBalance;
-    return timeline.map((entry) => {
-      const delta = entry.direction === 'inflow' ? entry.amount : -entry.amount;
-      runningBalance += delta;
-      return { ...entry, runningBalance };
+  const openEditEditor = (tx: ActualTransaction) => {
+    setIsReceiptMode(false);
+    setReceiptHelp(null);
+    setEditor({
+      id: tx.id,
+      title: tx.title,
+      amount: String(tx.amount),
+      date: tx.date,
+      kind: tx.kind,
+      category: tx.category ?? 'Other',
+      receiptImage: tx.receiptImage,
+      receiptFileName: tx.receiptFileName
     });
-  }, [timeline, openingBalance]);
+  };
 
-  const recentActivity = [...payments].sort((a, b) => b.dueDate.localeCompare(a.dueDate)).slice(0, 4);
+  const saveEditor = () => {
+    if (!editor) return;
 
-  const hasAnyMoneyData = Boolean(
-    profile?.openingBalance ||
-      profile?.monthlyIncome ||
-      profile?.budgetCategories.length ||
-      profile?.recurringPayments.length ||
-      payments.length ||
-      actualTransactions.length
-  );
+    const parsedAmount = Number.parseFloat(editor.amount.replace(',', '.'));
+    if (Number.isNaN(parsedAmount) || parsedAmount <= 0 || !editor.title.trim()) return;
 
-  const submitComposer = () => {
-    const parsedAmount = Number.parseFloat(amountInput.replace(',', '.'));
-    if (Number.isNaN(parsedAmount)) return;
-
-    const baseProfile: UserSetupProfile = {
-      openingBalance: profile?.openingBalance ?? 0,
-      monthlyIncome: profile?.monthlyIncome ?? 0,
-      recurringPayments: profile?.recurringPayments ?? [],
-      budgetCategories: profile?.budgetCategories ?? [],
-      avatarName: profile?.avatarName
+    const payload: Omit<ActualTransaction, 'id'> = {
+      title: editor.title.trim(),
+      amount: parsedAmount,
+      date: editor.date,
+      kind: editor.kind,
+      category: editor.category,
+      receiptImage: editor.receiptImage,
+      receiptFileName: editor.receiptFileName
     };
 
-    if (mode === 'opening') {
-      onSaveProfile({ ...baseProfile, openingBalance: parsedAmount });
+    if (editor.id) {
+      onUpdateTransaction(editor.id, payload);
+    } else {
+      onAddTransaction(payload);
     }
 
-    if (mode === 'income') {
-      onSaveProfile({ ...baseProfile, monthlyIncome: parsedAmount });
-    }
+    setEditor(null);
+    setIsReceiptMode(false);
+  };
 
-    if (mode === 'budget' && labelInput.trim()) {
-      onSaveProfile({
-        ...baseProfile,
-        budgetCategories: [
-          {
-            id: crypto.randomUUID(),
-            label: labelInput.trim(),
-            amount: parsedAmount
-          },
-          ...baseProfile.budgetCategories
-        ]
+  const onReceiptPicked = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setIsReceiptMode(true);
+      setReceiptHelp("We don't rely on advanced OCR yet. Please confirm details before saving.");
+      setEditor({
+        ...newEditorState(),
+        title: cleanFileName(file.name) || 'Receipt purchase',
+        receiptImage: dataUrl,
+        receiptFileName: file.name
       });
+    } catch {
+      setReceiptHelp('Could not load this image. Please try another file.');
     }
+  };
 
-    if (mode === 'payment' && labelInput.trim()) {
-      onAddPayment({
-        title: labelInput.trim(),
-        amount: parsedAmount,
-        dueDate: dueDateInput
-      });
-    }
+  const addPlannedPayment = () => {
+    const parsedAmount = Number.parseFloat(quickPaymentAmount.replace(',', '.'));
+    if (Number.isNaN(parsedAmount) || !quickPaymentTitle.trim()) return;
 
-    if ((mode === 'inflow' || mode === 'outflow') && labelInput.trim()) {
-      onAddTransaction({
-        title: labelInput.trim(),
-        amount: parsedAmount,
-        date: dueDateInput,
-        kind: mode
-      });
-    }
+    onAddPayment({
+      title: quickPaymentTitle.trim(),
+      amount: parsedAmount,
+      dueDate: quickPaymentDate
+    });
 
-    setAmountInput('');
-    setLabelInput('');
-    setDueDateInput(getTodayIso());
-    setMode(null);
+    setQuickPaymentTitle('');
+    setQuickPaymentAmount('');
+    setQuickPaymentDate(getTodayIso());
   };
 
   return (
     <section className="stack-lg money-overview">
       <ScreenIntro
-        badge="Cashflow"
-        title="Cashflow forecast"
-        subtitle="See opening balance, inflows, planned outflows, and due payments in one clean timeline."
+        badge="Money"
+        title="Transactions"
+        subtitle="Fast capture, clean list, and one-tap filters for family spending."
       />
 
       <article className="glass-panel money-hero stack-sm">
-        <p className="eyebrow">Forecast closing</p>
-        <h3 className={`money-net ${closingForecast < 0 ? 'is-negative' : ''}`}>{formatCurrency(closingForecast)}</h3>
+        <p className="eyebrow">This month</p>
+        <h3 className={`money-net ${balance < 0 ? 'is-negative' : ''}`}>{formatCurrency(balance)}</h3>
         <div className="money-kpi-grid">
-          <div className="money-kpi">
-            <span>Opening</span>
-            <strong>{formatCurrency(openingBalance)}</strong>
-          </div>
-          <div className="money-kpi">
-            <span>Inflows</span>
-            <strong>{formatCurrency(inflows)}</strong>
-          </div>
-          <div className="money-kpi">
-            <span>Planned outflows</span>
-            <strong>{formatCurrency(plannedOutflows)}</strong>
-          </div>
-          <div className="money-kpi">
-            <span>Planned due</span>
-            <strong>{formatCurrency(plannedPaymentsOutflow)}</strong>
-          </div>
-          <div className="money-kpi">
-            <span>Actual outflows</span>
-            <strong>{formatCurrency(actualOutflows)}</strong>
-          </div>
-          <div className="money-kpi">
-            <span>Due count</span>
-            <strong>{unpaidPlannedPayments.length}</strong>
-          </div>
+          <div className="money-kpi"><span>Opening</span><strong>{formatCurrency(openingBalance)}</strong></div>
+          <div className="money-kpi"><span>Income</span><strong>{formatCurrency(monthlyIncome + earned)}</strong></div>
+          <div className="money-kpi"><span>Spent</span><strong>{formatCurrency(spent)}</strong></div>
         </div>
       </article>
 
-      <FoundationBlock
-        title="Monthly budget"
-        description="Soft category budgets with live actuals from this month's transactions."
-      >
-        {budgetSnapshot.byCategory.length ? (
-          <div className="stack-sm">
-            <article className="budget-summary-card">
-              <div>
-                <p className="eyebrow">This month</p>
-                <h3>{formatCurrency(budgetSnapshot.totalRemaining)} left</h3>
-              </div>
-              <div className="budget-summary-meta">
-                <span>{formatCurrency(budgetSnapshot.totalActual)} spent</span>
-                <span>of {formatCurrency(budgetSnapshot.totalBudget)}</span>
-              </div>
-              <div className="budget-progress-track" aria-hidden="true">
-                <div className="budget-progress-fill" style={{ width: `${budgetSnapshot.progress * 100}%` }} />
-              </div>
-            </article>
-
-            <div className="budget-category-list">
-              {budgetSnapshot.byCategory.map((category) => (
-                <article key={category.id} className="budget-category-card">
-                  <div className="budget-category-head">
-                    <p className="budget-category-title">{category.label}</p>
-                    <strong className={category.isOver ? 'money-negative' : 'money-positive'}>
-                      {category.isOver ? `${formatCurrency(Math.abs(category.remaining))} over` : `${formatCurrency(category.remaining)} left`}
-                    </strong>
-                  </div>
-                  <div className="budget-category-meta">
-                    <span>{formatCurrency(category.actual)} spent</span>
-                    <span>Budget {formatCurrency(category.amount)}</span>
-                  </div>
-                  <div className="budget-progress-track" aria-hidden="true">
-                    <div
-                      className={`budget-progress-fill ${category.isOver ? 'is-over' : ''}`}
-                      style={{ width: `${Math.min((category.actual / Math.max(category.amount, 1)) * 100, 100)}%` }}
-                    />
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <article className="glass-panel budget-empty-state stack-sm">
-            <p className="money-empty-icon">🫧</p>
-            <h3>Create a calm monthly budget</h3>
-            <p className="muted">Add your first category to track actual spend and clearly see what remains.</p>
-            <button className="btn btn-primary" onClick={() => setMode('budget')}>
-              Create first budget
-            </button>
-          </article>
-        )}
-      </FoundationBlock>
-
-      <FoundationBlock title="Quick actions" description="Fast updates with premium, tap-friendly controls.">
-        <div className="quick-actions">
-          <button className="chip-action" onClick={() => setMode('opening')}>Set opening</button>
-          <button className="chip-action" onClick={() => setMode('income')}>Set income</button>
-          <button className="chip-action" onClick={() => setMode('payment')}>Plan payment</button>
-          <button className="chip-action" onClick={() => setMode('outflow')}>Log outflow</button>
-          <button className="chip-action" onClick={() => setMode('inflow')}>Log inflow</button>
-          <button className="chip-action" onClick={() => setMode('budget')}>Add budget</button>
+      <FoundationBlock title="Capture" description="Add manually or upload a receipt image and confirm quickly.">
+        <div className="money-capture-actions">
+          <button className="btn btn-primary" onClick={openManualEditor}>Add transaction</button>
+          <label className="btn btn-ghost money-upload-btn">
+            Upload receipt
+            <input type="file" accept="image/*" onChange={onReceiptPicked} />
+          </label>
         </div>
+        {receiptHelp ? <p className="muted">{receiptHelp}</p> : null}
       </FoundationBlock>
 
-      {mode ? (
-        <article className="glass-panel money-composer stack-sm">
-          <p className="eyebrow">{mode === 'budget' ? 'Add budget' : `Add ${mode}`}</p>
-          {mode === 'payment' || mode === 'budget' || mode === 'inflow' || mode === 'outflow' ? (
+      {editor ? (
+        <article className="glass-panel money-editor stack-sm">
+          <div className="money-editor-head">
+            <p className="eyebrow">{editor.id ? 'Edit transaction' : isReceiptMode ? 'Confirm receipt' : 'Manual transaction'}</p>
+            {editor.receiptFileName ? <span className="item-tag is-soft">{editor.receiptFileName}</span> : null}
+          </div>
+          {editor.receiptImage ? <img className="money-receipt-preview" src={editor.receiptImage} alt="Receipt preview" /> : null}
+          <input
+            value={editor.title}
+            placeholder="Description"
+            onChange={(event) => setEditor((current) => (current ? { ...current, title: event.target.value } : current))}
+          />
+          <div className="money-editor-grid">
             <input
-              value={labelInput}
-              placeholder={mode === 'payment' ? 'Payment name' : mode === 'budget' ? 'Budget category' : 'Transaction label'}
-              onChange={(event) => setLabelInput(event.target.value)}
+              value={editor.amount}
+              inputMode="decimal"
+              placeholder="Amount"
+              onChange={(event) => setEditor((current) => (current ? { ...current, amount: event.target.value } : current))}
             />
-          ) : null}
-          <input value={amountInput} inputMode="decimal" placeholder="Amount" onChange={(event) => setAmountInput(event.target.value)} />
-          {mode === 'payment' || mode === 'inflow' || mode === 'outflow' ? (
-            <input type="date" value={dueDateInput} onChange={(event) => setDueDateInput(event.target.value)} />
-          ) : null}
+            <input
+              type="date"
+              value={editor.date}
+              onChange={(event) => setEditor((current) => (current ? { ...current, date: event.target.value } : current))}
+            />
+          </div>
+          <div className="money-editor-grid">
+            <select
+              value={editor.kind}
+              onChange={(event) =>
+                setEditor((current) => (current ? { ...current, kind: event.target.value as 'inflow' | 'outflow' } : current))
+              }
+            >
+              <option value="outflow">Expense</option>
+              <option value="inflow">Income</option>
+            </select>
+            <select
+              value={editor.category}
+              onChange={(event) => setEditor((current) => (current ? { ...current, category: event.target.value } : current))}
+            >
+              {CATEGORIES.map((category) => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+          </div>
           <div className="task-composer-actions">
-            <button className="btn btn-ghost" onClick={() => setMode(null)}>Cancel</button>
-            <button className="btn btn-primary" onClick={submitComposer}>Save</button>
+            <button className="btn btn-ghost" onClick={() => setEditor(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveEditor}>{editor.id ? 'Save changes' : 'Save transaction'}</button>
           </div>
         </article>
       ) : null}
 
-      {!hasAnyMoneyData ? (
-        <article className="glass-panel money-empty stack-sm">
-          <p className="money-empty-icon">🌊</p>
-          <h3>Start your cashflow in one minute</h3>
-          <p className="muted">Add an opening balance and first planned payment to instantly see your forecast closing figure.</p>
-          <div className="empty-actions">
-            <button className="btn btn-primary" onClick={() => setMode('opening')}>Add opening balance</button>
-            <button className="btn btn-ghost" onClick={() => setMode('income')}>Add monthly income</button>
-            <button className="btn btn-ghost" onClick={() => setMode('payment')}>Plan first payment</button>
-          </div>
-        </article>
-      ) : (
-        <>
-          <FoundationBlock title="Forecast timeline" description="Planned and actual are separated to keep counting accurate.">
-            <div className="stack-sm">
-              {timelineWithBalance.length ? (
-                timelineWithBalance.map((entry) => (
-                  <article key={entry.id} className="money-timeline-item">
-                    <div>
-                      <p className="money-activity-title">{entry.label}</p>
-                      <p className="muted">{entry.date}</p>
-                    </div>
-                    <div className="money-activity-meta">
-                      <strong className={entry.direction === 'outflow' ? 'money-negative' : 'money-positive'}>
-                        {entry.direction === 'outflow' ? '-' : '+'}
-                        {formatCurrency(entry.amount)}
-                      </strong>
-                      <span className={`item-tag ${entry.type === 'actual' ? 'is-soft' : entry.type === 'planned' ? 'is-warn' : ''}`}>
-                        {entry.type}
-                      </span>
-                      <span className="muted">Bal {formatCurrency(entry.runningBalance)}</span>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <p className="muted">Add your first amount to build a live cashflow timeline.</p>
-              )}
-            </div>
-          </FoundationBlock>
+      <FoundationBlock title="Transactions" description="Easy to scan on mobile with clear visual direction.">
+        <div className="money-filter-row" role="tablist" aria-label="Transaction filters">
+          <button className={`filter-pill ${filter === 'all' ? 'is-active' : ''}`} onClick={() => setFilter('all')}>All</button>
+          <button className={`filter-pill ${filter === 'income' ? 'is-active' : ''}`} onClick={() => setFilter('income')}>Income</button>
+          <button className={`filter-pill ${filter === 'expense' ? 'is-active' : ''}`} onClick={() => setFilter('expense')}>Expense</button>
+        </div>
 
-          <FoundationBlock title="Planned payments" description="Tap to mark paid and auto-convert into actual transaction.">
-            <div className="stack-sm">
-              {recentActivity.length ? (
-                recentActivity.map((item) => (
-                  <button key={item.id} className="money-activity-item" onClick={() => onTogglePaymentPaid(item.id)}>
-                    <div>
-                      <p className="money-activity-title">{item.title}</p>
-                      <p className="muted">Due {item.dueDate}</p>
-                    </div>
-                    <div className="money-activity-meta">
-                      <strong>{formatCurrency(item.amount)}</strong>
-                      <span className={`item-tag ${item.paid ? 'is-soft' : 'is-warn'}`}>{item.paid ? 'Paid → Actual' : 'Planned due'}</span>
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <p className="muted">No planned payments yet. Add one to start forecasting.</p>
-              )}
+        {visibleTransactions.length ? (
+          <div className="stack-sm">
+            {visibleTransactions.map((tx) => (
+              <article key={tx.id} className="money-transaction-item">
+                <div>
+                  <p className="money-activity-title">{tx.title}</p>
+                  <p className="muted">{tx.date} · {tx.category ?? 'Other'}</p>
+                </div>
+                <div className="money-activity-meta">
+                  <strong className={tx.kind === 'outflow' ? 'money-negative' : 'money-positive'}>
+                    {tx.kind === 'outflow' ? '-' : '+'}{formatCurrency(tx.amount)}
+                  </strong>
+                  <button className="money-inline-btn" onClick={() => openEditEditor(tx)}>Edit</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <article className="glass-panel money-empty stack-sm">
+            <p className="money-empty-icon">🧾</p>
+            <h3>No transactions yet</h3>
+            <p className="muted">Add your first transaction manually or upload a receipt image to confirm and save.</p>
+            <div className="empty-actions">
+              <button className="btn btn-primary" onClick={openManualEditor}>Add first transaction</button>
+              <label className="btn btn-ghost money-upload-btn">
+                Upload receipt
+                <input type="file" accept="image/*" onChange={onReceiptPicked} />
+              </label>
             </div>
-          </FoundationBlock>
-        </>
-      )}
+          </article>
+        )}
+      </FoundationBlock>
+
+      <FoundationBlock title="Planned payments" description="Optional due payments for upcoming bills.">
+        <div className="money-editor-grid">
+          <input value={quickPaymentTitle} placeholder="Payment name" onChange={(event) => setQuickPaymentTitle(event.target.value)} />
+          <input value={quickPaymentAmount} inputMode="decimal" placeholder="Amount" onChange={(event) => setQuickPaymentAmount(event.target.value)} />
+        </div>
+        <div className="money-editor-grid">
+          <input type="date" value={quickPaymentDate} onChange={(event) => setQuickPaymentDate(event.target.value)} />
+          <button className="btn btn-ghost" onClick={addPlannedPayment}>Add planned payment</button>
+        </div>
+        <div className="stack-sm">
+          {payments.slice(0, 4).map((item) => (
+            <button key={item.id} className="money-activity-item" onClick={() => onTogglePaymentPaid(item.id)}>
+              <div>
+                <p className="money-activity-title">{item.title}</p>
+                <p className="muted">Due {item.dueDate}</p>
+              </div>
+              <div className="money-activity-meta">
+                <strong>{formatCurrency(item.amount)}</strong>
+                <span className={`item-tag ${item.paid ? 'is-soft' : 'is-warn'}`}>{item.paid ? 'Paid' : 'Due'}</span>
+              </div>
+            </button>
+          ))}
+          {!payments.length ? <p className="muted">No planned payments yet.</p> : null}
+        </div>
+      </FoundationBlock>
+
     </section>
   );
 };

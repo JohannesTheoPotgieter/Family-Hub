@@ -32,6 +32,9 @@ export type ActualTransaction = {
   amount: number;
   date: string;
   kind: 'inflow' | 'outflow';
+  category?: string;
+  receiptImage?: string;
+  receiptFileName?: string;
   sourcePaymentId?: string;
 };
 
@@ -131,14 +134,21 @@ export const loadState = (): FamilyHubState => {
       },
       money: {
         payments: parsed.money?.payments ?? [],
-        actualTransactions: (parsed.money?.actualTransactions ?? []).filter(
-          (tx) =>
-            typeof tx.id === 'string' &&
-            typeof tx.title === 'string' &&
-            typeof tx.amount === 'number' &&
-            typeof tx.date === 'string' &&
-            (tx.kind === 'inflow' || tx.kind === 'outflow')
-        )
+        actualTransactions: (parsed.money?.actualTransactions ?? [])
+          .filter(
+            (tx) =>
+              typeof tx.id === 'string' &&
+              typeof tx.title === 'string' &&
+              typeof tx.amount === 'number' &&
+              typeof tx.date === 'string' &&
+              (tx.kind === 'inflow' || tx.kind === 'outflow')
+          )
+          .map((tx) => ({
+            ...tx,
+            category: typeof tx.category === 'string' ? tx.category : undefined,
+            receiptImage: typeof tx.receiptImage === 'string' ? tx.receiptImage : undefined,
+            receiptFileName: typeof tx.receiptFileName === 'string' ? tx.receiptFileName : undefined
+          }))
       }
     };
   } catch {
