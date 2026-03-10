@@ -21,9 +21,14 @@ export type TaskItem = {
 export type PaymentItem = {
   id: string;
   title: string;
+  category: string;
   amount: number;
   dueDate: string;
   paid: boolean;
+  autoCreateTransaction?: boolean;
+  proofFileName?: string;
+  linkedTransactionId?: string;
+  paidDate?: string;
 };
 
 export type ActualTransaction = {
@@ -133,7 +138,23 @@ export const loadState = (): FamilyHubState => {
           .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
       },
       money: {
-        payments: parsed.money?.payments ?? [],
+        payments: (parsed.money?.payments ?? [])
+          .filter(
+            (payment) =>
+              typeof payment.id === 'string' &&
+              typeof payment.title === 'string' &&
+              typeof payment.amount === 'number' &&
+              typeof payment.dueDate === 'string' &&
+              typeof payment.paid === 'boolean'
+          )
+          .map((payment) => ({
+            ...payment,
+            category: typeof payment.category === 'string' ? payment.category : 'Other',
+            autoCreateTransaction: payment.autoCreateTransaction !== false,
+            proofFileName: typeof payment.proofFileName === 'string' ? payment.proofFileName : undefined,
+            linkedTransactionId: typeof payment.linkedTransactionId === 'string' ? payment.linkedTransactionId : undefined,
+            paidDate: typeof payment.paidDate === 'string' ? payment.paidDate : undefined
+          })),
         actualTransactions: (parsed.money?.actualTransactions ?? [])
           .filter(
             (tx) =>

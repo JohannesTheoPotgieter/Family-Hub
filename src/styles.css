@@ -1109,6 +1109,28 @@ button:focus {
   box-shadow: 0 8px 20px rgba(71, 108, 189, 0.23);
 }
 
+
+.money-payment-card {
+  border: 1px solid rgba(125, 151, 207, 0.24);
+  border-radius: 18px;
+  padding: 12px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.76), rgba(238, 246, 255, 0.56));
+  display: grid;
+  gap: 10px;
+}
+
+.money-payment-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.money-payment-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .money-transaction-item {
   border: 1px solid rgba(125, 151, 207, 0.26);
   border-radius: 16px;
