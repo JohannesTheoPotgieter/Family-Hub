@@ -69,6 +69,37 @@ export const MoneyScreen = ({
   const inflows = monthlyIncome + actualInflows;
   const closingForecast = openingBalance + inflows - plannedOutflows - actualOutflows;
 
+  const budgetSnapshot = useMemo(() => {
+    const categories = profile?.budgetCategories ?? [];
+
+    const byCategory = categories.map((category) => {
+      const actual = monthlyActualTransactions
+        .filter((tx) => tx.kind === 'outflow')
+        .filter((tx) => tx.title.toLowerCase().includes(category.label.toLowerCase()))
+        .reduce((sum, tx) => sum + tx.amount, 0);
+
+      const remaining = category.amount - actual;
+      return {
+        ...category,
+        actual,
+        remaining,
+        isOver: remaining < 0
+      };
+    });
+
+    const totalBudget = byCategory.reduce((sum, item) => sum + item.amount, 0);
+    const totalActual = byCategory.reduce((sum, item) => sum + item.actual, 0);
+    const totalRemaining = totalBudget - totalActual;
+
+    return {
+      byCategory,
+      totalBudget,
+      totalActual,
+      totalRemaining,
+      progress: totalBudget <= 0 ? 0 : Math.min(totalActual / totalBudget, 1)
+    };
+  }, [profile?.budgetCategories, monthlyActualTransactions]);
+
   const timeline = useMemo<TimelineEntry[]>(() => {
     const entries: TimelineEntry[] = [
       {
@@ -215,6 +246,61 @@ export const MoneyScreen = ({
           </div>
         </div>
       </article>
+
+      <FoundationBlock
+        title="Monthly budget"
+        description="Soft category budgets with live actuals from this month's transactions."
+      >
+        {budgetSnapshot.byCategory.length ? (
+          <div className="stack-sm">
+            <article className="budget-summary-card">
+              <div>
+                <p className="eyebrow">This month</p>
+                <h3>{formatCurrency(budgetSnapshot.totalRemaining)} left</h3>
+              </div>
+              <div className="budget-summary-meta">
+                <span>{formatCurrency(budgetSnapshot.totalActual)} spent</span>
+                <span>of {formatCurrency(budgetSnapshot.totalBudget)}</span>
+              </div>
+              <div className="budget-progress-track" aria-hidden="true">
+                <div className="budget-progress-fill" style={{ width: `${budgetSnapshot.progress * 100}%` }} />
+              </div>
+            </article>
+
+            <div className="budget-category-list">
+              {budgetSnapshot.byCategory.map((category) => (
+                <article key={category.id} className="budget-category-card">
+                  <div className="budget-category-head">
+                    <p className="budget-category-title">{category.label}</p>
+                    <strong className={category.isOver ? 'money-negative' : 'money-positive'}>
+                      {category.isOver ? `${formatCurrency(Math.abs(category.remaining))} over` : `${formatCurrency(category.remaining)} left`}
+                    </strong>
+                  </div>
+                  <div className="budget-category-meta">
+                    <span>{formatCurrency(category.actual)} spent</span>
+                    <span>Budget {formatCurrency(category.amount)}</span>
+                  </div>
+                  <div className="budget-progress-track" aria-hidden="true">
+                    <div
+                      className={`budget-progress-fill ${category.isOver ? 'is-over' : ''}`}
+                      style={{ width: `${Math.min((category.actual / Math.max(category.amount, 1)) * 100, 100)}%` }}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <article className="glass-panel budget-empty-state stack-sm">
+            <p className="money-empty-icon">🫧</p>
+            <h3>Create a calm monthly budget</h3>
+            <p className="muted">Add your first category to track actual spend and clearly see what remains.</p>
+            <button className="btn btn-primary" onClick={() => setMode('budget')}>
+              Create first budget
+            </button>
+          </article>
+        )}
+      </FoundationBlock>
 
       <FoundationBlock title="Quick actions" description="Fast updates with premium, tap-friendly controls.">
         <div className="quick-actions">
