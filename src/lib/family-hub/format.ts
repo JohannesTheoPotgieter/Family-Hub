@@ -1,8 +1,11 @@
 export const formatCurrency = (amount: number) => {
-  const rounded = Math.round(amount);
-  const sign = rounded < 0 ? '-' : '';
-  const value = Math.abs(rounded).toLocaleString('en-ZA');
-  return `${sign}R ${value}`;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(safeAmount);
 };
 
 export const formatPoints = (points: number) => `${points} pts`;

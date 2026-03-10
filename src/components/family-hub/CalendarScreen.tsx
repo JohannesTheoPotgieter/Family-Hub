@@ -1,6 +1,7 @@
 import { useMemo, useState, type DragEvent } from 'react';
 import type { UserId } from '../../lib/family-hub/constants';
 import type { CalendarEvent, PaymentItem, TaskItem } from '../../lib/family-hub/storage';
+import { formatCurrency } from '../../lib/family-hub/format';
 import { ScreenIntro } from './BaselineScaffold';
 
 type CalendarScreenProps = {
@@ -39,6 +40,9 @@ const addTypes: { key: AddType; label: string }[] = [
   { key: 'task', label: 'Task' },
   { key: 'payment', label: 'Payment' }
 ];
+
+
+const weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const dateKey = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -101,7 +105,7 @@ export const CalendarScreen = ({
         type: 'payment' as const,
         title: payment.title,
         date: payment.dueDate,
-        meta: `R${payment.amount.toFixed(2)}`
+        meta: formatCurrency(payment.amount)
       })),
       ...tasks
         .filter((task) => task.dueDate)
@@ -263,7 +267,13 @@ export const CalendarScreen = ({
       ) : null}
 
       {activeView === 'month' ? (
-        <section className="glass-panel calendar-grid month-grid" aria-label="Month view">
+        <section className="glass-panel calendar-grid stack-sm" aria-label="Month view">
+          <div className="month-weekdays" aria-hidden="true">
+            {weekdayShort.map((day) => (
+              <span key={day} className="month-weekday">{day}</span>
+            ))}
+          </div>
+          <div className="month-grid">
           {monthDays.map((day) => {
             const key = dateKey(day);
             const items = itemsByDate[key] ?? [];
@@ -292,6 +302,7 @@ export const CalendarScreen = ({
               </article>
             );
           })}
+          </div>
         </section>
       ) : null}
 
@@ -345,7 +356,7 @@ export const CalendarScreen = ({
                 </span>
                 <div>
                   <p className="task-title">{item.title}</p>
-                  <p className="muted">{prettyDate(item.date)} · {item.meta}</p>
+                  <p className="muted">{prettyDate(item.date)} · {item.meta ?? 'Family item'}</p>
                 </div>
               </article>
             ))
@@ -364,7 +375,7 @@ export const CalendarScreen = ({
           selectedItems.map((item) => (
             <article key={item.id} className={`calendar-item-chip is-${item.type}`}>
               <strong>{item.title}</strong>
-              <small>{item.meta}</small>
+              <small>{item.meta ?? 'Family item'}</small>
             </article>
           ))
         ) : (
