@@ -29,7 +29,12 @@ export const MoneyScreen = (props: Props) => {
     const income = transactions.filter((item) => item.amount > 0).reduce((sum, item) => sum + item.amount, 0);
     const expenses = transactions.filter((item) => item.amount < 0).reduce((sum, item) => sum + item.amount, 0);
     const due = payments.filter((payment) => !payment.paid).reduce((sum, payment) => sum + payment.amount, 0);
-    return { income, expenses, due, net: income + expenses };
+    const linkedPaymentTransactionIds = new Set(payments.filter((payment) => payment.linkedTransactionId).map((payment) => payment.linkedTransactionId));
+    const manualExpenses = transactions
+      .filter((item) => item.amount < 0 && !linkedPaymentTransactionIds.has(item.id))
+      .reduce((sum, item) => sum + item.amount, 0);
+
+    return { income, expenses, due, net: income + expenses, forecastAfterDue: income + manualExpenses - due };
   }, [transactions, payments]);
 
   const filteredPayments = payments.filter((payment) => {
@@ -41,7 +46,7 @@ export const MoneyScreen = (props: Props) => {
 
   return (
     <section className="stack-lg">
-      <div className="screen-title"><h2>Money</h2><p className="muted">Your household financial cockpit.</p></div>
+      <div className="screen-title"><h2>Money</h2><p className="muted">Household finances, bills, and proof tracking.</p></div>
       <div className="segmented-control glass-card">{MONEY_TABS.map((item) => <button key={item} className={item === tab ? 'is-active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>
       {tab === 'Overview' && <><div className="metrics-grid">
         <article className="glass-card metric-card"><p className="metric-label">Net this month</p><p className="metric-value">{formatCurrency(overview.net)}</p></article>
@@ -51,7 +56,16 @@ export const MoneyScreen = (props: Props) => {
       </div>
       <article className="glass-card stack"><h3>Recent activity</h3>{!transactions.length ? <div className="glass-card empty-state">No transactions yet.</div> : transactions.slice(-3).reverse().map((item) => <div key={item.id} className="list-row"><span>{item.description}</span><strong>{formatCurrency(item.amount)}</strong></div>)}</article>
       </>}
-      {tab === 'Cashflow' && (!cashflowItems.length ? <div className="glass-card empty-state">No cashflow items yet.</div> : <div className="stack">{cashflowItems.map((item) => <div key={item.id} className="glass-card list-row"><span>{item.title}</span><span>{formatCurrency(item.amount)}</span></div>)}</div>)}
+      {tab === 'Cashflow' && (
+        <section className="stack">
+          <article className="glass-card stack-sm">
+            <p className="field-label">Forecast after unpaid bills</p>
+            <strong>{formatCurrency(overview.forecastAfterDue)}</strong>
+            <p className="muted">Avoids counting bills twice when a linked transaction already exists.</p>
+          </article>
+          {!cashflowItems.length ? <div className="glass-card empty-state">No cashflow items yet.</div> : <div className="stack">{cashflowItems.map((item) => <div key={item.id} className="glass-card list-row"><span>{item.title}</span><span>{formatCurrency(item.amount)}</span></div>)}</div>}
+        </section>
+      )}
       {tab === 'Budget' && (!budgets.length ? <div className="glass-card empty-state">No budget created yet.</div> : <div className="stack">{budgets.map((item) => <div key={item.id} className="glass-card list-row"><span>{item.category}</span><span>{formatCurrency(item.spent)} / {formatCurrency(item.limit)}</span></div>)}</div>)}
       {tab === 'Transactions' && <section className="stack">
         <article className="glass-card stack">
@@ -116,6 +130,8 @@ export const MoneyScreen = (props: Props) => {
 
 const PaymentCard = ({ payment, onPayWithProof }: { payment: Payment; onPayWithProof: (paymentId: string, proofFile?: File) => void }) => {
   const [proof, setProof] = useState<File>();
+  const [proofError, setProofError] = useState('');
+
   return (
     <article className="glass-card stack payment-card">
       <div className="list-row"><strong>{payment.title}</strong><strong>{formatCurrency(payment.amount)}</strong></div>
@@ -130,15 +146,20 @@ const PaymentCard = ({ payment, onPayWithProof }: { payment: Payment; onPayWithP
           onChange={(e) => {
             const file = e.target.files?.[0];
             setProof(file);
+            if (proofError) setProofError('');
           }}
         />
+        {proofError ? <div className="error-banner">{proofError}</div> : null}
         <button
           className="btn btn-primary"
-          disabled={!proof}
           onClick={() => {
-            if (!proof) return;
+            if (!proof) {
+              setProofError('Attach a file before marking this payment as paid.');
+              return;
+            }
             onPayWithProof(payment.id, proof);
             setProof(undefined);
+            setProofError('');
           }}
         >
           Pay + proof

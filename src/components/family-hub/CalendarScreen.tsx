@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { getTodayIso, isSameDay } from '../../lib/family-hub/date';
+import { formatCurrency } from '../../lib/family-hub/format';
 import type { Event, Payment } from '../../lib/family-hub/storage';
 
 type Props = {
@@ -20,7 +21,7 @@ export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
 
   return (
     <section className="stack-lg">
-      <div className="screen-title"><h2>Calendar</h2><p className="muted">Simple and reliable scheduling.</p></div>
+      <div className="screen-title"><h2>Calendar</h2><p className="muted">Plan events and keep bill due dates visible.</p></div>
       <article className="glass-card stack">
         <label className="field-label">Selected day</label>
         <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
@@ -40,8 +41,8 @@ export const CalendarScreen = ({ events, payments, onAddEvent }: Props) => {
       </article>
       <article className="stack">
         {dayItems.dayEvents.length === 0 && dayItems.dayPayments.length === 0 ? <div className="glass-card empty-state">No events yet for this date.</div> : null}
-        {dayItems.dayEvents.map((event) => <div key={event.id} className={`glass-card list-tile ${event.type === 'appointment' ? 'appointment' : ''}`}><p>{event.title}</p><span className="chip">{event.type}</span></div>)}
-        {dayItems.dayPayments.map((payment) => <div key={payment.id} className="glass-card list-tile payment-due"><p>{payment.title}</p><span className="chip">Payment due</span></div>)}
+        {dayItems.dayEvents.map((event) => <div key={event.id} className={`glass-card list-tile ${event.type === 'appointment' ? 'appointment' : ''}`}><div className="list-row"><p>{event.title}</p><span className="chip">{event.type}</span></div></div>)}
+        {dayItems.dayPayments.map((payment) => <div key={payment.id} className="glass-card list-tile payment-due"><div className="list-row"><p>{payment.title}</p><div className="stack-sm"><span className="chip">Payment due</span><span className="muted">{formatCurrency(payment.amount)}</span></div></div></div>)}
       </article>
     </section>
   );

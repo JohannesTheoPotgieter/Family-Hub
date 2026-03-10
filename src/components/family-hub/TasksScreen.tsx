@@ -19,8 +19,8 @@ export const TasksScreen = ({ tasks, onAdd, onToggle }: Props) => {
   const visibleTasks = useMemo(() => {
     if (filter === 'Done') return tasks.filter((t) => t.completed);
     if (filter === 'Waiting') return tasks.filter((t) => !t.completed && t.waiting);
-    if (filter === 'Upcoming') return tasks.filter((t) => !t.completed && !t.waiting && t.dueDate > today);
-    return tasks.filter((t) => !t.completed && !t.waiting && t.dueDate <= today);
+    if (filter === 'Upcoming') return tasks.filter((t) => !t.completed && !t.waiting && !!t.dueDate && t.dueDate > today);
+    return tasks.filter((t) => !t.completed && !t.waiting && (!t.dueDate || t.dueDate <= today));
   }, [tasks, filter, today]);
 
   return (
@@ -36,6 +36,7 @@ export const TasksScreen = ({ tasks, onAdd, onToggle }: Props) => {
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Add task" />
           <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           <label className="switch-row"><input type="checkbox" checked={waiting} onChange={(e) => setWaiting(e.target.checked)} /><span>Mark as waiting</span></label>
+          <button className="btn btn-ghost" type="button" onClick={() => setDueDate('')}>Clear due date</button>
           <button className="btn btn-primary" type="submit">Save task</button>
         </form>
       </article>
@@ -46,7 +47,7 @@ export const TasksScreen = ({ tasks, onAdd, onToggle }: Props) => {
             <input type="checkbox" checked={task.completed} onChange={() => onToggle(task.id)} />
             <div>
               <strong>{task.title}</strong>
-              <p className="muted">Due {task.dueDate}{task.waiting ? ' • Waiting' : ''}</p>
+              <p className="muted">{task.dueDate ? `Due ${task.dueDate}` : 'No due date'}{task.waiting ? ' • Waiting' : ''}</p>
             </div>
           </label>
         ))}

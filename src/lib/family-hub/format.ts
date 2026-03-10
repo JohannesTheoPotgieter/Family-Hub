@@ -1,2 +1,2 @@
 export const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' }).format(amount);
+  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', currencyDisplay: 'narrowSymbol' }).format(amount);

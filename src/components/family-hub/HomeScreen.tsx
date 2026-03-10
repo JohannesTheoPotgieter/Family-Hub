@@ -15,8 +15,8 @@ export const HomeScreen = ({ state }: Props) => {
     <section className="stack-lg">
       <article className="glass-card hero-panel stack">
         <p className="eyebrow">Today</p>
-        <h2>Command center</h2>
-        <p className="muted">Forecast closing: {formatCurrency(duePayments.reduce((sum, p) => sum + p.amount, 0) * -1)}</p>
+        <h2>Family overview</h2>
+        <p className="muted">Unpaid bills remaining: {formatCurrency(duePayments.reduce((sum, p) => sum + p.amount, 0))}</p>
       </article>
 
       <div className="metrics-grid">
@@ -36,7 +36,7 @@ export const HomeScreen = ({ state }: Props) => {
 
       <article className="glass-card stack">
         <h3>Upcoming</h3>
-        {!upcoming.length ? <div className="empty-state">No events yet. Add your first event in Calendar.</div> : null}
+        {!upcoming.length ? <div className="empty-state">No upcoming items yet. Add an event in Calendar.</div> : null}
         {upcoming.map((item) => (
           <div key={item.id} className="list-row"><span>{item.title}</span><span className="muted">{'date' in item ? item.date : item.dueDate}</span></div>
         ))}
@@ -44,7 +44,7 @@ export const HomeScreen = ({ state }: Props) => {
 
       <article className="glass-card stack">
         <h3>Places</h3>
-        {!state.places.length ? <div className="empty-state">No places added yet. Add your first place in More.</div> : state.places.slice(0, 3).map((p) => <div key={p.id} className="list-row">{p.name}</div>)}
+        {!state.places.length ? <div className="empty-state">No places added yet. Add a place in More.</div> : state.places.slice(0, 3).map((p) => <div key={p.id} className="list-row">{p.name}</div>)}
       </article>
     </section>
   );

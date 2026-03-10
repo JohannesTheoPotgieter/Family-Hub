@@ -23,6 +23,8 @@ export const MoreScreen = ({ users, places, reminders, activeUserId, onAddPlace,
   const [confirmPin, setConfirmPin] = useState('');
   const [pinError, setPinError] = useState('');
 
+  const activeUser = users.find((user) => user.id === activeUserId);
+
   return (
     <section className="stack-lg">
       <div className="screen-title"><h2>More</h2><p className="muted">Family members, places, reminders, and app settings.</p></div>
@@ -41,6 +43,8 @@ export const MoreScreen = ({ users, places, reminders, activeUserId, onAddPlace,
 
       <article className="glass-card stack">
         <h3>PIN management</h3>
+        <p className="muted">Changing PIN for: <strong>{activeUser?.name ?? 'Current user'}</strong></p>
+        {!activeUser?.active ? <div className="error-banner">This profile is inactive. Activate it first before changing PIN.</div> : null}
         <input
           type="password"
           maxLength={4}
@@ -66,7 +70,7 @@ export const MoreScreen = ({ users, places, reminders, activeUserId, onAddPlace,
         {pinError ? <div className="error-banner">{pinError}</div> : null}
         <button
           className="btn btn-primary"
-          disabled={newPin.length !== 4 || confirmPin.length !== 4}
+          disabled={newPin.length !== 4 || confirmPin.length !== 4 || !activeUser?.active}
           onClick={() => {
             if (newPin !== confirmPin) {
               setPinError('PIN confirmation does not match.');

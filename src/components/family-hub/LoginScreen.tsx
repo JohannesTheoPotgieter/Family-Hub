@@ -53,8 +53,8 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
       <div className="bg-orb bg-orb--bottom" />
       <section className="glass-card login-card">
         <p className="eyebrow">Family Hub</p>
-        <h1>{needsSetup ? 'Create your secure PIN' : 'Welcome back'}</h1>
-        <p className="subtitle">A premium shared space for your family plans, tasks, and money.</p>
+        <h1>{needsSetup ? 'Set up your 4-digit PIN' : 'Welcome back'}</h1>
+        <p className="subtitle">Choose your profile, then unlock your family dashboard.</p>
 
         <div className="profile-grid">
           {(activeUsers.length ? activeUsers : users).map((user) => (
@@ -73,6 +73,7 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
           ))}
         </div>
 
+        {needsSetup ? <p className="muted">This profile has no PIN yet. Set one now to continue.</p> : null}
         <label className="field-label">{needsSetup ? 'Create 4-digit PIN' : '4-digit PIN'}</label>
         <input
           className="pin-input"
@@ -81,7 +82,10 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
           value={pin}
           maxLength={4}
           placeholder="••••"
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+          onChange={(e) => {
+            setPin(e.target.value.replace(/\D/g, '').slice(0, 4));
+            if (error) setError('');
+          }}
         />
 
         {needsSetup ? (
@@ -94,7 +98,10 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
               value={confirmPin}
               maxLength={4}
               placeholder="••••"
-              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              onChange={(e) => {
+                setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4));
+                if (error) setError('');
+              }}
             />
           </>
         ) : null}
@@ -110,7 +117,7 @@ export const LoginScreen = ({ users, hasPin, onUnlock, onCreatePin }: Props) => 
         </button>
 
         <div className="inactive-users">
-          <p className="small-title">Future profiles</p>
+          <p className="small-title">Inactive profiles</p>
           <div className="chip-list">
             {inactiveUsers.map((user) => (
               <span key={user.id} className="chip chip-muted">
