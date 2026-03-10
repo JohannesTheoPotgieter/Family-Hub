@@ -186,7 +186,50 @@ export const FamilyHubApp = () => {
               }}
             />
           )}
-          {activeTab === 'Money' && <MoneyScreen />}
+          {activeTab === 'Money' && (
+            <MoneyScreen
+              profile={state.activeUserId ? state.userSetupProfiles[state.activeUserId] : undefined}
+              payments={state.money.payments}
+              onSaveProfile={(nextProfile) => {
+                setState((current) => {
+                  if (!current.activeUserId) return current;
+
+                  return {
+                    ...current,
+                    userSetupProfiles: {
+                      ...current.userSetupProfiles,
+                      [current.activeUserId]: nextProfile
+                    }
+                  };
+                });
+              }}
+              onAddPayment={(payment) => {
+                setState((current) => ({
+                  ...current,
+                  money: {
+                    payments: [
+                      {
+                        id: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                        paid: false,
+                        ...payment
+                      },
+                      ...current.money.payments
+                    ]
+                  }
+                }));
+              }}
+              onTogglePaymentPaid={(id) => {
+                setState((current) => ({
+                  ...current,
+                  money: {
+                    payments: current.money.payments.map((payment) =>
+                      payment.id === id ? { ...payment, paid: !payment.paid } : payment
+                    )
+                  }
+                }));
+              }}
+            />
+          )}
           {activeTab === 'More' && (
             <MoreScreen
               activeUser={activeUser}

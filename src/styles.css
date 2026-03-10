@@ -882,3 +882,94 @@ button:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.money-overview {
+  gap: 14px;
+}
+
+.money-hero {
+  padding: 16px;
+  background:
+    linear-gradient(150deg, rgba(255, 255, 255, 0.74), rgba(236, 245, 255, 0.54)),
+    radial-gradient(circle at 20% 15%, rgba(127, 183, 255, 0.26), transparent 55%);
+}
+
+.money-net {
+  font-size: 2rem;
+  color: #133b70;
+  line-height: 1.1;
+}
+
+.money-net.is-negative {
+  color: #9a3150;
+}
+
+.money-kpi-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.money-kpi {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(147, 172, 222, 0.32);
+  border-radius: 14px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.money-kpi span {
+  font-size: 0.74rem;
+  color: #5370a2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.money-kpi strong {
+  color: #18396b;
+  font-size: 1.04rem;
+}
+
+.money-composer,
+.money-empty {
+  padding: 14px;
+}
+
+.money-empty {
+  text-align: center;
+}
+
+.money-empty-icon {
+  font-size: 1.9rem;
+}
+
+.money-activity-item {
+  border: 1px solid rgba(125, 151, 207, 0.26);
+  border-radius: 14px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.58);
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: #173668;
+  text-align: left;
+}
+
+.money-activity-title {
+  font-weight: 700;
+}
+
+.money-activity-meta {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+@media (max-width: 580px) {
+  .money-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
