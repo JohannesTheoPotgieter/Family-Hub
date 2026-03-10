@@ -175,7 +175,7 @@ export const CalendarScreen = ({
     }
 
     if (modalType === 'payment') {
-      onAddPayment({ title: cleanTitle, dueDate: pickedDate, amount: Number(amount) || 0 });
+      onAddPayment({ title: cleanTitle, dueDate: pickedDate, amount: Number(amount) || 0, category: 'Other', autoCreateTransaction: true });
     }
 
     if (modalType === 'task') {
