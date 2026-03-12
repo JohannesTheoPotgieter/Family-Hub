@@ -89,6 +89,25 @@ export type PlaceItem = {
   notes: string;
 };
 
+export type ReminderItem = {
+  id: string;
+  title: string;
+  date: string;
+  level: 'today' | 'week' | 'urgent';
+};
+
+export type AppSettings = {
+  pinHintsEnabled: boolean;
+};
+
+export type CashflowItem = {
+  id: string;
+  title: string;
+  date: string;
+  amount: number;
+  kind: 'planned' | 'actual';
+};
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;
@@ -99,11 +118,14 @@ export type FamilyHubState = {
   familyPoints: number;
   avatars: Record<UserId, AvatarProfile>;
   places: PlaceItem[];
+  reminders: { items: ReminderItem[] };
+  settings: AppSettings;
   calendar: { events: CalendarEvent[] };
   tasks: { items: TaskItem[] };
   money: {
     payments: PaymentItem[];
     actualTransactions: ActualTransaction[];
+    cashflowItems?: CashflowItem[];
   };
 };
 
@@ -176,31 +198,17 @@ export const createInitialState = (): FamilyHubState => ({
   userSetupProfiles: {},
   activeUserId: null,
   setupUserId: null,
-  familyPoints: 120,
+  familyPoints: 0,
   avatars: { ...avatarDefaults },
-  places: [
-    {
-      id: 'place-1',
-      name: 'Sunny Park Picnic',
-      location: 'Riverside Park',
-      roughCost: 'R 25',
-      status: 'planning',
-      notes: 'Bring blanket, fruit, and bubbles.'
-    },
-    {
-      id: 'place-2',
-      name: 'Mini Aquarium Visit',
-      location: 'Harbor Kids Center',
-      roughCost: 'R 65',
-      status: 'booked',
-      notes: 'Saturday at 10:30 AM. Pack snacks for after.'
-    }
-  ],
+  places: [],
+  reminders: { items: [] },
+  settings: { pinHintsEnabled: false },
   calendar: { events: [] },
   tasks: { items: [] },
   money: {
     payments: [],
-    actualTransactions: []
+    actualTransactions: [],
+    cashflowItems: []
   }
 });
 
@@ -240,6 +248,14 @@ export const loadState = (): FamilyHubState => {
           ...place,
           status: place.status === 'booked' || place.status === 'visited' ? place.status : 'planning'
         })),
+      reminders: {
+        items: (parsed.reminders?.items ?? []).filter(
+          (item) => typeof item.id === 'string' && typeof item.title === 'string' && typeof item.date === 'string'
+        )
+      },
+      settings: {
+        pinHintsEnabled: Boolean(parsed.settings?.pinHintsEnabled)
+      },
       calendar: {
         events: (parsed.calendar?.events ?? [])
           .filter((event) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')
@@ -291,7 +307,15 @@ export const loadState = (): FamilyHubState => {
             category: typeof tx.category === 'string' ? tx.category : undefined,
             receiptImage: typeof tx.receiptImage === 'string' ? tx.receiptImage : undefined,
             receiptFileName: typeof tx.receiptFileName === 'string' ? tx.receiptFileName : undefined
-          }))
+          })),
+        cashflowItems: (parsed.money?.cashflowItems ?? []).filter(
+          (item) =>
+            typeof item.id === 'string' &&
+            typeof item.title === 'string' &&
+            typeof item.date === 'string' &&
+            typeof item.amount === 'number' &&
+            (item.kind === 'planned' || item.kind === 'actual')
+        )
       }
     };
   } catch {
