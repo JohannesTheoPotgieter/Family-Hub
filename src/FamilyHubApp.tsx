@@ -18,10 +18,10 @@ import {
 } from './lib/family-hub/storage';
 
 const tabIcons: Record<Tab, string> = {
-  Home: '⌂',
-  Calendar: '◷',
-  Tasks: '✓',
-  Money: '◉',
+  Home: '🏡',
+  Calendar: '📅',
+  Tasks: '✅',
+  Money: '💰',
   More: '⋯'
 };
 
@@ -405,7 +405,7 @@ export const FamilyHubApp = () => {
               onClick={() => setActiveTab(tab)}
               aria-current={activeTab === tab ? 'page' : undefined}
             >
-              <span>{tabIcons[tab]}</span>
+              <span className="nav-item-icon">{tabIcons[tab]}</span>
               <span>{tab}</span>
             </button>
           ))}

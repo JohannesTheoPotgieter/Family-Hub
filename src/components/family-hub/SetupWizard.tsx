@@ -8,20 +8,16 @@ type Props = {
   onFinish: (pin: string, profile: UserSetupProfile) => void;
 };
 
-type WizardStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
-
-const TOTAL_STEPS = 9;
+type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
+const TOTAL_STEPS = 6;
 
 const stepTitle: Record<WizardStep, string> = {
-  1: 'Confirm your profile',
+  1: 'Welcome',
   2: 'Create your PIN',
   3: 'Confirm your PIN',
-  4: 'Starting balance',
-  5: 'Monthly income',
-  6: 'Recurring payments',
-  7: 'Budget categories',
-  8: 'Avatar nickname',
-  9: 'Review and finish'
+  4: 'Your finances',
+  5: 'Recurring & budget',
+  6: 'All done!'
 };
 
 type InputRow = {
@@ -31,8 +27,9 @@ type InputRow = {
 };
 
 const createRow = () => ({ id: crypto.randomUUID(), label: '', value: '' });
-
 const parseMoney = (value: string) => Number.parseFloat(value.replace(',', '.'));
+
+const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'] as const;
 
 export const SetupWizard = ({ user, onFinish }: Props) => {
   const [step, setStep] = useState<WizardStep>(1);
@@ -42,7 +39,6 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [recurringRows, setRecurringRows] = useState<InputRow[]>([createRow()]);
   const [budgetRows, setBudgetRows] = useState<InputRow[]>([createRow()]);
-  const [avatarName, setAvatarName] = useState('');
   const [error, setError] = useState('');
 
   const progress = Math.round((step / TOTAL_STEPS) * 100);
@@ -56,45 +52,35 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
     [budgetRows]
   );
 
+  const handlePinKey = (key: string, which: 'pin' | 'confirm') => {
+    const current = which === 'pin' ? pin : confirmPin;
+    const setter = which === 'pin' ? setPin : setConfirmPin;
+    if (key === '⌫') {
+      setter(current.slice(0, -1));
+      setError('');
+      return;
+    }
+    if (current.length < 4) setter(current + key);
+  };
+
   const goNext = () => {
     setError('');
-
     if (step === 2 && pin.length !== 4) {
-      setError('Please create a 4-digit PIN to continue.');
+      setError('Please enter a 4-digit PIN to continue.');
       return;
     }
-
     if (step === 3) {
-      if (confirmPin.length !== 4) {
-        setError('Please confirm your 4-digit PIN.');
-        return;
+      if (confirmPin.length !== 4) { setError('Please confirm your PIN.'); return; }
+      if (pin !== confirmPin) { setError('PINs don\'t match. Please try again.'); setConfirmPin(''); return; }
+    }
+    if (step === 4) {
+      if (openingBalance && Number.isNaN(parseMoney(openingBalance))) {
+        setError('Please enter a valid opening balance.'); return;
       }
-      if (pin !== confirmPin) {
-        setError('PIN mismatch. Please try again.');
-        return;
+      if (monthlyIncome && Number.isNaN(parseMoney(monthlyIncome))) {
+        setError('Please enter a valid income amount.'); return;
       }
     }
-
-    if (step === 4 && Number.isNaN(parseMoney(openingBalance))) {
-      setError('Please provide a valid opening balance amount.');
-      return;
-    }
-
-    if (step === 5 && Number.isNaN(parseMoney(monthlyIncome))) {
-      setError('Please provide a valid monthly income amount.');
-      return;
-    }
-
-    if (step === 6 && recurringValidCount === 0) {
-      setError('Add at least one recurring payment with a name and amount.');
-      return;
-    }
-
-    if (step === 7 && budgetValidCount === 0) {
-      setError('Add at least one budget category with a value.');
-      return;
-    }
-
     setStep((current) => Math.min(TOTAL_STEPS, current + 1) as WizardStep);
   };
 
@@ -104,23 +90,16 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
   };
 
   const finish = () => {
-    if (pin !== confirmPin) {
-      setError('PIN mismatch. Please re-check and finish setup again.');
-      return;
-    }
-
     const profile: UserSetupProfile = {
-      openingBalance: parseMoney(openingBalance),
-      monthlyIncome: parseMoney(monthlyIncome),
+      openingBalance: parseMoney(openingBalance) || 0,
+      monthlyIncome: parseMoney(monthlyIncome) || 0,
       recurringPayments: recurringRows
         .filter((row) => row.label.trim() && !Number.isNaN(parseMoney(row.value)))
         .map((row) => ({ id: row.id, title: row.label.trim(), amount: parseMoney(row.value) })),
       budgetCategories: budgetRows
         .filter((row) => row.label.trim() && !Number.isNaN(parseMoney(row.value)))
-        .map((row) => ({ id: row.id, label: row.label.trim(), amount: parseMoney(row.value) })),
-      avatarName: avatarName.trim() || undefined
+        .map((row) => ({ id: row.id, label: row.label.trim(), amount: parseMoney(row.value) }))
     };
-
     onFinish(pin, profile);
   };
 
@@ -130,121 +109,191 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
       <div className="bg-orb bg-orb--bottom" />
 
       <section className="glass-card login-card setup-card stack">
-        <p className="eyebrow">Family Hub setup</p>
-        <h1>{user.name}, let's personalize your space</h1>
+        <div className="login-brand">
+          <span className="login-logo">🏡</span>
+          <p className="eyebrow">Family Hub setup</p>
+        </div>
+        <h1>{user.name}, let's get you set up</h1>
+
         <div className="wizard-progress-track" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className="wizard-progress-fill" style={{ width: `${progress}%` }} />
         </div>
-        <p className="muted">
-          Step {step} of {TOTAL_STEPS} · {stepTitle[step]}
-        </p>
+        <p className="muted">Step {step} of {TOTAL_STEPS} · {stepTitle[step]}</p>
 
         <div key={step} className="wizard-step fade-in">
 
-        {step === 1 ? (
-          <div className="setup-summary stack-sm">
-            <p className="muted">You are setting up Family Hub as:</p>
-            <p><strong>{user.name}</strong></p>
-            <p className="muted">You can change active users later in More → Users.</p>
-          </div>
-        ) : null}
+          {step === 1 && (
+            <div className="setup-summary stack-sm">
+              <p className="setup-welcome-emoji">👋</p>
+              <p className="muted">You're setting up Family Hub as <strong>{user.name}</strong>.</p>
+              <p className="muted">This takes about 2 minutes. You can always change everything later.</p>
+            </div>
+          )}
 
-        {step === 2 ? (
-          <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={pin} placeholder="Create 4-digit PIN" onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))} />
-        ) : null}
-
-        {step === 3 ? (
-          <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={confirmPin} placeholder="Confirm your PIN" onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 4))} />
-        ) : null}
-
-        {step === 4 ? (
-          <input value={openingBalance} inputMode="decimal" placeholder="Opening balance" onChange={(event) => setOpeningBalance(event.target.value)} />
-        ) : null}
-
-        {step === 5 ? (
-          <input value={monthlyIncome} inputMode="decimal" placeholder="Monthly income" onChange={(event) => setMonthlyIncome(event.target.value)} />
-        ) : null}
-
-        {step === 6 ? (
-          <div className="stack-sm">
-            {recurringRows.map((row) => (
-              <div className="setup-row" key={row.id}>
-                <input
-                  value={row.label}
-                  placeholder="Payment name"
-                  onChange={(event) =>
-                    setRecurringRows((current) => current.map((item) => (item.id === row.id ? { ...item, label: event.target.value } : item)))
-                  }
-                />
-                <input
-                  value={row.value}
-                  inputMode="decimal"
-                  placeholder="Amount"
-                  onChange={(event) =>
-                    setRecurringRows((current) => current.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)))
-                  }
-                />
+          {step === 2 && (
+            <div className="stack-sm">
+              <p className="muted">Choose a 4-digit PIN to protect your profile.</p>
+              <div className="pin-dots">
+                {[0,1,2,3].map((i) => (
+                  <div key={i} className={`pin-dot ${pin.length > i ? 'is-filled' : ''}`} />
+                ))}
               </div>
-            ))}
-            <button className="btn btn-ghost" onClick={() => setRecurringRows((current) => [...current, createRow()])}>
-              Add payment
-            </button>
-          </div>
-        ) : null}
-
-        {step === 7 ? (
-          <div className="stack-sm">
-            {budgetRows.map((row) => (
-              <div className="setup-row" key={row.id}>
-                <input
-                  value={row.label}
-                  placeholder="Category"
-                  onChange={(event) => setBudgetRows((current) => current.map((item) => (item.id === row.id ? { ...item, label: event.target.value } : item)))}
-                />
-                <input
-                  value={row.value}
-                  inputMode="decimal"
-                  placeholder="Budget"
-                  onChange={(event) => setBudgetRows((current) => current.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)))}
-                />
+              <div className="pin-pad">
+                {PAD_KEYS.map((key, i) => (
+                  key === '' ? <div key={i} /> : (
+                    <button
+                      key={i}
+                      className={`pin-pad-key ${key === '⌫' ? 'is-back' : ''}`}
+                      type="button"
+                      onClick={() => handlePinKey(key, 'pin')}
+                      aria-label={key === '⌫' ? 'Delete' : key}
+                    >
+                      {key}
+                    </button>
+                  )
+                ))}
               </div>
-            ))}
-            <button className="btn btn-ghost" onClick={() => setBudgetRows((current) => [...current, createRow()])}>
-              Add category
-            </button>
-          </div>
-        ) : null}
+            </div>
+          )}
 
-        {step === 8 ? (
-          <input value={avatarName} placeholder="Optional avatar name" onChange={(event) => setAvatarName(event.target.value)} />
-        ) : null}
+          {step === 3 && (
+            <div className="stack-sm">
+              <p className="muted">Enter your PIN once more to confirm.</p>
+              <div className="pin-dots">
+                {[0,1,2,3].map((i) => (
+                  <div key={i} className={`pin-dot ${confirmPin.length > i ? 'is-filled' : ''}`} />
+                ))}
+              </div>
+              <div className="pin-pad">
+                {PAD_KEYS.map((key, i) => (
+                  key === '' ? <div key={i} /> : (
+                    <button
+                      key={i}
+                      className={`pin-pad-key ${key === '⌫' ? 'is-back' : ''}`}
+                      type="button"
+                      onClick={() => handlePinKey(key, 'confirm')}
+                      aria-label={key === '⌫' ? 'Delete' : key}
+                    >
+                      {key}
+                    </button>
+                  )
+                ))}
+              </div>
+            </div>
+          )}
 
-        {step === 9 ? (
-          <div className="setup-summary stack-sm">
-            <p className="muted">Review done. Tap finish to save your setup and unlock Family Hub.</p>
-            <p>Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>
-            <p>Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>
-            <p>Recurring payments: {recurringValidCount}</p>
-            <p>Budget categories: {budgetValidCount}</p>
-            <p>Avatar: {avatarName.trim() || 'Skipped'}</p>
-          </div>
-        ) : null}
+          {step === 4 && (
+            <div className="stack-sm">
+              <p className="muted">Optional — you can skip this and set it up later in Money.</p>
+              <label className="task-field">
+                <span>Opening bank balance (R)</span>
+                <input
+                  value={openingBalance}
+                  inputMode="decimal"
+                  placeholder="e.g. 12500"
+                  onChange={(event) => setOpeningBalance(event.target.value)}
+                />
+              </label>
+              <label className="task-field">
+                <span>Monthly take-home income (R)</span>
+                <input
+                  value={monthlyIncome}
+                  inputMode="decimal"
+                  placeholder="e.g. 45000"
+                  onChange={(event) => setMonthlyIncome(event.target.value)}
+                />
+              </label>
+            </div>
+          )}
+
+          {step === 5 && (
+            <div className="stack-sm">
+              <p className="muted">Optional — add recurring bills and budget categories. Skip if you prefer to set these up later.</p>
+
+              <h4>Monthly recurring payments</h4>
+              {recurringRows.map((row) => (
+                <div className="setup-row" key={row.id}>
+                  <input
+                    value={row.label}
+                    placeholder="e.g. Rent, Netflix"
+                    onChange={(event) =>
+                      setRecurringRows((current) => current.map((item) => item.id === row.id ? { ...item, label: event.target.value } : item))
+                    }
+                  />
+                  <input
+                    value={row.value}
+                    inputMode="decimal"
+                    placeholder="Amount"
+                    onChange={(event) =>
+                      setRecurringRows((current) => current.map((item) => item.id === row.id ? { ...item, value: event.target.value } : item))
+                    }
+                  />
+                </div>
+              ))}
+              <button className="btn btn-ghost" type="button" onClick={() => setRecurringRows((current) => [...current, createRow()])}>
+                + Add payment
+              </button>
+
+              <h4>Budget categories</h4>
+              {budgetRows.map((row) => (
+                <div className="setup-row" key={row.id}>
+                  <input
+                    value={row.label}
+                    placeholder="e.g. Groceries, Fuel"
+                    onChange={(event) =>
+                      setBudgetRows((current) => current.map((item) => item.id === row.id ? { ...item, label: event.target.value } : item))
+                    }
+                  />
+                  <input
+                    value={row.value}
+                    inputMode="decimal"
+                    placeholder="Monthly budget"
+                    onChange={(event) =>
+                      setBudgetRows((current) => current.map((item) => item.id === row.id ? { ...item, value: event.target.value } : item))
+                    }
+                  />
+                </div>
+              ))}
+              <button className="btn btn-ghost" type="button" onClick={() => setBudgetRows((current) => [...current, createRow()])}>
+                + Add category
+              </button>
+            </div>
+          )}
+
+          {step === 6 && (
+            <div className="setup-summary stack-sm">
+              <p className="setup-welcome-emoji">🎉</p>
+              <p className="muted">You're all set, <strong>{user.name}</strong>! Here's a quick summary:</p>
+              {openingBalance && <p>💰 Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>}
+              {monthlyIncome && <p>📅 Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>}
+              {recurringValidCount > 0 && <p>🔁 Recurring payments: {recurringValidCount}</p>}
+              {budgetValidCount > 0 && <p>📊 Budget categories: {budgetValidCount}</p>}
+              {!openingBalance && !monthlyIncome && <p className="muted">You can set up your finances anytime in the Money tab.</p>}
+            </div>
+          )}
 
         </div>
 
         {error ? <p className="error-banner">{error}</p> : null}
 
         <div className="wizard-actions">
-          <button className="btn btn-ghost" onClick={goBack} disabled={step === 1}>
-            Back
+          <button className="btn btn-ghost" type="button" onClick={goBack} disabled={step === 1}>
+            ← Back
           </button>
           {step < TOTAL_STEPS ? (
-            <button className="btn btn-primary" onClick={goNext}>
-              Continue
-            </button>
+            <div className="wizard-next-group">
+              {(step === 4 || step === 5) && (
+                <button className="btn btn-ghost" type="button" onClick={goNext}>
+                  Skip
+                </button>
+              )}
+              <button className="btn btn-primary" type="button" onClick={goNext}>
+                Continue →
+              </button>
+            </div>
           ) : (
-            <button className="btn btn-primary" onClick={finish}>
-              Finish setup
+            <button className="btn btn-primary" type="button" onClick={finish}>
+              Enter Family Hub 🏡
             </button>
           )}
         </div>
