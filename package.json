@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:client": "vite",
+    "dev:server": "node server/index.mjs",
+    "dev:all": "sh -c 'npm run dev:server & npm run dev:client'",
     "build": "tsc -b && vite build",
+    "test": "node --test src/test/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

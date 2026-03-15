@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react';
-import { formatCurrency } from '../../lib/family-hub/format';
+import { useState } from 'react';
 import type { User } from '../../lib/family-hub/constants';
 import type { UserSetupProfile } from '../../lib/family-hub/storage';
+import { Button } from '../../ui/Button';
+import { Card } from '../../ui/Card';
+import { Progress } from '../../ui/Progress';
+import { Confetti } from '../../ui/Confetti';
+import { useToasts } from '../../ui/useToasts';
+
 
 type Props = {
   user: User;
@@ -29,12 +34,14 @@ type InputRow = {
 const createRow = () => ({ id: crypto.randomUUID(), label: '', value: '' });
 const parseMoney = (value: string) => Number.parseFloat(value.replace(',', '.'));
 
+
 const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'] as const;
 
 export const SetupWizard = ({ user, onFinish }: Props) => {
-  const [step, setStep] = useState<WizardStep>(1);
+  const [step, setStep] = useState(1);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+
   const [openingBalance, setOpeningBalance] = useState('');
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [recurringRows, setRecurringRows] = useState<InputRow[]>([createRow()]);
@@ -101,10 +108,12 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
         .map((row) => ({ id: row.id, label: row.label.trim(), amount: parseMoney(row.value) }))
     };
     onFinish(pin, profile);
+
   };
 
   return (
     <main className="login-shell">
+
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
 
@@ -274,9 +283,11 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
         </div>
 
+
         {error ? <p className="error-banner">{error}</p> : null}
 
         <div className="wizard-actions">
+
           <button className="btn btn-ghost" type="button" onClick={goBack} disabled={step === 1}>
             ← Back
           </button>
@@ -296,8 +307,10 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
               Enter Family Hub 🏡
             </button>
           )}
+
         </div>
-      </section>
+        {step === 4 ? <Button variant="ghost" onClick={finish}>Skip for now</Button> : null}
+      </Card>
     </main>
   );
 };

@@ -210,9 +210,11 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
       {filteredTasks.length === 0 ? (
         <section className="glass-panel tasks-empty stack" aria-label="Empty tasks">
           <p className="tasks-empty-emoji" aria-hidden="true">🫧</p>
+
           <h3>All clear</h3>
           <p className="muted">No tasks here yet. Start small — one task at a time.</p>
           <button className="btn btn-primary" data-testid="btn-add-first-task" type="button" onClick={openAdd}>
+
             Add first task
           </button>
         </section>

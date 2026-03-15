@@ -358,7 +358,7 @@ export const MoneyScreen = ({ profile, payments, actualTransactions, onSaveProfi
                   );
                 })}
               </div>
-            ) : <p className="muted">No payments yet. Add first payment.</p>}
+            ) : <p className="muted">No entries yet. Add first payment.</p>}
           </FoundationBlock>
         </>
       ) : null}

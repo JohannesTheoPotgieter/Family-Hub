@@ -1,4 +1,10 @@
 :root {
+  --bg: var(--bg-0);
+  --surface-card: var(--surface);
+  --text-main: var(--text);
+  --muted: var(--text-muted);
+  --shadow: var(--shadow-md);
+  --radius: var(--radius-lg);
   --bg-0: #f5f8ff;
   --bg-1: #eef3ff;
   --bg-2: #e6eeff;
@@ -144,6 +150,12 @@ button:focus-visible,
 
 @media (prefers-color-scheme: dark) {
   :root {
+  --bg: var(--bg-0);
+  --surface-card: var(--surface);
+  --text-main: var(--text);
+  --muted: var(--text-muted);
+  --shadow: var(--shadow-md);
+  --radius: var(--radius-lg);
     --bg-0: #10192c;
     --bg-1: #0f1a30;
     --bg-2: #0e182b;
