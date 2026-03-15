@@ -1,0 +1,14 @@
+.chip, .btn, .nav-item, .calendar-day-chip, .event-card { transition: transform .18s ease, box-shadow .18s ease, background-color .2s ease; }
+.chip:hover, .btn:hover, .event-card:hover { transform: translateY(-1px); }
+.chip:active, .btn:active, .event-card:active { transform: translateY(0.5px); }
+
+.toast-viewport { position: fixed; top: 16px; right: 16px; z-index: 80; display: grid; gap: 8px; }
+.toast { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: var(--radius-md); padding: 10px 12px; box-shadow: var(--shadow-sm); }
+
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 70; }
+.confetti span { position: absolute; top: -10px; left: calc(5% + (var(--i) * 6.7%)); width: 8px; height: 16px; border-radius: 4px; background: hsl(calc(20 * var(--i)), 90%, 60%); animation: drop 900ms ease-out forwards; }
+@keyframes drop { to { transform: translateY(40vh) rotate(210deg); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti { display: none; }
+}

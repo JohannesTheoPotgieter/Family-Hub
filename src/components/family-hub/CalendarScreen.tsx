@@ -1,433 +1,154 @@
-import { useMemo, useState, type DragEvent } from 'react';
-import type { UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PaymentItem, TaskItem } from '../../lib/family-hub/storage';
-import { formatCurrency } from '../../lib/family-hub/format';
-import { ScreenIntro } from './BaselineScaffold';
+import { useMemo, useState } from 'react';
+import type { CalendarEvent } from '../../lib/family-hub/storage';
+import { getCalendarMode, getCalendarProviderClients } from '../../integrations/calendar';
+import type { NormalizedEvent } from '../../domain/calendar';
+import { Button } from '../../ui/Button';
+import { Card } from '../../ui/Card';
+import { Chip } from '../../ui/Chip';
+import { Modal } from '../../ui/Modal';
+import { Confetti } from '../../ui/Confetti';
+import { useToasts } from '../../ui/useToasts';
 
 type CalendarScreenProps = {
-  activeUserId: UserId;
   events: CalendarEvent[];
-  payments: PaymentItem[];
-  tasks: TaskItem[];
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
-  onAddPayment: (payment: Omit<PaymentItem, 'id' | 'paid'>) => void;
-  onAddTask: (task: Omit<TaskItem, 'id' | 'completed'>) => void;
-  onUpdateTask: (id: string, update: Omit<TaskItem, 'id' | 'completed'>) => void;
 };
 
-type ViewMode = 'month' | 'week' | 'day' | 'agenda';
-type ItemType = 'event' | 'appointment' | 'payment' | 'task';
-type AddType = 'event' | 'task' | 'payment';
+type Filter = 'all' | 'internal' | 'google' | 'microsoft' | 'caldav' | 'ics';
 
-type CalendarItem = {
-  id: string;
-  type: ItemType;
-  title: string;
-  date: string;
-  meta?: string;
-  rawId: string;
+const formatDayKey = (date: Date) => date.toISOString().slice(0, 10);
+const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', opts).format(date);
+const startWeek = (date: Date) => { const d = new Date(date); const day = d.getDay(); const diff = day === 0 ? -6 : 1 - day; d.setDate(d.getDate() + diff); d.setHours(0,0,0,0); return d; };
+const addDays = (date: Date, n: number) => { const d = new Date(date); d.setDate(d.getDate()+n); return d; };
+
+const providerLabel: Record<Filter, string> = {
+  all: 'All',
+  internal: 'Internal',
+  google: 'Google',
+  microsoft: 'Outlook',
+  caldav: 'Apple',
+  ics: 'ICS'
 };
 
-const viewModes: { key: ViewMode; label: string }[] = [
-  { key: 'month', label: 'Month' },
-  { key: 'week', label: 'Week' },
-  { key: 'day', label: 'Day' },
-  { key: 'agenda', label: 'Agenda' }
-];
-
-const addTypes: { key: AddType; label: string }[] = [
-  { key: 'event', label: 'Event' },
-  { key: 'task', label: 'Task' },
-  { key: 'payment', label: 'Payment' }
-];
-
-
-const weekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-const dateKey = (date: Date) => date.toISOString().slice(0, 10);
-
-const prettyDate = (input: Date | string, options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }) =>
-  new Intl.DateTimeFormat('en-ZA', options).format(new Date(input));
-
-const startOfWeek = (date: Date) => {
-  const value = new Date(date);
-  const day = value.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  value.setDate(value.getDate() + diff);
-  value.setHours(0, 0, 0, 0);
-  return value;
-};
-
-const isSameDay = (left: Date, right: Date) => dateKey(left) === dateKey(right);
-
-const isSpecialAppointment = (event: CalendarEvent) => {
-  if (event.kind === 'appointment') return true;
-  return /doctor|dentist|appointment|clinic|checkup/i.test(event.title);
-};
-
-export const CalendarScreen = ({
-  activeUserId,
-  events,
-  payments,
-  tasks,
-  onAddEvent,
-  onAddPayment,
-  onAddTask,
-  onUpdateTask
-}: CalendarScreenProps) => {
-  const today = useMemo(() => new Date(), []);
-  const [activeView, setActiveView] = useState<ViewMode>('month');
-  const [currentDate, setCurrentDate] = useState<Date>(today);
-  const [selectedDay, setSelectedDay] = useState<Date>(today);
-  const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<AddType>('event');
+export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
+  const mode = getCalendarMode();
+  const providers = useMemo(() => getCalendarProviderClients(), []);
+  const [day, setDay] = useState(new Date());
+  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [pickedDate, setPickedDate] = useState(dateKey(today));
-  const [amount, setAmount] = useState('');
-  const [shared, setShared] = useState(true);
-  const [dropTargetDate, setDropTargetDate] = useState<string | null>(null);
+  const [date, setDate] = useState(formatDayKey(new Date()));
+  const [selectedFilter, setFilter] = useState<Filter>('all');
+  const [externalEvents, setExternalEvents] = useState<NormalizedEvent[]>([]);
+  const [celebrate, setCelebrate] = useState(false);
+  const { push } = useToasts();
 
-  const undatedTasks = useMemo(() => tasks.filter((task) => !task.completed && !task.dueDate), [tasks]);
+  const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startWeek(day), i)), [day]);
 
-  const allItems = useMemo<CalendarItem[]>(
-    () => [
-      ...events.map((event) => ({
-        id: `event-${event.id}`,
-        rawId: event.id,
-        type: (isSpecialAppointment(event) ? 'appointment' : 'event') as ItemType,
-        title: event.title,
-        date: event.date,
-        meta: isSpecialAppointment(event) ? 'Special appointment' : 'Family event'
-      })),
-      ...payments.map((payment) => ({
-        id: `payment-${payment.id}`,
-        rawId: payment.id,
-        type: 'payment' as const,
-        title: payment.title,
-        date: payment.dueDate,
-        meta: formatCurrency(payment.amount)
-      })),
-      ...tasks
-        .filter((task) => task.dueDate)
-        .map((task) => ({
-          id: `task-${task.id}`,
-          rawId: task.id,
-          type: 'task' as const,
-          title: task.title,
-          date: task.dueDate ?? dateKey(today),
-          meta: task.shared ? 'Shared task' : 'Personal task'
-        }))
-    ].sort((a, b) => a.date.localeCompare(b.date)),
-    [events, payments, tasks, today]
-  );
+  const merged = useMemo(() => {
+    const internal = events.map((event) => ({
+      id: event.id,
+      provider: 'internal' as const,
+      title: event.title,
+      iso: `${event.date}T12:00:00.000Z`
+    }));
+    const external = externalEvents.map((event) => ({ id: event.id, provider: event.provider, title: event.title, iso: event.start.iso }));
+    return [...internal, ...external];
+  }, [events, externalEvents]);
 
-  const itemsByDate = useMemo(() => {
-    const grouped: Record<string, CalendarItem[]> = {};
-    for (const item of allItems) {
-      grouped[item.date] = grouped[item.date] ? [...grouped[item.date], item] : [item];
+  const selectedDayEvents = merged.filter((event) => formatDayKey(new Date(event.iso)) === formatDayKey(day))
+    .filter((event) => selectedFilter === 'all' || event.provider === selectedFilter)
+    .sort((a, b) => a.iso.localeCompare(b.iso));
+
+  const connectProvider = async (providerId: string) => {
+    const client = providers.find((item) => item.provider === providerId);
+    if (!client) return;
+    try {
+      await client.connect();
+      const calendars = await client.listCalendars();
+      const now = new Date();
+      const timeMinIso = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
+      const timeMaxIso = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
+      const chunks = await Promise.all(calendars.slice(0, 3).map((calendar) => client.listEvents({ calendarId: calendar.id, timeMinIso, timeMaxIso })));
+      const loaded = chunks.flat();
+      setExternalEvents((current) => [...current.filter((item) => item.provider !== client.provider), ...loaded]);
+      push(`Connected ${providerLabel[providerId as Filter]} Calendar 🎉`);
+      if (loaded.length) push('Plans loaded! 🗓️✨');
+      setCelebrate(true);
+      setTimeout(() => setCelebrate(false), 1200);
+    } catch (error) {
+      push((error as Error).message);
     }
-    return grouped;
-  }, [allItems]);
-
-  const monthDays = useMemo(() => {
-    const first = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const start = startOfWeek(first);
-    return Array.from({ length: 42 }, (_, index) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + index);
-      return day;
-    });
-  }, [currentDate]);
-
-  const weekDays = useMemo(() => {
-    const start = startOfWeek(selectedDay);
-    return Array.from({ length: 7 }, (_, index) => {
-      const day = new Date(start);
-      day.setDate(start.getDate() + index);
-      return day;
-    });
-  }, [selectedDay]);
-
-  const selectedItems = itemsByDate[dateKey(selectedDay)] ?? [];
-  const agendaItems = useMemo(() => allItems.filter((item) => item.date >= dateKey(today)).slice(0, 20), [allItems, today]);
-
-  const jumpPeriod = (direction: -1 | 1) => {
-    const next = new Date(currentDate);
-    if (activeView === 'month') next.setMonth(next.getMonth() + direction);
-    if (activeView === 'week') next.setDate(next.getDate() + 7 * direction);
-    if (activeView === 'day') next.setDate(next.getDate() + direction);
-    if (activeView === 'agenda') next.setMonth(next.getMonth() + direction);
-    setCurrentDate(next);
-    setSelectedDay(next);
   };
-
-  const openAdd = (kind: AddType) => {
-    setModalType(kind);
-    setPickedDate(dateKey(selectedDay));
-    setTitle('');
-    setAmount('');
-    setShared(true);
-    setShowModal(true);
-  };
-
-  const submit = () => {
-    const cleanTitle = title.trim();
-    if (!cleanTitle) return;
-
-    if (modalType === 'event') {
-      onAddEvent({ title: cleanTitle, date: pickedDate, kind: /doctor|dentist|appointment|clinic/i.test(cleanTitle) ? 'appointment' : 'event' });
-    }
-
-    if (modalType === 'payment') {
-      onAddPayment({ title: cleanTitle, dueDate: pickedDate, amount: Number(amount) || 0, category: 'Other', autoCreateTransaction: true });
-    }
-
-    if (modalType === 'task') {
-      onAddTask({ title: cleanTitle, dueDate: pickedDate, notes: '', shared, ownerId: activeUserId });
-    }
-
-    setShowModal(false);
-  };
-
-  const onDropTask = (event: DragEvent<HTMLElement>, targetDate: string) => {
-    event.preventDefault();
-    const taskId = event.dataTransfer.getData('text/task-id');
-    const task = tasks.find((entry) => entry.id === taskId);
-    if (!task) return;
-
-    onUpdateTask(task.id, {
-      title: task.title,
-      dueDate: targetDate,
-      notes: task.notes,
-      shared: task.shared,
-      ownerId: task.ownerId
-    });
-    setDropTargetDate(null);
-  };
-
-  const hasItems = allItems.length > 0;
 
   return (
-    <section className="calendar-screen stack-lg">
-      <ScreenIntro badge="Planning" title="Calendar" subtitle="Events, payments, and tasks in one clean family timeline." />
-
-      <section className="glass-panel calendar-toolbar stack-sm">
-        <div className="calendar-view-tabs" role="tablist" aria-label="Calendar views">
-          {viewModes.map((mode) => (
-            <button
-              key={mode.key}
-              className={`calendar-view-tab ${activeView === mode.key ? 'is-active' : ''}`}
-              type="button"
-              onClick={() => setActiveView(mode.key)}
-            >
-              {mode.label}
-            </button>
+    <section className="stack-lg">
+      <Confetti active={celebrate} />
+      <Card className="stack-sm calendar-hero">
+        <p className="eyebrow">Family Planner Quest</p>
+        <h2>Pick a day, track the vibe, make a plan 🧭</h2>
+        <div className="chip-list">
+          {providers.map((provider) => (
+            <Chip key={provider.provider} onClick={() => connectProvider(provider.provider)} aria-label={`Connect ${provider.provider}`}>
+              Connect {providerLabel[provider.provider as Filter]}
+            </Chip>
           ))}
+          <Chip>{mode === 'server' ? 'Sync now' : 'Refresh'}</Chip>
         </div>
+      </Card>
 
-        <div className="calendar-nav-row">
-          <button className="btn btn-ghost" type="button" onClick={() => jumpPeriod(-1)}>
-            ←
-          </button>
-          <p className="calendar-range-label">{prettyDate(currentDate, { month: 'long', year: 'numeric' })}</p>
-          <button className="btn btn-ghost" type="button" onClick={() => jumpPeriod(1)}>
-            →
-          </button>
-        </div>
-
-        <div className="calendar-quick-actions">
-          {addTypes.map((type) => (
-            <button key={type.key} className="chip-action" type="button" onClick={() => openAdd(type.key)}>
-              + {type.label}
+      <Card className="week-strip">
+        {week.map((weekDay) => {
+          const key = formatDayKey(weekDay);
+          const hasEvents = merged.some((item) => formatDayKey(new Date(item.iso)) === key);
+          return (
+            <button key={key} className={`calendar-day-chip ${formatDayKey(day) === key ? 'is-active' : ''}`} onClick={() => setDay(weekDay)}>
+              <span>{fmt(weekDay, { weekday: 'short' })}</span>
+              <strong>{fmt(weekDay, { day: 'numeric' })}</strong>
+              {hasEvents ? <i aria-hidden="true">•</i> : null}
             </button>
-          ))}
-        </div>
-      </section>
+          );
+        })}
+      </Card>
 
-      {undatedTasks.length ? (
-        <section className="glass-panel undated-drop-strip stack-sm" aria-label="Undated tasks">
-          <header className="section-head">
-            <h3>Undated tasks</h3>
-            <span className="section-tip">Drag onto a date</span>
-          </header>
-          <div className="chip-list">
-            {undatedTasks.map((task) => (
-              <button
-                key={task.id}
-                className="route-pill undated-task-pill"
-                draggable
-                type="button"
-                onDragStart={(event) => event.dataTransfer.setData('text/task-id', task.id)}
-              >
-                {task.title}
-              </button>
-            ))}
+      <div className="chip-list">
+        {(Object.keys(providerLabel) as Filter[]).map((filter) => (
+          <Chip key={filter} className={selectedFilter === filter ? 'is-active' : ''} onClick={() => setFilter(filter)}>
+            {providerLabel[filter]}
+          </Chip>
+        ))}
+      </div>
+
+      <Card className="stack-sm">
+        <h3>Agenda · {fmt(day, { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+        {selectedDayEvents.length ? selectedDayEvents.map((event) => (
+          <article key={`${event.provider}-${event.id}`} className={`event-card provider-${event.provider}`}>
+            <p>{event.title}</p>
+            <small>{fmt(new Date(event.iso), { hour: 'numeric', minute: '2-digit' })} · {providerLabel[event.provider as Filter] ?? 'Internal'}</small>
+          </article>
+        )) : (
+          <div className="stack-sm">
+            <p className="tasks-empty-emoji">🗓️</p>
+            <p className="muted">No events yet—let's add a plan!</p>
           </div>
-        </section>
-      ) : null}
-
-      {activeView === 'month' ? (
-        <section className="glass-panel calendar-grid stack-sm" aria-label="Month view">
-          <div className="month-weekdays" aria-hidden="true">
-            {weekdayShort.map((day) => (
-              <span key={day} className="month-weekday">{day}</span>
-            ))}
-          </div>
-          <div className="month-grid">
-          {monthDays.map((day) => {
-            const key = dateKey(day);
-            const items = itemsByDate[key] ?? [];
-            const inMonth = day.getMonth() === currentDate.getMonth();
-            return (
-              <article
-                key={key}
-                className={`calendar-day-cell ${inMonth ? '' : 'is-outside'} ${isSameDay(day, selectedDay) ? 'is-selected' : ''} ${dropTargetDate === key ? 'is-drop-target' : ''}`}
-                onClick={() => setSelectedDay(day)}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDropTargetDate(key);
-                }}
-                onDragLeave={() => setDropTargetDate(null)}
-                onDrop={(event) => onDropTask(event, key)}
-              >
-                <p className="calendar-day-number">{day.getDate()}</p>
-                <div className="calendar-mini-list">
-                  {items.slice(0, 2).map((item) => (
-                    <span key={item.id} className={`calendar-dot is-${item.type}`}>
-                      {item.type === 'payment' ? 'R' : item.type === 'task' ? '✓' : '•'} {item.title}
-                    </span>
-                  ))}
-                  {items.length > 2 ? <span className="calendar-more">+{items.length - 2} more</span> : null}
-                </div>
-              </article>
-            );
-          })}
-          </div>
-        </section>
-      ) : null}
-
-      {activeView === 'week' ? (
-        <section className="glass-panel calendar-grid week-grid" aria-label="Week view">
-          {weekDays.map((day) => {
-            const key = dateKey(day);
-            return (
-              <article key={key} className={`week-day-column ${isSameDay(day, selectedDay) ? 'is-selected' : ''}`} onClick={() => setSelectedDay(day)}>
-                <p className="calendar-weekday">{prettyDate(day, { weekday: 'short' })}</p>
-                <p className="calendar-day-number">{day.getDate()}</p>
-                <div className="stack-sm">
-                  {(itemsByDate[key] ?? []).map((item) => (
-                    <span key={item.id} className={`calendar-item-chip is-${item.type}`}>
-                      {item.title}
-                    </span>
-                  ))}
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      ) : null}
-
-      {activeView === 'day' ? (
-        <section className="glass-panel stack day-view" aria-label="Day view">
-          <header className="section-head">
-            <h3>{prettyDate(selectedDay, { weekday: 'long', month: 'long', day: 'numeric' })}</h3>
-            <span className="section-tip">Focused day view</span>
-          </header>
-          {selectedItems.length ? (
-            selectedItems.map((item) => (
-              <article key={item.id} className={`calendar-detail-item is-${item.type}`}>
-                <p>{item.title}</p>
-                <span>{item.meta}</span>
-              </article>
-            ))
-          ) : (
-            <p className="muted">Nothing scheduled for this day yet.</p>
-          )}
-        </section>
-      ) : null}
-
-      {activeView === 'agenda' ? (
-        <section className="glass-panel stack" aria-label="Agenda view">
-          {agendaItems.length ? (
-            agendaItems.map((item) => (
-              <article key={item.id} className="list-item">
-                <span className={`item-tag is-${item.type === 'appointment' ? 'warn' : item.type === 'task' ? 'task' : 'soft'}`}>
-                  {item.type}
-                </span>
-                <div>
-                  <p className="task-title">{item.title}</p>
-                  <p className="muted">{prettyDate(item.date)} · {item.meta ?? 'Family item'}</p>
-                </div>
-              </article>
-            ))
-          ) : (
-            <p className="muted">No upcoming items in agenda.</p>
-          )}
-        </section>
-      ) : null}
-
-      <section className="glass-panel selected-day-panel stack-sm" aria-label="Selected day summary">
-        <header className="section-head">
-          <h3>{prettyDate(selectedDay, { month: 'long', day: 'numeric', weekday: 'short' })}</h3>
-          <span className="section-tip">Selected day</span>
-        </header>
-        {selectedItems.length ? (
-          selectedItems.map((item) => (
-            <article key={item.id} className={`calendar-item-chip is-${item.type}`}>
-              <strong>{item.title}</strong>
-              <small>{item.meta ?? 'Family item'}</small>
-            </article>
-          ))
-        ) : (
-          <p className="muted">Tap + Event, + Task, or + Payment to fill this date.</p>
         )}
-      </section>
+      </Card>
 
-      {!hasItems ? (
-        <section className="glass-panel calendar-empty stack" aria-label="Empty calendar">
-          <p className="tasks-empty-emoji" aria-hidden="true">🗓️</p>
-          <h3>Your calendar is clear</h3>
-          <p className="muted">Start with one item and build your family rhythm.</p>
-          <div className="task-composer-actions">
-            <button className="btn btn-primary" type="button" onClick={() => openAdd('event')}>
-              Add event
-            </button>
-            <button className="btn btn-ghost" type="button" onClick={() => openAdd('task')}>
-              Add task
-            </button>
-          </div>
-          <button className="btn btn-ghost" type="button" onClick={() => openAdd('payment')}>
-            Add payment
-          </button>
-        </section>
-      ) : null}
+      <Button className="floating-add" onClick={() => setOpen(true)} aria-label="Add internal event">+</Button>
 
-      {showModal ? (
-        <div className="calendar-modal-backdrop" role="presentation" onClick={() => setShowModal(false)}>
-          <section className="glass-panel calendar-modal stack" role="dialog" aria-label={`Add ${modalType}`} onClick={(event) => event.stopPropagation()}>
-            <h3>Add {modalType}</h3>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`Title for this ${modalType}`} />
-            <input type="date" value={pickedDate} onChange={(event) => setPickedDate(event.target.value)} />
-            {modalType === 'payment' ? (
-              <input type="number" min="0" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Amount" />
-            ) : null}
-            {modalType === 'task' ? (
-              <label className="task-shared-toggle">
-                <input type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} />
-                <span>Share with everyone</span>
-              </label>
-            ) : null}
-            <div className="task-composer-actions">
-              <button className="btn btn-ghost" type="button" onClick={() => setShowModal(false)}>
-                Cancel
-              </button>
-              <button className="btn btn-primary" type="button" onClick={submit}>
-                Save
-              </button>
-            </div>
-          </section>
+      <Modal open={open} title="Add to family plan" onClose={() => setOpen(false)}>
+        <input value={title} placeholder="Movie night, picnic, dentist..." onChange={(event) => setTitle(event.target.value)} />
+        <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+        <div className="task-composer-actions">
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => {
+            if (!title.trim()) return;
+            onAddEvent({ title: title.trim(), date, kind: 'event' });
+            push('Added to the plan!');
+            setTitle('');
+            setOpen(false);
+          }}>Save</Button>
         </div>
-      ) : null}
+      </Modal>
     </section>
   );
 };

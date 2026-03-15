@@ -211,8 +211,8 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
       {!hasAnyTasks ? (
         <section className="glass-panel tasks-empty stack" aria-label="Empty tasks">
           <p className="tasks-empty-emoji" aria-hidden="true">🫧</p>
-          <h3>No tasks here yet</h3>
-          <p className="muted">Start small and keep everyone in sync with one simple task.</p>
+          <h3>No quests yet</h3>
+          <p className="muted">Create your first quest and rally the crew.</p>
           <button className="btn btn-primary" type="button" onClick={openAdd}>
             Add first task
           </button>
