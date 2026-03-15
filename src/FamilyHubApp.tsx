@@ -122,16 +122,11 @@ export const FamilyHubApp = () => {
     );
   }
 
-  if (!state.userSetup[state.activeUserId].completed) {
-    return <main className="app-shell"><div className="bg-orb bg-orb--top" /><div className="bg-orb bg-orb--bottom" /><div className="app-phone-frame"><SetupWizard user={activeUser!} onFinish={(payload) => setState((current) => ({
-      ...current,
-      userPins: { ...current.userPins, [current.activeUserId!]: encodePin(current.activeUserId!, payload.pin) },
-      userSetup: { ...current.userSetup, [current.activeUserId!]: { completed: true, openingBalance: payload.openingBalance, monthlyIncome: payload.monthlyIncome } },
-      payments: [...current.payments, ...payload.payments.map((p) => ({ ...p, id: createId(), paid: false }))],
-      budgets: [...current.budgets, ...payload.budgets.map((b) => ({ id: createId(), category: b.category, limit: b.limit, spent: 0 }))]
-    }))} /></div></main>;
-  }
-
+  return (
+    <main className="app-shell">
+      <div className="bg-orb bg-orb--top" />
+      <div className="bg-orb bg-orb--bottom" />
+      <div className="app-phone-frame">
         <section className="screen-content">
           {activeTab === 'Home' && <HomeScreen state={state} onAvatarAction={onAvatarAction} />}
           {activeTab === 'Calendar' && (
