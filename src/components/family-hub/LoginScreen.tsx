@@ -4,56 +4,93 @@ import type { User, UserId } from '../../lib/family-hub/constants';
 type Props = {
   users: User[];
   hasPin: (userId: UserId) => boolean;
+  isSetupComplete: (userId: UserId) => boolean;
   onUnlock: (userId: UserId, pin: string) => boolean;
-  onSelectForSetup: (userId: UserId) => void;
+  onStartSetup: (userId: UserId) => void;
 };
 
-export const LoginScreen = ({ users, hasPin, onUnlock, onSelectForSetup }: Props) => {
-  const activeUsers = users.filter((u) => u.active);
-  const inactiveUsers = users.filter((u) => !u.active);
+export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
+  const activeUsers = users.filter((user) => user.active);
+  const inactiveUsers = users.filter((user) => !user.active);
   const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
-  const submit = () => {
-    if (!hasPin(selectedUser)) {
-      onSelectForSetup(selectedUser);
-      return;
-    }
-    if (!onUnlock(selectedUser, pin)) return setError('Incorrect PIN. Please try again.');
-    setPin('');
-    setError('');
-  };
+  const needsSetup = useMemo(
+    () => !hasPin(selectedUser) || !isSetupComplete(selectedUser),
+    [hasPin, isSetupComplete, selectedUser]
+  );
 
   return (
     <main className="login-shell">
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
-      <section className="glass-card login-card premium">
-        <p className="eyebrow">Family Hub</p>
-        <h1>Household unlock</h1>
-        <p className="subtitle">A calm, secure home for your plans, tasks, and money.</p>
+
+      <section className="glass-card login-card stack">
+        <p className="eyebrow">Welcome to Family Hub</p>
+        <h1>Pick your profile and unlock your family home.</h1>
+        <p className="muted">Warm, private and designed for quick everyday check-ins.</p>
+
         <div className="profile-grid">
           {activeUsers.map((user) => (
-            <button key={user.id} className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`} onClick={() => { setSelectedUser(user.id); setPin(''); setError(''); }}>
-              {user.name}
+            <button
+              key={user.id}
+              className={`profile-chip ${selectedUser === user.id ? 'is-active' : ''}`}
+              onClick={() => {
+                setSelectedUser(user.id);
+                setPin('');
+                setError('');
+              }}
+            >
+              <span className="profile-name">{user.name}</span>
+              <span className="profile-meta">Active</span>
             </button>
           ))}
         </div>
-        {hasPin(selectedUser) ? (
-          <>
-            <label className="field-label">4-digit PIN</label>
-            <input className="pin-input" type="password" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="••••" />
-          </>
-        ) : (
-          <div className="empty-state">This profile needs first-time setup.</div>
-        )}
-        {error ? <div className="error-banner">{error}</div> : null}
-        <button className="btn btn-primary" onClick={submit} disabled={hasPin(selectedUser) && pin.length !== 4}>{hasPin(selectedUser) ? 'Unlock Family Hub' : 'Start setup'}</button>
-        <div className="inactive-users">
-          <p className="small-title">Inactive future profiles</p>
-          <div className="chip-list">{inactiveUsers.map((u) => <span key={u.id} className="chip chip-muted">{u.name}</span>)}</div>
+
+        <div className="future-profiles">
+          <p className="future-label">Future profiles</p>
+          <div className="future-grid">
+            {inactiveUsers.map((user) => (
+              <div key={user.id} className="future-chip" aria-label={`${user.name} future profile`}>
+                {user.name}
+              </div>
+            ))}
+          </div>
         </div>
+
+        {needsSetup ? (
+          <button className="btn btn-primary" onClick={() => onStartSetup(selectedUser)}>
+            Start first-time setup
+          </button>
+        ) : (
+          <>
+            <input
+              className="pin-input"
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              placeholder="Enter PIN"
+              onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+            />
+            {error ? <p className="error-banner">{error}</p> : null}
+            <button
+              className="btn btn-primary"
+              disabled={pin.length !== 4}
+              onClick={() => {
+                const unlocked = onUnlock(selectedUser, pin);
+                if (!unlocked) {
+                  setError('That PIN was not correct. Please try again.');
+                  return;
+                }
+                setPin('');
+              }}
+            >
+              Unlock Family Hub
+            </button>
+          </>
+        )}
       </section>
     </main>
   );

@@ -15,12 +15,3 @@ export const USERS: User[] = [
 
 export const TABS = ['Home', 'Calendar', 'Tasks', 'Money', 'More'] as const;
 export type Tab = (typeof TABS)[number];
-
-export const MONEY_TABS = ['Overview', 'Cashflow', 'Budget', 'Transactions', 'Payments'] as const;
-export type MoneyTab = (typeof MONEY_TABS)[number];
-
-export const TASK_FILTERS = ['Today', 'Upcoming', 'Waiting', 'Done'] as const;
-export type TaskFilter = (typeof TASK_FILTERS)[number];
-
-export const CALENDAR_VIEWS = ['Month', 'Week', 'Day', 'Agenda'] as const;
-export type CalendarView = (typeof CALENDAR_VIEWS)[number];

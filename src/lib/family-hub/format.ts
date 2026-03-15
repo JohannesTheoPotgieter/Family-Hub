@@ -1,9 +1,8 @@
 export const formatCurrency = (amount: number) => {
-  const formatted = new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(Math.abs(amount));
-  return `R ${amount < 0 ? '-' : ''}${formatted}`;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const isNegative = safeAmount < 0;
+  const formattedNumber = Math.round(Math.abs(safeAmount)).toLocaleString('en-ZA');
+  return `${isNegative ? '-' : ''}R ${formattedNumber}`;
 };
 
-export const formatCurrencyInputHint = (amount: number) => `(${formatCurrency(amount)})`;
+export const formatPoints = (points: number) => `${points} pts`;
