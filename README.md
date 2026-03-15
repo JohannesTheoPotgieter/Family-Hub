@@ -24,3 +24,8 @@
 - Google: fill client id/secret and redirect URI.
 - Microsoft: fill app registration values.
 - Apple CalDAV: server mode required, use app-specific password for iCloud.
+
+## Money Manager data model update
+- `state.money` now uses `{ bills, transactions, budgets, settings }`.
+- Money amounts are stored as integer cents (`amountCents`, `limitCents`) for safer calculations.
+- Existing saved data is migrated automatically from legacy `payments` + `actualTransactions` and float `amount` fields.

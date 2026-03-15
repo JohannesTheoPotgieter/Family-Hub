@@ -1,0 +1,131 @@
+import { getTodayIso } from './date';
+import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage';
+
+export const DEFAULT_MONEY_CATEGORIES = ['Groceries', 'Utilities', 'Transport', 'School', 'Entertainment', 'Health', 'Other'];
+
+export const formatCurrencyZAR = (amountCents: number) =>
+  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 2 }).format((Number.isFinite(amountCents) ? amountCents : 0) / 100);
+
+export const formatMonthLabel = (yyyyMm: string) => {
+  const [year, month] = yyyyMm.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric' }).format(new Date(year, (month || 1) - 1, 1));
+};
+
+export const formatDueDateFriendly = (iso: string) => new Intl.DateTimeFormat('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+
+export const formatRelativeDueStatus = (iso: string, paid: boolean) => {
+  if (paid) return 'Paid';
+  const today = getTodayIso();
+  if (iso < today) return 'Overdue';
+  const diffDays = Math.ceil((new Date(iso).getTime() - new Date(today).getTime()) / 86_400_000);
+  if (diffDays <= 0) return 'Due today';
+  if (diffDays <= 7) return `Due in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
+  return 'Upcoming';
+};
+
+export const getMonthIso = (dateIso: string) => dateIso.slice(0, 7);
+
+export const getMonthBills = (state: MoneyState, monthIsoYYYYMM: string) => state.bills.filter((bill) => bill.dueDateIso.slice(0, 7) === monthIsoYYYYMM);
+
+export const getDueSoonBills = (bills: Bill[], todayIso = getTodayIso(), days = 7) => {
+  const endDate = new Date(todayIso);
+  endDate.setDate(endDate.getDate() + days);
+  const endIso = endDate.toISOString().slice(0, 10);
+  return bills.filter((bill) => !bill.paid && bill.dueDateIso >= todayIso && bill.dueDateIso <= endIso);
+};
+
+export const getOverdueBills = (bills: Bill[], todayIso = getTodayIso()) => bills.filter((bill) => !bill.paid && bill.dueDateIso < todayIso);
+
+export const getMonthTransactions = (state: MoneyState, monthIsoYYYYMM: string) => state.transactions.filter((tx) => tx.dateIso.slice(0, 7) === monthIsoYYYYMM);
+
+export const getMonthIncomeTotal = (state: MoneyState, monthIsoYYYYMM: string) => getMonthTransactions(state, monthIsoYYYYMM).filter((tx) => tx.kind === 'inflow').reduce((sum, tx) => sum + tx.amountCents, 0);
+
+export const getMonthSpendingTotal = (state: MoneyState, monthIsoYYYYMM: string) => getMonthTransactions(state, monthIsoYYYYMM).filter((tx) => tx.kind === 'outflow').reduce((sum, tx) => sum + tx.amountCents, 0);
+
+export const getNetBalance = (state: MoneyState, monthIsoYYYYMM: string) => getMonthIncomeTotal(state, monthIsoYYYYMM) - getMonthSpendingTotal(state, monthIsoYYYYMM);
+
+export const getBudgetStatus = (state: MoneyState, monthIsoYYYYMM: string) => {
+  const monthBudgets = state.budgets.filter((budget) => budget.monthIsoYYYYMM === monthIsoYYYYMM);
+  const spentByCategory = getMonthTransactions(state, monthIsoYYYYMM).reduce<Record<string, number>>((acc, tx) => {
+    if (tx.kind === 'outflow') acc[tx.category] = (acc[tx.category] ?? 0) + tx.amountCents;
+    return acc;
+  }, {});
+  const totalLimit = monthBudgets.reduce((sum, budget) => sum + budget.limitCents, 0);
+  const totalSpent = monthBudgets.reduce((sum, budget) => sum + (spentByCategory[budget.category] ?? 0), 0);
+  return {
+    totalLimitCents: totalLimit,
+    totalSpentCents: totalSpent,
+    remainingCents: totalLimit - totalSpent,
+    overBudgetCount: monthBudgets.filter((budget) => (spentByCategory[budget.category] ?? 0) > budget.limitCents).length
+  };
+};
+
+export const getTopSpendingCategory = (state: MoneyState, monthIsoYYYYMM: string) => {
+  const grouped = getMonthTransactions(state, monthIsoYYYYMM).reduce<Record<string, number>>((acc, tx) => {
+    if (tx.kind === 'outflow') acc[tx.category] = (acc[tx.category] ?? 0) + tx.amountCents;
+    return acc;
+  }, {});
+  return Object.entries(grouped).sort((a, b) => b[1] - a[1])[0] ?? null;
+};
+
+export const getRecentMoneyActivity = (state: MoneyState) => {
+  const paidBills = state.bills
+    .filter((bill) => bill.paid && bill.paidDateIso)
+    .map((bill) => ({ id: `bill-${bill.id}`, dateIso: bill.paidDateIso as string, title: `${bill.title} paid`, amountCents: bill.amountCents, type: 'bill' as const }));
+  const manualTransactions = state.transactions
+    .filter((tx) => tx.source === 'manual')
+    .map((tx) => ({ id: `tx-${tx.id}`, dateIso: tx.dateIso, title: tx.title, amountCents: tx.kind === 'outflow' ? -tx.amountCents : tx.amountCents, type: 'transaction' as const }));
+  return [...paidBills, ...manualTransactions].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).slice(0, 5);
+};
+
+export const markBillPaidWithOptionalTransaction = (
+  state: MoneyState,
+  billId: string,
+  proofFileName: string,
+  paidDateIso = getTodayIso()
+): MoneyState => {
+  const bill = state.bills.find((item) => item.id === billId);
+  if (!bill) return state;
+  let nextTransactions = state.transactions;
+  let linkedTransactionId = bill.linkedTransactionId;
+  if (bill.autoCreateTransaction && !bill.linkedTransactionId) {
+    const newTransaction: MoneyTransaction = {
+      id: `tx-${Date.now()}`,
+      title: bill.title,
+      amountCents: bill.amountCents,
+      dateIso: paidDateIso,
+      kind: 'outflow',
+      category: bill.category,
+      notes: bill.notes,
+      source: 'bill',
+      sourceBillId: bill.id
+    };
+    nextTransactions = [newTransaction, ...state.transactions];
+    linkedTransactionId = newTransaction.id;
+  }
+  return {
+    ...state,
+    bills: state.bills.map((item) =>
+      item.id === billId
+        ? { ...item, paid: true, paidDateIso, proofFileName, linkedTransactionId }
+        : item
+    ),
+    transactions: nextTransactions
+  };
+};
+
+export const toCents = (value: number) => Math.round(value * 100);
+export const fromCents = (amountCents: number) => amountCents / 100;
+
+export const getActiveMonth = (state: MoneyState) => {
+  const dates = [
+    ...state.transactions.map((tx) => tx.dateIso),
+    ...state.bills.map((bill) => bill.dueDateIso),
+    getTodayIso()
+  ];
+  const sorted = dates.sort();
+  return (sorted[sorted.length - 1]?.slice(0, 7)) ?? getTodayIso().slice(0, 7);
+};
+
+export const createDefaultBudgetsForMonth = (monthIsoYYYYMM: string): Budget[] =>
+  DEFAULT_MONEY_CATEGORIES.map((category) => ({ id: `budget-${category}-${monthIsoYYYYMM}`, monthIsoYYYYMM, category, limitCents: 0 }));

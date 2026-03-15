@@ -1,366 +1,305 @@
-import { type ChangeEvent, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
-import { formatCurrency } from '../../lib/family-hub/format';
+import { AmountText } from './money/AmountText';
+import { BillStatusBadge } from './money/BillStatusBadge';
+import { BudgetProgressCard } from './money/BudgetProgressCard';
+import { EmptyStateCard } from './money/EmptyStateCard';
+import { MoneyFilterBar } from './money/MoneyFilterBar';
+import { MoneySectionHeader } from './money/MoneySectionHeader';
+import { MoneyStatCard } from './money/MoneyStatCard';
+import { MonthSwitcher } from './money/MonthSwitcher';
+import {
+  DEFAULT_MONEY_CATEGORIES,
+  formatCurrencyZAR,
+  formatDueDateFriendly,
+  getBudgetStatus,
+  getDueSoonBills,
+  getMonthBills,
+  getMonthIncomeTotal,
+  getMonthSpendingTotal,
+  getMonthTransactions,
+  getNetBalance,
+  getOverdueBills,
+  getRecentMoneyActivity,
+  getTopSpendingCategory,
+  toCents
+} from '../../lib/family-hub/money';
 import { getTodayIso } from '../../lib/family-hub/date';
-import type { ActualTransaction, PaymentItem, UserSetupProfile } from '../../lib/family-hub/storage';
+import type { Bill, Budget, MoneyState, MoneyTransaction } from '../../lib/family-hub/storage';
 
 type Props = {
-  profile?: UserSetupProfile;
-  payments: PaymentItem[];
-  actualTransactions: ActualTransaction[];
-  onSaveProfile: (next: UserSetupProfile) => void;
-  onAddPayment: (payment: Omit<PaymentItem, 'id' | 'paid' | 'proofFileName' | 'linkedTransactionId' | 'paidDate'>) => void;
-  onMarkPaymentPaid: (id: string, proofFileName: string) => void;
-  onAddTransaction: (transaction: Omit<ActualTransaction, 'id'>) => void;
-  onUpdateTransaction: (id: string, transaction: Omit<ActualTransaction, 'id'>) => void;
+  money: MoneyState;
+  onAddBill: (bill: Omit<Bill, 'id' | 'paid' | 'paidDateIso' | 'proofFileName' | 'linkedTransactionId'>) => void;
+  onUpdateBill: (id: string, update: Partial<Bill>) => void;
+  onDuplicateBill: (id: string) => void;
+  onMarkBillPaid: (id: string, proofFileName: string) => void;
+  onAddTransaction: (tx: Omit<MoneyTransaction, 'id'>) => void;
+  onUpdateTransaction: (id: string, tx: Omit<MoneyTransaction, 'id'>) => void;
+  onAddBudget: (budget: Omit<Budget, 'id'>) => void;
+  onUpdateBudget: (id: string, update: Partial<Budget>) => void;
+  onDeleteBudget: (id: string) => void;
 };
 
-type MoneyTab = 'overview' | 'cashflow' | 'budget' | 'transactions' | 'payments';
-type PaymentFilter = 'upcoming' | 'paid' | 'overdue';
-type TxFilter = 'all' | 'income' | 'expense';
+type MoneyTab = 'overview' | 'bills' | 'transactions' | 'budget';
 
-const PAYMENT_CATEGORIES = ['Housing', 'Utilities', 'School', 'Subscriptions', 'Insurance', 'Health', 'Other'];
 const tabOptions: { key: MoneyTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
-  { key: 'cashflow', label: 'Cashflow' },
-  { key: 'budget', label: 'Budget' },
+  { key: 'bills', label: 'Bills' },
   { key: 'transactions', label: 'Transactions' },
-  { key: 'payments', label: 'Payments' }
+  { key: 'budget', label: 'Budget' }
 ];
 
-const getPaymentStatus = (payment: PaymentItem, todayIso: string): PaymentFilter => {
-  if (payment.paid) return 'paid';
-  if (payment.dueDate < todayIso) return 'overdue';
-  return 'upcoming';
-};
-
-const formatDueDate = (isoDate: string) =>
-  new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(isoDate));
-
-const parseAmount = (value: string) => Number.parseFloat(value.replace(',', '.'));
-
-export const MoneyScreen = ({ profile, payments, actualTransactions, onSaveProfile, onAddPayment, onMarkPaymentPaid, onAddTransaction, onUpdateTransaction }: Props) => {
+export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, onMarkBillPaid, onAddTransaction, onUpdateTransaction, onAddBudget, onUpdateBudget, onDeleteBudget }: Props) => {
   const [tab, setTab] = useState<MoneyTab>('overview');
-  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('upcoming');
-  const [txFilter, setTxFilter] = useState<TxFilter>('all');
-  const [paymentFeedback, setPaymentFeedback] = useState('');
+  const [month, setMonth] = useState(getTodayIso().slice(0, 7));
+  const [billStatusFilter, setBillStatusFilter] = useState<'all' | 'overdue' | 'dueSoon' | 'upcoming' | 'paid'>('all');
+  const [billComposerOpen, setBillComposerOpen] = useState(false);
+  const [transactionComposerOpen, setTransactionComposerOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [txKindFilter, setTxKindFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
+  const [txCategoryFilter, setTxCategoryFilter] = useState('all');
 
-  const [quickPaymentTitle, setQuickPaymentTitle] = useState('');
-  const [quickPaymentAmount, setQuickPaymentAmount] = useState('');
-  const [quickPaymentDate, setQuickPaymentDate] = useState(getTodayIso());
-  const [quickPaymentCategory, setQuickPaymentCategory] = useState(PAYMENT_CATEGORIES[0]);
-  const [autoCreateTransaction, setAutoCreateTransaction] = useState(true);
-
-  const [txIdEditing, setTxIdEditing] = useState<string | null>(null);
-  const [txTitle, setTxTitle] = useState('');
-  const [txAmount, setTxAmount] = useState('');
-  const [txDate, setTxDate] = useState(getTodayIso());
-  const [txCategory, setTxCategory] = useState('Other');
-  const [txKind, setTxKind] = useState<'inflow' | 'outflow'>('outflow');
-  const [txReceiptFileName, setTxReceiptFileName] = useState<string | undefined>(undefined);
+  const [billDraft, setBillDraft] = useState({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
+  const [txEditId, setTxEditId] = useState<string | null>(null);
+  const [txDraft, setTxDraft] = useState({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow' as 'inflow' | 'outflow', category: 'Other', notes: '' });
+  const [budgetDraft, setBudgetDraft] = useState({ category: 'Groceries', amount: '' });
 
   const todayIso = getTodayIso();
-  const openingBalance = profile?.openingBalance ?? 0;
-  const monthlyIncome = profile?.monthlyIncome ?? 0;
+  const monthBills = useMemo(() => getMonthBills(money, month), [money, month]);
+  const monthTransactions = useMemo(() => getMonthTransactions(money, month), [money, month]);
+  const overdueBills = useMemo(() => getOverdueBills(monthBills, todayIso), [monthBills, todayIso]);
+  const dueSoonBills = useMemo(() => getDueSoonBills(monthBills, todayIso), [monthBills, todayIso]);
+  const paidBills = monthBills.filter((bill) => bill.paid);
+  const upcomingBills = monthBills.filter((bill) => !bill.paid && !overdueBills.some((item) => item.id === bill.id) && !dueSoonBills.some((item) => item.id === bill.id));
 
-  const paymentCounts = useMemo(() => {
-    return payments.reduce(
-      (acc, payment) => {
-        acc[getPaymentStatus(payment, todayIso)] += 1;
-        return acc;
-      },
-      { upcoming: 0, paid: 0, overdue: 0 } as Record<PaymentFilter, number>
-    );
-  }, [payments, todayIso]);
+  const income = getMonthIncomeTotal(money, month);
+  const spending = getMonthSpendingTotal(money, month);
+  const net = getNetBalance(money, month);
+  const budgetStatus = getBudgetStatus(money, month);
+  const topCategory = getTopSpendingCategory(money, month);
+  const recentActivity = getRecentMoneyActivity(money);
 
-  const visiblePayments = useMemo(
-    () => [...payments].filter((payment) => getPaymentStatus(payment, todayIso) === paymentFilter).sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
-    [payments, paymentFilter, todayIso]
-  );
+  const visibleBills = monthBills.filter((bill) => {
+    if (billStatusFilter === 'all') return true;
+    if (billStatusFilter === 'paid') return bill.paid;
+    if (billStatusFilter === 'overdue') return overdueBills.some((item) => item.id === bill.id);
+    if (billStatusFilter === 'dueSoon') return dueSoonBills.some((item) => item.id === bill.id);
+    return upcomingBills.some((item) => item.id === bill.id);
+  });
 
-  const txVisible = useMemo(() => {
-    if (txFilter === 'all') return actualTransactions;
-    if (txFilter === 'income') return actualTransactions.filter((tx) => tx.kind === 'inflow');
-    return actualTransactions.filter((tx) => tx.kind === 'outflow');
-  }, [actualTransactions, txFilter]);
+  const visibleTransactions = monthTransactions.filter((tx) => {
+    const kindOk = txKindFilter === 'all' ? true : tx.kind === txKindFilter;
+    const categoryOk = txCategoryFilter === 'all' ? true : tx.category === txCategoryFilter;
+    const searchOk = tx.title.toLowerCase().includes(search.toLowerCase());
+    return kindOk && categoryOk && searchOk;
+  });
 
-  const totalIncome = actualTransactions.filter((tx) => tx.kind === 'inflow').reduce((sum, tx) => sum + tx.amount, 0);
-  const totalExpense = actualTransactions.filter((tx) => tx.kind === 'outflow').reduce((sum, tx) => sum + tx.amount, 0);
-  const unpaidPlanned = payments.filter((payment) => !payment.paid).reduce((sum, payment) => sum + payment.amount, 0);
-  const forecastClosing = openingBalance + monthlyIncome + totalIncome - totalExpense - unpaidPlanned;
+  const categories = Array.from(new Set([...DEFAULT_MONEY_CATEGORIES, ...money.transactions.map((tx) => tx.category), ...money.bills.map((bill) => bill.category)]));
 
-  const cashflowItems = useMemo(() => {
-    const planned = payments
-      .filter((payment) => !payment.paid)
-      .map((payment) => ({ id: payment.id, date: payment.dueDate, title: payment.title, amount: -payment.amount, kind: 'planned' as const }));
-    const actual = actualTransactions.map((tx) => ({
-      id: tx.id,
-      date: tx.date,
-      title: tx.title,
-      amount: tx.kind === 'inflow' ? tx.amount : -tx.amount,
-      kind: 'actual' as const
-    }));
-    return [...planned, ...actual].sort((a, b) => a.date.localeCompare(b.date));
-  }, [payments, actualTransactions]);
-
-  const budgetRows = profile?.budgetCategories ?? [];
-  const budgetActualByCategory = useMemo(() => {
-    return actualTransactions.reduce<Record<string, number>>((acc, tx) => {
-      if (tx.kind !== 'outflow') return acc;
-      const category = tx.category ?? 'Other';
-      acc[category] = (acc[category] ?? 0) + tx.amount;
-      return acc;
-    }, {});
-  }, [actualTransactions]);
-
-  const addPlannedPayment = () => {
-    const amount = parseAmount(quickPaymentAmount);
-    if (Number.isNaN(amount) || amount <= 0 || !quickPaymentTitle.trim()) return;
-    onAddPayment({ title: quickPaymentTitle.trim(), amount, dueDate: quickPaymentDate, category: quickPaymentCategory, autoCreateTransaction });
-    setQuickPaymentTitle('');
-    setQuickPaymentAmount('');
-    setQuickPaymentDate(getTodayIso());
-    setQuickPaymentCategory(PAYMENT_CATEGORIES[0]);
-    setAutoCreateTransaction(true);
-    setPaymentFeedback('Payment added to your plan.');
-  };
-
-  const handleProofPicked = (paymentId: string) => (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    onMarkPaymentPaid(paymentId, file.name);
-    setPaymentFeedback(`Payment confirmed with proof: ${file.name}`);
-  };
-
-  const handleReceiptPick = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setTxReceiptFileName(file.name);
-    if (!txTitle.trim()) {
-      const prefill = file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-      setTxTitle(prefill);
-    }
+  const saveBill = () => {
+    const amount = Number.parseFloat(billDraft.amount.replace(',', '.'));
+    if (!billDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
+    onAddBill({
+      title: billDraft.title.trim(),
+      amountCents: toCents(amount),
+      dueDateIso: billDraft.dueDateIso,
+      category: billDraft.category,
+      notes: billDraft.notes.trim() || undefined,
+      autoCreateTransaction: billDraft.autoCreateTransaction
+    });
+    setBillDraft({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
+    setBillComposerOpen(false);
   };
 
   const saveTransaction = () => {
-    const amount = parseAmount(txAmount);
-    if (Number.isNaN(amount) || amount <= 0 || !txTitle.trim()) return;
-    const payload: Omit<ActualTransaction, 'id'> = {
-      title: txTitle.trim(),
-      amount,
-      date: txDate,
-      category: txCategory,
-      kind: txKind,
-      receiptFileName: txReceiptFileName
+    const amount = Number.parseFloat(txDraft.amount.replace(',', '.'));
+    if (!txDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
+    const payload = {
+      title: txDraft.title.trim(),
+      amountCents: toCents(amount),
+      dateIso: txDraft.dateIso,
+      kind: txDraft.kind,
+      category: txDraft.category,
+      notes: txDraft.notes.trim() || undefined,
+      source: 'manual' as const
     };
-    if (txIdEditing) onUpdateTransaction(txIdEditing, payload);
+    if (txEditId) onUpdateTransaction(txEditId, payload);
     else onAddTransaction(payload);
-
-    setTxIdEditing(null);
-    setTxTitle('');
-    setTxAmount('');
-    setTxDate(getTodayIso());
-    setTxCategory('Other');
-    setTxKind('outflow');
-    setTxReceiptFileName(undefined);
+    setTxEditId(null);
+    setTxDraft({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow', category: 'Other', notes: '' });
+    setTransactionComposerOpen(false);
   };
 
   return (
-    <section className="stack-lg money-overview">
-      <ScreenIntro badge="Money" title="Family Money" subtitle="A calm financial cockpit for everyday household flow." />
-
-      <div className="money-filter-row" role="tablist" aria-label="Money tabs">
-        {tabOptions.map((item) => (
-          <button key={item.key} className={`filter-pill ${tab === item.key ? 'is-active' : ''}`} onClick={() => setTab(item.key)}>{item.label}</button>
-        ))}
-      </div>
+    <section className="stack-md">
+      <ScreenIntro title="Money Manager" subtitle="Track bills, money in and out, and monthly budgets in one clear place." badge="Money" />
+      <MoneyFilterBar options={tabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
 
       {tab === 'overview' ? (
         <>
-          <article className="glass-panel money-hero stack-sm">
-            <p className="eyebrow">This month</p>
-            <h3 className={`money-net ${forecastClosing < 0 ? 'is-negative' : ''}`}>{formatCurrency(forecastClosing)}</h3>
+          <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan.">
             <div className="money-kpi-grid">
-              <div className="money-kpi"><span>Income</span><strong>{formatCurrency(monthlyIncome + totalIncome)}</strong></div>
-              <div className="money-kpi"><span>Expenses</span><strong>{formatCurrency(totalExpense + unpaidPlanned)}</strong></div>
-              <div className="money-kpi"><span>Payments due</span><strong>{paymentCounts.upcoming + paymentCounts.overdue}</strong></div>
+              <MoneyStatCard label="Money in" value={<AmountText amountCents={income} kind="positive" />} />
+              <MoneyStatCard label="Money out" value={<AmountText amountCents={spending} kind="negative" />} />
+              <MoneyStatCard label="Left this month" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} />
             </div>
-          </article>
-          <FoundationBlock title="Quick actions" description="Start from the essentials.">
             <div className="money-kpi-grid">
-              <button className="btn btn-ghost" onClick={() => setTab('payments')}>Add first payment</button>
-              <button className="btn btn-ghost" onClick={() => setTab('transactions')}>Add transaction</button>
-              <button className="btn btn-ghost" onClick={() => setTab('budget')}>Create first budget</button>
+              <MoneyStatCard label="Due this week" value={<strong>{dueSoonBills.length}</strong>} />
+              <MoneyStatCard label="Paid this month" value={<strong>{paidBills.length}</strong>} />
+              <MoneyStatCard label="Top spending category" value={<strong>{topCategory ? `${topCategory[0]} · ${formatCurrencyZAR(topCategory[1])}` : '—'}</strong>} />
+              <MoneyStatCard label="Left to budget" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
             </div>
+            <div className="money-payment-meta">
+              <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }}>Add bill</button>
+              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); }}>Add transaction</button>
+              <button className="btn btn-ghost" onClick={() => { const due = dueSoonBills[0] ?? overdueBills[0]; if (due) onMarkBillPaid(due.id, 'manual-proof'); }}>Mark paid</button>
+            </div>
+          </FoundationBlock>
+
+          <FoundationBlock title="What needs attention" description={`Overdue: ${overdueBills.length} · Due soon: ${dueSoonBills.length} · Over budget categories: ${budgetStatus.overBudgetCount}`}>
+            {recentActivity.length ? (
+              <div className="stack-sm">
+                {recentActivity.map((activity) => <article key={activity.id} className="money-activity-item"><span>{activity.title}</span><AmountText amountCents={Math.abs(activity.amountCents)} kind={activity.amountCents >= 0 ? 'positive' : 'negative'} /></article>)}
+              </div>
+            ) : <EmptyStateCard title="No activity yet" description="Add your first bill or transaction to start tracking." />}
           </FoundationBlock>
         </>
       ) : null}
 
-      {tab === 'cashflow' ? (
-        <FoundationBlock title="Cashflow" description="Planned and actual are separated so nothing is double counted.">
-          <p>Opening balance: <strong>{formatCurrency(openingBalance)}</strong></p>
-          <p>Monthly income: <strong>{formatCurrency(monthlyIncome)}</strong></p>
-          <p>Planned outflows: <strong>{formatCurrency(unpaidPlanned)}</strong></p>
-          <p>Forecast closing: <strong>{formatCurrency(forecastClosing)}</strong></p>
-          <div className="stack-sm">
-            {cashflowItems.length ? cashflowItems.map((item) => (
-              <article key={item.id} className="money-payment-card">
-                <div className="money-payment-head">
-                  <div>
-                    <p className="money-activity-title">{item.title}</p>
-                    <p className="muted">{formatDueDate(item.date)}</p>
-                  </div>
-                  <strong>{formatCurrency(item.amount)}</strong>
-                </div>
-                <span className={`item-tag ${item.kind === 'planned' ? 'is-task' : 'is-soft'}`}>{item.kind === 'planned' ? 'Planned' : 'Actual'}</span>
-              </article>
-            )) : <p className="muted">No cashflow items yet.</p>}
+      {tab === 'bills' ? (
+        <FoundationBlock title="Bills" description="Plan upcoming bills and confirm what is paid.">
+          <MoneySectionHeader title="Bill planner" subtitle="Group by status and filter your month." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
+          <div className="money-payment-meta">
+            <button className="btn btn-primary" onClick={() => setBillComposerOpen((open) => !open)}>{billComposerOpen ? 'Close' : 'Add bill'}</button>
+            <MoneyFilterBar
+              options={[{ key: 'all', label: 'All' }, { key: 'overdue', label: `Overdue (${overdueBills.length})` }, { key: 'dueSoon', label: `Due soon (${dueSoonBills.length})` }, { key: 'upcoming', label: `Upcoming (${upcomingBills.length})` }, { key: 'paid', label: `Paid (${paidBills.length})` }]}
+              value={billStatusFilter}
+              onChange={(next) => setBillStatusFilter(next as typeof billStatusFilter)}
+            />
           </div>
-        </FoundationBlock>
-      ) : null}
-
-      {tab === 'budget' ? (
-        <FoundationBlock title="Budget" description="Simple monthly categories with actual spend from transactions.">
-          {budgetRows.length ? budgetRows.map((row) => {
-            const actual = budgetActualByCategory[row.label] ?? 0;
-            const remaining = row.amount - actual;
-            const percent = row.amount > 0 ? Math.min(100, Math.round((actual / row.amount) * 100)) : 0;
-            return (
-              <article className="money-payment-card" key={row.id}>
-                <div className="money-payment-head">
-                  <p className="money-activity-title">{row.label}</p>
-                  <strong>{formatCurrency(row.amount)}</strong>
-                </div>
-                <p className="muted">Actual {formatCurrency(actual)} · Remaining {formatCurrency(remaining)}</p>
-                <progress max={100} value={percent} />
-              </article>
-            );
-          }) : (
-            <article className="glass-panel money-empty stack-sm">
-              <h3>No budget yet</h3>
-              <button className="btn btn-primary" onClick={() => onSaveProfile({ ...(profile ?? { openingBalance: 0, monthlyIncome: 0, recurringPayments: [], budgetCategories: [] }), budgetCategories: [{ id: crypto.randomUUID(), label: 'Groceries', amount: 0 }] })}>Create first budget</button>
+          {billComposerOpen ? (
+            <article className="money-editor stack-sm">
+              <input value={billDraft.title} placeholder="Bill title" onChange={(event) => setBillDraft((prev) => ({ ...prev, title: event.target.value }))} />
+              <div className="money-editor-grid">
+                <input value={billDraft.amount} inputMode="decimal" placeholder="Amount" onChange={(event) => setBillDraft((prev) => ({ ...prev, amount: event.target.value }))} />
+                <input type="date" value={billDraft.dueDateIso} onChange={(event) => setBillDraft((prev) => ({ ...prev, dueDateIso: event.target.value }))} />
+              </div>
+              <div className="money-editor-grid">
+                <select value={billDraft.category} onChange={(event) => setBillDraft((prev) => ({ ...prev, category: event.target.value }))}>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+                <input value={billDraft.notes} placeholder="Notes (optional)" onChange={(event) => setBillDraft((prev) => ({ ...prev, notes: event.target.value }))} />
+              </div>
+              <label className="task-shared-toggle"><input type="checkbox" checked={billDraft.autoCreateTransaction} onChange={(event) => setBillDraft((prev) => ({ ...prev, autoCreateTransaction: event.target.checked }))} />Auto-create transaction when paid</label>
+              <button className="btn btn-primary" onClick={saveBill}>Save bill</button>
             </article>
-          )}
+          ) : null}
+          {visibleBills.length ? (
+            <div className="stack-sm">
+              {visibleBills.sort((a, b) => a.dueDateIso.localeCompare(b.dueDateIso)).map((bill) => (
+                <article key={bill.id} className="money-payment-card">
+                  <div className="money-payment-head">
+                    <div>
+                      <p className="money-activity-title">{bill.title}</p>
+                      <p className="muted">Due {formatDueDateFriendly(bill.dueDateIso)} · {bill.category}</p>
+                    </div>
+                    <AmountText amountCents={bill.amountCents} />
+                  </div>
+                  <div className="money-payment-meta">
+                    <BillStatusBadge dueDateIso={bill.dueDateIso} paid={bill.paid} />
+                    <span className="route-pill">Proof: {bill.proofFileName ?? 'Not attached'}</span>
+                    <span className="route-pill">Linked: {bill.linkedTransactionId ? 'Yes' : 'No'}</span>
+                    {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')}>Mark paid</button> : null}
+                    <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)}>Duplicate</button>
+                    <button className="money-inline-btn" onClick={() => onUpdateBill(bill.id, { notes: `Updated ${todayIso}` })}>Add note</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)}>Add bill</button>} />}
         </FoundationBlock>
       ) : null}
 
       {tab === 'transactions' ? (
-        <>
-          <FoundationBlock title="Capture transaction" description="Upload receipt, confirm details, save.">
-            <div className="money-editor-grid">
-              <input value={txTitle} placeholder="Description" onChange={(event) => setTxTitle(event.target.value)} />
-              <input value={txAmount} inputMode="decimal" placeholder="Amount" onChange={(event) => setTxAmount(event.target.value)} />
-            </div>
-            <div className="money-editor-grid">
-              <input type="date" value={txDate} onChange={(event) => setTxDate(event.target.value)} />
-              <input value={txCategory} placeholder="Category" onChange={(event) => setTxCategory(event.target.value)} />
-            </div>
-            <div className="money-filter-row">
-              <button className={`filter-pill ${txKind === 'inflow' ? 'is-active' : ''}`} onClick={() => setTxKind('inflow')}>Income</button>
-              <button className={`filter-pill ${txKind === 'outflow' ? 'is-active' : ''}`} onClick={() => setTxKind('outflow')}>Expense</button>
-              <label className="btn btn-ghost money-upload-btn">Upload receipt<input type="file" accept="image/*" onChange={handleReceiptPick} /></label>
-            </div>
-            {txReceiptFileName ? <p className="muted">Receipt: {txReceiptFileName}</p> : null}
-            <button className="btn btn-primary" onClick={saveTransaction}>{txIdEditing ? 'Save edit' : 'Save transaction'}</button>
-          </FoundationBlock>
-
-          <FoundationBlock title="Transactions" description="All entries in one clear list.">
-            <div className="money-filter-row">
-              <button className={`filter-pill ${txFilter === 'all' ? 'is-active' : ''}`} onClick={() => setTxFilter('all')}>All</button>
-              <button className={`filter-pill ${txFilter === 'income' ? 'is-active' : ''}`} onClick={() => setTxFilter('income')}>Income</button>
-              <button className={`filter-pill ${txFilter === 'expense' ? 'is-active' : ''}`} onClick={() => setTxFilter('expense')}>Expense</button>
-            </div>
+        <FoundationBlock title="Transactions" description="A clean ledger of money in and money out.">
+          <MoneySectionHeader title="Ledger" subtitle="Filter by month, category, type, and search." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
+          <div className="money-kpi-grid">
+            <MoneyStatCard label="Total inflow" value={<AmountText amountCents={monthTransactions.filter((tx) => tx.kind === 'inflow').reduce((sum, tx) => sum + tx.amountCents, 0)} kind="positive" />} />
+            <MoneyStatCard label="Total outflow" value={<AmountText amountCents={monthTransactions.filter((tx) => tx.kind === 'outflow').reduce((sum, tx) => sum + tx.amountCents, 0)} kind="negative" />} />
+            <MoneyStatCard label="Net change" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} />
+          </div>
+          <div className="money-payment-meta">
+            <button className="btn btn-primary" onClick={() => setTransactionComposerOpen((open) => !open)}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
+            <input value={search} placeholder="Search title" onChange={(event) => setSearch(event.target.value)} />
+          </div>
+          <div className="money-editor-grid">
+            <select value={txCategoryFilter} onChange={(event) => setTxCategoryFilter(event.target.value)}><option value="all">All categories</option>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+            <MoneyFilterBar options={[{ key: 'all', label: 'All' }, { key: 'inflow', label: 'Money in' }, { key: 'outflow', label: 'Money out' }]} value={txKindFilter} onChange={(next) => setTxKindFilter(next as typeof txKindFilter)} />
+          </div>
+          {transactionComposerOpen ? (
+            <article className="money-editor stack-sm">
+              <input value={txDraft.title} placeholder="Title" onChange={(event) => setTxDraft((prev) => ({ ...prev, title: event.target.value }))} />
+              <div className="money-editor-grid">
+                <input value={txDraft.amount} inputMode="decimal" placeholder="Amount" onChange={(event) => setTxDraft((prev) => ({ ...prev, amount: event.target.value }))} />
+                <input type="date" value={txDraft.dateIso} onChange={(event) => setTxDraft((prev) => ({ ...prev, dateIso: event.target.value }))} />
+              </div>
+              <div className="money-editor-grid">
+                <select value={txDraft.kind} onChange={(event) => setTxDraft((prev) => ({ ...prev, kind: event.target.value as 'inflow' | 'outflow' }))}><option value="inflow">Money in</option><option value="outflow">Money out</option></select>
+                <select value={txDraft.category} onChange={(event) => setTxDraft((prev) => ({ ...prev, category: event.target.value }))}>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+              </div>
+              <input value={txDraft.notes} placeholder="Note (optional)" onChange={(event) => setTxDraft((prev) => ({ ...prev, notes: event.target.value }))} />
+              <button className="btn btn-primary" onClick={saveTransaction}>{txEditId ? 'Save changes' : 'Add transaction'}</button>
+            </article>
+          ) : null}
+          {visibleTransactions.length ? (
             <div className="stack-sm">
-              {txVisible.length ? txVisible.map((tx) => (
-                <article className="money-payment-card" key={tx.id}>
-                  <div className="money-payment-head">
-                    <div>
-                      <p className="money-activity-title">{tx.title}</p>
-                      <p className="muted">{formatDueDate(tx.date)} · {tx.category ?? 'Other'}</p>
+              {[...visibleTransactions].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).map((tx) => (
+                <article key={tx.id} className="money-transaction-item">
+                  <div>
+                    <p className="money-activity-title">{tx.title}</p>
+                    <p className="muted">{formatDueDateFriendly(tx.dateIso)} · {tx.category} {tx.notes ? `· ${tx.notes}` : ''}</p>
+                    <div className="money-payment-meta">
+                      <span className={`item-tag ${tx.kind === 'inflow' ? 'is-soft' : 'is-task'}`}>{tx.kind === 'inflow' ? 'Inflow' : 'Outflow'}</span>
+                      <span className="route-pill">Source: {tx.source === 'bill' ? 'Linked bill' : 'Manual'}</span>
                     </div>
-                    <strong>{formatCurrency(tx.kind === 'inflow' ? tx.amount : -tx.amount)}</strong>
                   </div>
-                  <div className="money-payment-meta">
-                    <span className={`item-tag ${tx.kind === 'inflow' ? 'is-soft' : 'is-task'}`}>{tx.kind === 'inflow' ? 'Income' : 'Expense'}</span>
-                    <span className="route-pill">Receipt: {tx.receiptFileName ?? 'None'}</span>
-                    <button className="btn btn-ghost" onClick={() => {
-                      setTxIdEditing(tx.id);
-                      setTxTitle(tx.title);
-                      setTxAmount(String(tx.amount));
-                      setTxDate(tx.date);
-                      setTxCategory(tx.category ?? 'Other');
-                      setTxKind(tx.kind);
-                      setTxReceiptFileName(tx.receiptFileName);
-                    }}>Edit</button>
+                  <div className="money-activity-meta">
+                    <AmountText amountCents={tx.amountCents} kind={tx.kind === 'inflow' ? 'positive' : 'negative'} />
+                    {tx.source === 'manual' ? <button className="money-inline-btn" onClick={() => { setTxEditId(tx.id); setTransactionComposerOpen(true); setTxDraft({ title: tx.title, amount: String(tx.amountCents / 100), dateIso: tx.dateIso, kind: tx.kind, category: tx.category, notes: tx.notes ?? '' }); }}>Edit</button> : null}
                   </div>
                 </article>
-              )) : <p className="muted">No transactions yet.</p>}
+              ))}
             </div>
-          </FoundationBlock>
-        </>
+          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)}>Add transaction</button>} />}
+        </FoundationBlock>
       ) : null}
 
-      {tab === 'payments' ? (
-        <>
-          <FoundationBlock title="Add payment" description="Simple and trusted Pay + proof flow.">
+      {tab === 'budget' ? (
+        <FoundationBlock title="Budget" description="Set category limits and track spending against plan.">
+          <MoneySectionHeader title="Monthly budget" subtitle="Set and review category limits." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
+          <div className="money-kpi-grid">
+            <MoneyStatCard label="Total planned budget" value={<AmountText amountCents={budgetStatus.totalLimitCents} />} />
+            <MoneyStatCard label="Total spent" value={<AmountText amountCents={budgetStatus.totalSpentCents} kind="negative" />} />
+            <MoneyStatCard label="Remaining" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
+          </div>
+          <article className="money-editor stack-sm">
             <div className="money-editor-grid">
-              <input value={quickPaymentTitle} placeholder="Payment name" onChange={(event) => setQuickPaymentTitle(event.target.value)} />
-              <input value={quickPaymentAmount} inputMode="decimal" placeholder="Amount" onChange={(event) => setQuickPaymentAmount(event.target.value)} />
+              <select value={budgetDraft.category} onChange={(event) => setBudgetDraft((prev) => ({ ...prev, category: event.target.value }))}>{DEFAULT_MONEY_CATEGORIES.map((category) => <option key={category}>{category}</option>)}</select>
+              <input value={budgetDraft.amount} inputMode="decimal" placeholder="Budget amount" onChange={(event) => setBudgetDraft((prev) => ({ ...prev, amount: event.target.value }))} />
             </div>
-            <div className="money-editor-grid">
-              <input type="date" value={quickPaymentDate} onChange={(event) => setQuickPaymentDate(event.target.value)} />
-              <select value={quickPaymentCategory} onChange={(event) => setQuickPaymentCategory(event.target.value)}>
-                {PAYMENT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
-            </div>
-            <label className="task-shared-toggle">
-              <input type="checkbox" checked={autoCreateTransaction} onChange={(event) => setAutoCreateTransaction(event.target.checked)} />
-              Auto-create linked expense transaction after Pay + proof
-            </label>
-            <button className="btn btn-primary" onClick={addPlannedPayment}>Add payment</button>
-          </FoundationBlock>
-
-          <FoundationBlock title="Payments" description="Upcoming, paid and overdue with proof tracking.">
-            <div className="money-filter-row" role="tablist" aria-label="Payment filters">
-              <button className={`filter-pill ${paymentFilter === 'upcoming' ? 'is-active' : ''}`} onClick={() => setPaymentFilter('upcoming')}>Upcoming · {paymentCounts.upcoming}</button>
-              <button className={`filter-pill ${paymentFilter === 'paid' ? 'is-active' : ''}`} onClick={() => setPaymentFilter('paid')}>Paid · {paymentCounts.paid}</button>
-              <button className={`filter-pill ${paymentFilter === 'overdue' ? 'is-active' : ''}`} onClick={() => setPaymentFilter('overdue')}>Overdue · {paymentCounts.overdue}</button>
-            </div>
-
-            {paymentFeedback ? <p className="status-banner is-success">{paymentFeedback}</p> : null}
-            {visiblePayments.length ? (
-              <div className="stack-sm">
-                {visiblePayments.map((payment) => {
-                  const status = getPaymentStatus(payment, todayIso);
-                  const statusLabel = status === 'paid' ? 'Paid' : status === 'overdue' ? 'Overdue' : 'Upcoming';
-                  return (
-                    <article key={payment.id} className="money-payment-card">
-                      <div className="money-payment-head">
-                        <div>
-                          <p className="money-activity-title">{payment.title}</p>
-                          <p className="muted">Due {formatDueDate(payment.dueDate)} · {payment.category}</p>
-                        </div>
-                        <strong>{formatCurrency(payment.amount)}</strong>
-                      </div>
-                      <div className="money-payment-meta">
-                        <span className={`item-tag ${status === 'paid' ? 'is-soft' : status === 'overdue' ? 'is-warn' : 'is-task'}`}>{statusLabel}</span>
-                        <span className="route-pill">Proof: {payment.proofFileName ?? 'Not attached'}</span>
-                        <span className="route-pill">Linked tx: {payment.linkedTransactionId ? 'Created' : payment.autoCreateTransaction === false ? 'Disabled' : 'Pending'}</span>
-                      </div>
-                      {!payment.paid ? (
-                        <label className="btn btn-primary money-upload-btn">Pay + proof<input type="file" accept="image/*" onChange={handleProofPicked(payment.id)} /></label>
-                      ) : (
-                        <p className="muted">Paid confirmation saved{payment.paidDate ? ` on ${payment.paidDate}` : ''}.</p>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            ) : <p className="muted">No entries yet. Add first payment.</p>}
-          </FoundationBlock>
-        </>
+            <button className="btn btn-primary" onClick={() => {
+              const amount = Number.parseFloat(budgetDraft.amount.replace(',', '.'));
+              if (Number.isNaN(amount) || amount < 0) return;
+              const existing = money.budgets.find((budget) => budget.monthIsoYYYYMM === month && budget.category === budgetDraft.category);
+              if (existing) onUpdateBudget(existing.id, { limitCents: toCents(amount) });
+              else onAddBudget({ monthIsoYYYYMM: month, category: budgetDraft.category, limitCents: toCents(amount) });
+              setBudgetDraft((prev) => ({ ...prev, amount: '' }));
+            }}>Save budget</button>
+          </article>
+          <div className="budget-category-list">
+            {money.budgets.filter((budget) => budget.monthIsoYYYYMM === month).length ? money.budgets.filter((budget) => budget.monthIsoYYYYMM === month).map((budget) => (
+              <BudgetProgressCard key={budget.id} category={budget.category} limitCents={budget.limitCents} spentCents={monthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === budget.category).reduce((sum, tx) => sum + tx.amountCents, 0)} onEdit={() => setBudgetDraft({ category: budget.category, amount: String(budget.limitCents / 100) })} onDelete={() => onDeleteBudget(budget.id)} />
+            )) : <EmptyStateCard title="No budgets yet" description="Set a budget for groceries, transport, and more." />}
+          </div>
+        </FoundationBlock>
       ) : null}
     </section>
   );
