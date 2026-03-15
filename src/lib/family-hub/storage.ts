@@ -18,29 +18,47 @@ export type TaskItem = {
   ownerId: UserId;
 };
 
-export type PaymentItem = {
+export type Bill = {
   id: string;
   title: string;
+  amountCents: number;
+  dueDateIso: string;
   category: string;
-  amount: number;
-  dueDate: string;
   paid: boolean;
-  autoCreateTransaction?: boolean;
+  paidDateIso?: string;
   proofFileName?: string;
+  notes?: string;
+  autoCreateTransaction?: boolean;
   linkedTransactionId?: string;
-  paidDate?: string;
 };
 
-export type ActualTransaction = {
+export type MoneyTransaction = {
   id: string;
   title: string;
-  amount: number;
-  date: string;
+  amountCents: number;
+  dateIso: string;
   kind: 'inflow' | 'outflow';
-  category?: string;
-  receiptImage?: string;
-  receiptFileName?: string;
-  sourcePaymentId?: string;
+  category: string;
+  notes?: string;
+  source: 'manual' | 'bill';
+  sourceBillId?: string;
+};
+
+export type Budget = {
+  id: string;
+  monthIsoYYYYMM: string;
+  category: string;
+  limitCents: number;
+};
+
+export type MoneyState = {
+  bills: Bill[];
+  transactions: MoneyTransaction[];
+  budgets: Budget[];
+  settings: {
+    currency: 'ZAR';
+    monthlyStartDay?: number;
+  };
 };
 
 export type RecurringPayment = {
@@ -100,14 +118,6 @@ export type AppSettings = {
   pinHintsEnabled: boolean;
 };
 
-export type CashflowItem = {
-  id: string;
-  title: string;
-  date: string;
-  amount: number;
-  kind: 'planned' | 'actual';
-};
-
 export type UserSetup = {
   completed: boolean;
   openingBalance: number;
@@ -128,14 +138,58 @@ export type FamilyHubState = {
   settings: AppSettings;
   calendar: { events: CalendarEvent[] };
   tasks: { items: TaskItem[] };
-  money: {
-    payments: PaymentItem[];
-    actualTransactions: ActualTransaction[];
-    cashflowItems?: CashflowItem[];
-  };
+  money: MoneyState;
 };
 
 const STORAGE_KEY = 'family-hub-state';
+
+const toCents = (value: unknown) => (typeof value === 'number' ? Math.round(value * 100) : 0);
+
+const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }) : MoneyState => {
+  const bills = Array.isArray(rawMoney.bills)
+    ? rawMoney.bills
+    : (rawMoney.payments ?? []).map((payment) => ({
+        id: typeof payment.id === 'string' ? payment.id : `bill-${Date.now()}-${Math.random()}`,
+        title: typeof payment.title === 'string' ? payment.title : 'Bill',
+        amountCents: typeof payment.amountCents === 'number' ? payment.amountCents : toCents(payment.amount),
+        dueDateIso: typeof payment.dueDateIso === 'string' ? payment.dueDateIso : typeof payment.dueDate === 'string' ? payment.dueDate : new Date().toISOString().slice(0, 10),
+        category: typeof payment.category === 'string' ? payment.category : 'Other',
+        paid: Boolean(payment.paid),
+        paidDateIso: typeof payment.paidDateIso === 'string' ? payment.paidDateIso : typeof payment.paidDate === 'string' ? payment.paidDate : undefined,
+        proofFileName: typeof payment.proofFileName === 'string' ? payment.proofFileName : undefined,
+        notes: typeof payment.notes === 'string' ? payment.notes : undefined,
+        autoCreateTransaction: payment.autoCreateTransaction !== false,
+        linkedTransactionId: typeof payment.linkedTransactionId === 'string' ? payment.linkedTransactionId : undefined
+      }));
+
+  const transactions = Array.isArray(rawMoney.transactions)
+    ? rawMoney.transactions
+    : (rawMoney.actualTransactions ?? []).map((tx) => ({
+        id: typeof tx.id === 'string' ? tx.id : `tx-${Date.now()}-${Math.random()}`,
+        title: typeof tx.title === 'string' ? tx.title : 'Transaction',
+        amountCents: typeof tx.amountCents === 'number' ? tx.amountCents : toCents(tx.amount),
+        dateIso: typeof tx.dateIso === 'string' ? tx.dateIso : typeof tx.date === 'string' ? tx.date : new Date().toISOString().slice(0, 10),
+        kind: (tx.kind === 'inflow' ? 'inflow' : 'outflow') as 'inflow' | 'outflow',
+        category: typeof tx.category === 'string' ? tx.category : 'Other',
+        notes: typeof tx.notes === 'string' ? tx.notes : undefined,
+        source: (tx.source === 'bill' ? 'bill' : 'manual') as 'manual' | 'bill',
+        sourceBillId: typeof tx.sourceBillId === 'string' ? tx.sourceBillId : typeof tx.sourcePaymentId === 'string' ? tx.sourcePaymentId : undefined
+      }));
+
+  const budgets = Array.isArray(rawMoney.budgets)
+    ? rawMoney.budgets.filter((budget): budget is Budget => Boolean(budget?.id && budget?.monthIsoYYYYMM && budget?.category))
+    : [];
+
+  return {
+    bills,
+    transactions,
+    budgets,
+    settings: {
+      currency: 'ZAR',
+      monthlyStartDay: typeof rawMoney.settings?.monthlyStartDay === 'number' ? rawMoney.settings.monthlyStartDay : undefined
+    }
+  };
+};
 
 const setupDefaults: Record<UserId, boolean> = {
   johannes: false,
@@ -212,9 +266,10 @@ export const createInitialState = (): FamilyHubState => ({
   calendar: { events: [] },
   tasks: { items: [] },
   money: {
-    payments: [],
-    actualTransactions: [],
-    cashflowItems: []
+    bills: [],
+    transactions: [],
+    budgets: [],
+    settings: { currency: 'ZAR' }
   }
 });
 
@@ -281,48 +336,7 @@ export const loadState = (): FamilyHubState => {
           }))
           .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
       },
-      money: {
-        payments: (parsed.money?.payments ?? [])
-          .filter(
-            (payment) =>
-              typeof payment.id === 'string' &&
-              typeof payment.title === 'string' &&
-              typeof payment.amount === 'number' &&
-              typeof payment.dueDate === 'string' &&
-              typeof payment.paid === 'boolean'
-          )
-          .map((payment) => ({
-            ...payment,
-            category: typeof payment.category === 'string' ? payment.category : 'Other',
-            autoCreateTransaction: payment.autoCreateTransaction !== false,
-            proofFileName: typeof payment.proofFileName === 'string' ? payment.proofFileName : undefined,
-            linkedTransactionId: typeof payment.linkedTransactionId === 'string' ? payment.linkedTransactionId : undefined,
-            paidDate: typeof payment.paidDate === 'string' ? payment.paidDate : undefined
-          })),
-        actualTransactions: (parsed.money?.actualTransactions ?? [])
-          .filter(
-            (tx) =>
-              typeof tx.id === 'string' &&
-              typeof tx.title === 'string' &&
-              typeof tx.amount === 'number' &&
-              typeof tx.date === 'string' &&
-              (tx.kind === 'inflow' || tx.kind === 'outflow')
-          )
-          .map((tx) => ({
-            ...tx,
-            category: typeof tx.category === 'string' ? tx.category : undefined,
-            receiptImage: typeof tx.receiptImage === 'string' ? tx.receiptImage : undefined,
-            receiptFileName: typeof tx.receiptFileName === 'string' ? tx.receiptFileName : undefined
-          })),
-        cashflowItems: (parsed.money?.cashflowItems ?? []).filter(
-          (item) =>
-            typeof item.id === 'string' &&
-            typeof item.title === 'string' &&
-            typeof item.date === 'string' &&
-            typeof item.amount === 'number' &&
-            (item.kind === 'planned' || item.kind === 'actual')
-        )
-      }
+      money: migrateMoney((parsed.money as any) ?? {})
     };
   } catch {
     return createInitialState();

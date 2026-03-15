@@ -7,6 +7,7 @@ import { MoreScreen } from './components/family-hub/MoreScreen';
 import { SetupWizard } from './components/family-hub/SetupWizard';
 import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab } from './lib/family-hub/constants';
+import { markBillPaidWithOptionalTransaction } from './lib/family-hub/money';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
 import { loadState, saveState, type AvatarLook, type AvatarMood, type FamilyHubState } from './lib/family-hub/storage';
 import { ToastViewport } from './ui/Toast';
@@ -50,7 +51,37 @@ const AppInner = () => {
           {activeTab === 'Home' && <HomeScreen state={state} onAvatarAction={onAvatarAction} />}
           {activeTab === 'Calendar' && <CalendarScreen events={state.calendar.events} onAddEvent={(event) => setState((current) => ({ ...current, calendar: { events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } }))} />}
           {activeTab === 'Tasks' && <TasksScreen tasks={state.tasks.items} activeUserId={state.activeUserId} onAddTask={(task) => setState((c) => ({ ...c, tasks: { items: [{ id: `task-${Date.now()}`, completed: false, ...task }, ...c.tasks.items] } }))} onUpdateTask={(id, update) => setState((c) => ({ ...c, tasks: { items: c.tasks.items.map((task) => task.id === id ? { ...task, ...update } : task) } }))} onToggleTask={(id) => setState((c) => ({ ...c, tasks: { items: c.tasks.items.map((task) => task.id === id ? { ...task, completed: !task.completed } : task) } }))} />}
-          {activeTab === 'Money' && <MoneyScreen profile={state.activeUserId ? state.userSetupProfiles[state.activeUserId] : undefined} payments={state.money.payments} actualTransactions={state.money.actualTransactions} onSaveProfile={() => undefined} onAddPayment={() => undefined} onAddTransaction={() => undefined} onUpdateTransaction={() => undefined} onMarkPaymentPaid={() => undefined} />}
+          {activeTab === 'Money' && (
+            <MoneyScreen
+              money={state.money}
+              onAddBill={(bill) =>
+                setState((current) => ({
+                  ...current,
+                  money: { ...current.money, bills: [{ id: `bill-${Date.now()}`, paid: false, ...bill }, ...current.money.bills] }
+                }))
+              }
+              onUpdateBill={(id, update) =>
+                setState((current) => ({ ...current, money: { ...current.money, bills: current.money.bills.map((bill) => (bill.id === id ? { ...bill, ...update } : bill)) } }))
+              }
+              onDuplicateBill={(id) =>
+                setState((current) => {
+                  const bill = current.money.bills.find((item) => item.id === id);
+                  if (!bill) return current;
+                  return { ...current, money: { ...current.money, bills: [{ ...bill, id: `bill-${Date.now()}`, paid: false, paidDateIso: undefined, linkedTransactionId: undefined }, ...current.money.bills] } };
+                })
+              }
+              onMarkBillPaid={(id, proofFileName) => setState((current) => ({ ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) }))}
+              onAddTransaction={(transaction) => setState((current) => ({ ...current, money: { ...current.money, transactions: [{ id: `tx-${Date.now()}`, ...transaction }, ...current.money.transactions] } }))}
+              onUpdateTransaction={(id, transaction) =>
+                setState((current) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } }))
+              }
+              onAddBudget={(budget) => setState((current) => ({ ...current, money: { ...current.money, budgets: [{ id: `budget-${Date.now()}`, ...budget }, ...current.money.budgets] } }))}
+              onUpdateBudget={(id, update) =>
+                setState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.map((budget) => (budget.id === id ? { ...budget, ...update } : budget)) } }))
+              }
+              onDeleteBudget={(id) => setState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id) } }))}
+            />
+          )}
           {activeTab === 'More' && <MoreScreen users={state.users} avatars={state.avatars} familyPoints={state.familyPoints} activeUser={activeUser} setupCompleted={state.setupCompleted} userPins={state.userPins} places={state.places} events={state.calendar.events} tasks={state.tasks.items} onCustomizeAvatar={onCustomizeAvatar} onAvatarAction={onAvatarAction} onChangePin={() => false} onSetUserPin={() => undefined} onAddPlace={() => undefined} onUpdatePlace={() => undefined} onExportData={() => JSON.stringify(state, null, 2)} onResetData={() => setState(loadState())} />}
         </section>
         <nav className="bottom-nav" aria-label="Primary">

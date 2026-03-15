@@ -22,9 +22,9 @@ const getDueSoonCount = (state: FamilyHubState) => {
   const inSevenDays = new Date(now);
   inSevenDays.setDate(now.getDate() + 7);
 
-  return state.money.payments.filter((payment) => {
+  return state.money.bills.filter((payment) => {
     if (payment.paid) return false;
-    const due = new Date(payment.dueDate);
+    const due = new Date(payment.dueDateIso);
     return due >= now && due <= inSevenDays;
   }).length;
 };
