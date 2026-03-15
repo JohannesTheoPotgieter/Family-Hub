@@ -1,26 +1,27 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PlaceItem, TaskItem, AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
+import type { CalendarEvent, PlaceItem, TaskItem, AvatarProfile } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
+import type { AvatarGameState } from '../../domain/avatarTypes';
+import { AvatarHomeSection } from './AvatarHomeSection';
 
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
 type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
 
 type Props = {
   users: User[];
   avatars: Record<UserId, AvatarProfile>;
-  familyPoints: number;
   activeUser: User | null;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
   places: PlaceItem[];
   events: CalendarEvent[];
   tasks: TaskItem[];
+  avatarGame: AvatarGameState;
+  activeUserId: UserId | null;
+  onCareAction: (userId: UserId, action: 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story') => void;
   onChangePin: (currentPin: string, nextPin: string) => boolean;
   onSetUserPin: (userId: UserId, nextPin: string) => void;
-  onCustomizeAvatar: (userId: UserId, look: AvatarLook) => void;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number };
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
@@ -32,17 +33,17 @@ const sectionOrder: MoreSection[] = ['avatars', 'places', 'users', 'settings', '
 export const MoreScreen = ({
   users,
   avatars,
-  familyPoints,
   activeUser,
   setupCompleted,
   userPins,
   places,
   events,
   tasks,
+  avatarGame,
+  activeUserId,
+  onCareAction,
   onChangePin,
   onSetUserPin,
-  onCustomizeAvatar,
-  onAvatarAction,
   onAddPlace,
   onUpdatePlace,
   onExportData,
@@ -137,55 +138,8 @@ export const MoreScreen = ({
       </div>
 
       {section === 'avatars' ? (
-        <FoundationBlock title="Avatar Squad" description="Quick interactions and style shortcuts for each family avatar.">
-          <div className="avatar-squad-grid">
-            {users.map((user) => {
-              const avatar = avatars[user.id];
-              const emojiByMood: Record<AvatarMood, string> = {
-                happy: '😊',
-                sleepy: '😴',
-                excited: '🤩',
-                proud: '😎',
-                silly: '😜'
-              };
-
-              return (
-                <article className="avatar-squad-card" key={user.id}>
-                  <div className="avatar-squad-head">
-                    <p className="avatar-squad-name">{user.name}</p>
-                    <span className="avatar-squad-mood">{emojiByMood[avatar.mood]} {avatar.mood}</span>
-                  </div>
-                  <p className="muted">{avatar.points} pts • {avatar.familyContribution} family points</p>
-                  <div className="avatar-look-grid">
-                    <select
-                      value={avatar.look.body}
-                      onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, body: event.target.value as AvatarLook['body'] })}
-                    >
-                      <option value="fox">Fox</option>
-                      <option value="cat">Cat</option>
-                      <option value="bear">Bear</option>
-                      <option value="bunny">Bunny</option>
-                    </select>
-                    <select
-                      value={avatar.look.outfit}
-                      onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, outfit: event.target.value as AvatarLook['outfit'] })}
-                    >
-                      <option value="cozy">Cozy</option>
-                      <option value="sporty">Sporty</option>
-                      <option value="party">Party</option>
-                      <option value="explorer">Explorer</option>
-                    </select>
-                  </div>
-                  <div className="avatar-action-row">
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'feed')}>Feed</button>
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'dance')}>Dance</button>
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'adventure')}>Adventure</button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-          <p className="more-kicker">Family total: <strong>{familyPoints} points</strong></p>
+        <FoundationBlock title="Avatar Home" description="Magical companion growth linked to real family activity.">
+          <AvatarHomeSection users={users} activeUserId={activeUserId} avatarGame={avatarGame} onCareAction={onCareAction} />
         </FoundationBlock>
       ) : null}
 

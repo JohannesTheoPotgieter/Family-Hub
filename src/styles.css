@@ -1420,3 +1420,31 @@ button:focus {
   align-items: center;
   gap: 8px;
 }
+
+.avatar-home progress { width: 100%; height: 10px; }
+.avatar-canvas-wrap { border-radius: 18px; padding: 10px; background: linear-gradient(160deg, rgba(255,255,255,.86), rgba(255,243,223,.78)); }
+.avatar-stage { min-height: 260px; position: relative; transform-style: preserve-3d; transition: transform .2s ease; border-radius: 16px; background: radial-gradient(circle at 50% 10%, #fff7e8, #efe9ff); overflow: hidden; }
+.avatar-room-scene { position: absolute; inset: 0; }
+.room-window { position: absolute; width: 72px; height: 88px; right: 20px; top: 18px; border-radius: 30px; background: linear-gradient(#c8e3ff,#fef7c4); border: 3px solid #fff; }
+.room-lamp { position: absolute; left: 18px; top: 34px; width: 22px; height: 58px; border-radius: 14px; background: #ffe7a6; box-shadow: 0 0 24px #ffd89b; }
+.room-plant { position: absolute; left: 14px; bottom: 20px; width: 26px; height: 30px; border-radius: 40% 40% 20% 20%; background: #7ecf90; }
+.avatar-3d-figure { position: absolute; left: 50%; bottom: 28px; width: 160px; height: 210px; transform: translateX(-50%); }
+.avatar-part { position: absolute; border: none; border-radius: 999px; background: #f6bc85; }
+.avatar-part.head { width: 74px; height: 74px; left: 43px; top: 2px; }
+.avatar-part.torso { width: 92px; height: 90px; left: 34px; top: 70px; border-radius: 42px; }
+.avatar-part.arm { width: 24px; height: 70px; top: 88px; }
+.avatar-part.arm.left { left: 16px; }
+.avatar-part.arm.right { right: 16px; }
+.avatar-part.leg { width: 24px; height: 60px; top: 152px; }
+.avatar-part.leg.left { left: 48px; }
+.avatar-part.leg.right { right: 48px; }
+.avatar-part.accessory { width: 24px; height: 24px; left: 68px; top: 60px; box-shadow: 0 0 12px rgba(255,226,150,.8); }
+.avatar-3d-figure.is-happyJump { animation: hop .7s ease-in-out infinite; }
+.avatar-3d-figure.is-wave .arm.left { transform-origin: top center; animation: wave .6s ease-in-out infinite alternate; }
+.avatar-3d-figure.is-sleepyIdle { opacity: .85; }
+.avatar-3d-figure.is-sadSlump { transform: translateX(-50%) rotate(-4deg); }
+.avatar-fallback-card { padding: 10px; text-align: center; }
+.avatar-fallback-body { margin: 0 auto 8px; width: 140px; height: 180px; border-radius: 70px; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 5px 10px rgba(255,255,255,.6); }
+@keyframes wave { from { transform: rotate(0); } to { transform: rotate(-24deg);} }
+@keyframes hop { 0%,100% { transform: translateX(-50%) translateY(0);} 50% { transform: translateX(-50%) translateY(-14px);} }
+.challenge-card { border: 1px solid rgba(91,120,177,.2); border-radius: 14px; padding: 10px; background: rgba(255,255,255,.65); }

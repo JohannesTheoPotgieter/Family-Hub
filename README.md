@@ -29,3 +29,9 @@
 - `state.money` now uses `{ bills, transactions, budgets, settings }`.
 - Money amounts are stored as integer cents (`amountCents`, `limitCents`) for safer calculations.
 - Existing saved data is migrated automatically from legacy `payments` + `actualTransactions` and float `amount` fields.
+
+## Avatar Companion + Family Challenge system
+- Avatar progression now lives in `state.avatarGame` with versioned migration from legacy avatar points.
+- Companion growth is tied to real household actions (tasks, calendar, bills, setup, check-ins) through pure reward functions in `src/domain/avatarRewards.ts`.
+- Family challenges auto-seed and track per-user contributions with shared unlock rewards.
+- Companion UX lives in More → Avatar Home and includes 3D-style full-body interactions with a safe 2D fallback path for reduced motion / unsupported devices.

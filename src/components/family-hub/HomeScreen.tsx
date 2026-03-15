@@ -1,13 +1,8 @@
-import { useState } from 'react';
 import { formatPoints } from '../../lib/family-hub/format';
-import type { UserId } from '../../lib/family-hub/constants';
 import type { FamilyHubState } from '../../lib/family-hub/storage';
-
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
 
 type HomeScreenProps = {
   state: FamilyHubState;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { pointsEarned: number; familyPointsEarned: number };
 };
 
 const getTodayLabel = () =>
@@ -34,11 +29,12 @@ const getOpenTasksCount = (state: FamilyHubState) => state.tasks.items.filter((t
 const getTripsSavedCount = (state: FamilyHubState) =>
   state.calendar.events.filter((event) => /trip|travel|getaway|flight|vacation/i.test(event.title)).length;
 
-export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
+export const HomeScreen = ({ state }: HomeScreenProps) => {
   const dueSoonCount = getDueSoonCount(state);
   const openTasksCount = getOpenTasksCount(state);
   const tripsSavedCount = getTripsSavedCount(state);
-  const [reaction, setReaction] = useState('');
+  const currentCompanion = state.activeUserId ? state.avatarGame.companionsByUserId[state.activeUserId] : null;
+  const leadChallenge = state.avatarGame.familyChallenges.find((item) => !item.completed) ?? state.avatarGame.familyChallenges[0];
 
   return (
     <section className="home-screen stack-lg">
@@ -67,66 +63,30 @@ export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
 
       <section className="glass-panel crew-strip stack-sm" aria-label="Family avatars">
         <div className="crew-header">
-          <h3>Avatar strip</h3>
-          <span className="crew-points">{formatPoints(state.familyPoints)}</span>
+          <h3>Family companion energy</h3>
+          <span className="crew-points">{formatPoints(state.avatarGame.familyRewardTrack.familyStars)} stars</span>
         </div>
         <div className="avatar-row">
           {state.users.map((user) => (
             <div key={user.id} className={`avatar-pill ${state.activeUserId === user.id ? 'is-active' : ''}`}>
-              <span className="avatar-badge">{state.avatars[user.id].look.body === 'fox' ? '🦊' : state.avatars[user.id].look.body === 'cat' ? '🐱' : state.avatars[user.id].look.body === 'bear' ? '🐻' : '🐰'}</span>
+              <span className="avatar-badge">✨</span>
               <span>{user.name}</span>
-              <span className="avatar-mini-points">{state.avatars[user.id].points}</span>
+              <span className="avatar-mini-points">Lv {state.avatarGame.companionsByUserId[user.id].level}</span>
             </div>
           ))}
         </div>
-
-        {state.activeUserId ? (
-          <div className="quick-actions" role="group" aria-label="Quick avatar actions">
-            <button
-              className="chip-action"
-              type="button"
-              onClick={() => {
-                const result = onAvatarAction(state.activeUserId as UserId, 'feed');
-                setReaction(`Snack time! +${result.pointsEarned} points`);
-              }}
-            >
-              Feed
-            </button>
-            <button
-              className="chip-action"
-              type="button"
-              onClick={() => {
-                const result = onAvatarAction(state.activeUserId as UserId, 'dance');
-                setReaction(`Dance burst! +${result.pointsEarned} points`);
-              }}
-            >
-              Dance
-            </button>
-            <button
-              className="chip-action"
-              type="button"
-              onClick={() => {
-                const result = onAvatarAction(state.activeUserId as UserId, 'ball');
-                setReaction(`Ball play unlocked! +${result.pointsEarned} points`);
-              }}
-            >
-              Play ball
-            </button>
-            <button
-              className="chip-action"
-              type="button"
-              onClick={() => {
-                const result = onAvatarAction(state.activeUserId as UserId, 'adventure');
-                setReaction(`Mini adventure done! +${result.pointsEarned} points`);
-              }}
-            >
-              Adventure
-            </button>
-          </div>
-        ) : null}
-
-        {reaction ? <p className="status-banner is-success">{reaction}</p> : null}
+        {currentCompanion ? <p className="status-banner is-success">Your companion feels {currentCompanion.mood} after recent family progress.</p> : null}
       </section>
+
+      {leadChallenge ? (
+        <section className="glass-panel stack-sm" aria-label="Family challenge card">
+          <p className="eyebrow">Family Challenge</p>
+          <h3>{leadChallenge.title}</h3>
+          <p className="muted">{leadChallenge.description}</p>
+          <progress max={leadChallenge.targetValue} value={leadChallenge.progressValue} aria-label="Family challenge progress" />
+          <p className="muted">{leadChallenge.progressValue}/{leadChallenge.targetValue} • {leadChallenge.completed ? 'You completed this week’s family challenge!' : 'The whole household is making progress.'}</p>
+        </section>
+      ) : null}
     </section>
   );
 };
