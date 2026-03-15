@@ -117,7 +117,6 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
 
-      <section className="glass-card login-card setup-card stack">
         <div className="login-brand">
           <span className="login-logo">🏡</span>
           <p className="eyebrow">Family Hub setup</p>
@@ -310,7 +309,6 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
         </div>
         {step === 4 ? <Button variant="ghost" onClick={finish}>Skip for now</Button> : null}
-      </Card>
     </main>
   );
 };
