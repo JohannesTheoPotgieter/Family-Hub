@@ -15,7 +15,16 @@ import { ToastProvider } from './ui/useToasts';
 import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
 import type { AvatarActivityEvent } from './domain/avatarTypes';
 
-const tabIcons: Record<Tab, string> = { Home: '⌂', Calendar: '◷', Tasks: '✓', Money: '◉', More: '⋯' };
+
+const tabIcons: Record<Tab, string> = {
+  Home: '🏡',
+  Calendar: '📅',
+  Tasks: '✅',
+  Money: '💰',
+  More: '⋯'
+};
+
+
 
 const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
   if (state.avatarGame.familyChallenges.length) return state;
@@ -100,10 +109,30 @@ const AppInner = () => {
     return <SetupWizard user={user} onFinish={(pin, profile) => setState((current) => rewardActivity({ ...current, activeUserId: user.id, setupUserId: null, userPins: { ...current.userPins, [user.id]: encodePin(user.id, pin) }, userSetupProfiles: { ...current.userSetupProfiles, [user.id]: profile }, setupCompleted: { ...current.setupCompleted, [user.id]: true } }, { type: 'APP_PROFILE_COMPLETED', userId: user.id, actionId: `profile-${user.id}`, createdAtIso: new Date().toISOString() }))} />;
   }
 
-  if (!state.activeUserId) return <LoginScreen users={state.users} hasPin={(id) => Boolean(state.userPins[id])} isSetupComplete={(id) => state.setupCompleted[id]} onUnlock={(id, pin) => { const unlocked = verifyPin(id, pin, state.userPins[id]); if (unlocked) setState((c) => rewardActivity({ ...c, activeUserId: id }, { type: 'APP_DAILY_CHECKIN', userId: id, actionId: `checkin-${id}-${new Date().toISOString().slice(0,10)}`, createdAtIso: new Date().toISOString() })); return unlocked; }} onStartSetup={(id) => setState((c) => ({ ...c, setupUserId: id }))} />;
+
+  if (!state.activeUserId) {
+    return (
+      <LoginScreen
+        users={state.users}
+        hasPin={(id) => Boolean(state.userPins[id])}
+        isSetupComplete={(id) => state.setupCompleted[id]}
+        onUnlock={(id, pin) => {
+          const unlocked = verifyPin(id, pin, state.userPins[id]);
+          if (unlocked) {
+            setState((current) => ({ ...current, activeUserId: id }));
+          }
+          return unlocked;
+        }}
+        onStartSetup={(id) => setState((current) => ({ ...current, setupUserId: id }))}
+      />
+    );
+  }
 
   return (
     <main className="app-shell">
+      <div className="bg-orb bg-orb--top" />
+      <div className="bg-orb bg-orb--bottom" />
+
       <div className="app-phone-frame">
         <section className="screen-content">
           {activeTab === 'Home' && <HomeScreen state={state} />}
@@ -153,8 +182,22 @@ const AppInner = () => {
           )}
           {activeTab === 'More' && <MoreScreen users={state.users} avatars={state.avatars} activeUser={activeUser} setupCompleted={state.setupCompleted} userPins={state.userPins} places={state.places} events={state.calendar.events} tasks={state.tasks.items} avatarGame={state.avatarGame} activeUserId={state.activeUserId} onCareAction={onCareAction} onChangePin={() => false} onSetUserPin={() => undefined} onAddPlace={() => undefined} onUpdatePlace={() => undefined} onExportData={() => JSON.stringify(state, null, 2)} onResetData={() => setState(ensureChallenges(loadState()))} />}
         </section>
-        <nav className="bottom-nav" aria-label="Primary">
-          {TABS.map((tab) => <button key={tab} type="button" className={`nav-item ${activeTab === tab ? 'is-active' : ''}`} onClick={() => setActiveTab(tab)}><span>{tabIcons[tab]}</span><span>{tab}</span></button>)}
+
+
+        <nav className="bottom-nav glass-card" aria-label="Primary">
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className={`nav-item ${activeTab === tab ? 'is-active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+              aria-current={activeTab === tab ? 'page' : undefined}
+            >
+              <span className="nav-item-icon">{tabIcons[tab]}</span>
+              <span>{tab}</span>
+            </button>
+          ))}
+
         </nav>
       </div>
       <ToastViewport />
