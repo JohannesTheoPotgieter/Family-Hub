@@ -108,6 +108,12 @@ export type CashflowItem = {
   kind: 'planned' | 'actual';
 };
 
+export type UserSetup = {
+  completed: boolean;
+  openingBalance: number;
+  monthlyIncome: number;
+};
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;

@@ -122,20 +122,15 @@ export const FamilyHubApp = () => {
     );
   }
 
-  return (
-    <main className="app-shell">
-      <div className="bg-orb bg-orb--top" />
-      <div className="bg-orb bg-orb--bottom" />
-      <div className="app-phone-frame">
-        <header className="glass-card app-header">
-          <div>
-            <p className="eyebrow">Family Hub</p>
-            <h1>{activeUser ? `Hello, ${activeUser.name}` : 'Family Hub'}</h1>
-          </div>
-          <button className="btn btn-ghost" onClick={() => setState((current) => ({ ...current, activeUserId: null }))}>
-            Lock
-          </button>
-        </header>
+  if (!state.userSetup[state.activeUserId].completed) {
+    return <main className="app-shell"><div className="bg-orb bg-orb--top" /><div className="bg-orb bg-orb--bottom" /><div className="app-phone-frame"><SetupWizard user={activeUser!} onFinish={(payload) => setState((current) => ({
+      ...current,
+      userPins: { ...current.userPins, [current.activeUserId!]: encodePin(current.activeUserId!, payload.pin) },
+      userSetup: { ...current.userSetup, [current.activeUserId!]: { completed: true, openingBalance: payload.openingBalance, monthlyIncome: payload.monthlyIncome } },
+      payments: [...current.payments, ...payload.payments.map((p) => ({ ...p, id: createId(), paid: false }))],
+      budgets: [...current.budgets, ...payload.budgets.map((b) => ({ id: createId(), category: b.category, limit: b.limit, spent: 0 }))]
+    }))} /></div></main>;
+  }
 
         <section className="screen-content">
           {activeTab === 'Home' && <HomeScreen state={state} onAvatarAction={onAvatarAction} />}
