@@ -1,13 +1,8 @@
-import { useState } from 'react';
 import { formatPoints } from '../../lib/family-hub/format';
-import type { UserId } from '../../lib/family-hub/constants';
 import type { FamilyHubState } from '../../lib/family-hub/storage';
-
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
 
 type HomeScreenProps = {
   state: FamilyHubState;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { pointsEarned: number; familyPointsEarned: number };
 };
 
 const BODY_EMOJI: Record<string, string> = {
@@ -57,7 +52,7 @@ const getOverduePayments = (state: FamilyHubState) => {
   return state.money.payments.filter((p) => !p.paid && p.dueDate < today).length;
 };
 
-export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
+export const HomeScreen = ({ state }: HomeScreenProps) => {
   const dueSoonCount = getDueSoonCount(state);
   const openTasksCount = getOpenTasksCount(state);
   const overdueCount = getOverduePayments(state);
@@ -174,6 +169,16 @@ export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
           </>
         ) : null}
       </section>
+
+      {leadChallenge ? (
+        <section className="glass-panel stack-sm" aria-label="Family challenge card">
+          <p className="eyebrow">Family Challenge</p>
+          <h3>{leadChallenge.title}</h3>
+          <p className="muted">{leadChallenge.description}</p>
+          <progress max={leadChallenge.targetValue} value={leadChallenge.progressValue} aria-label="Family challenge progress" />
+          <p className="muted">{leadChallenge.progressValue}/{leadChallenge.targetValue} • {leadChallenge.completed ? 'You completed this week’s family challenge!' : 'The whole household is making progress.'}</p>
+        </section>
+      ) : null}
     </section>
   );
 };

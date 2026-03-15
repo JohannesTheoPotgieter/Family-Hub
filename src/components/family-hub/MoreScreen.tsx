@@ -1,26 +1,27 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PlaceItem, TaskItem, AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
+import type { CalendarEvent, PlaceItem, TaskItem, AvatarProfile } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
+import type { AvatarGameState } from '../../domain/avatarTypes';
+import { AvatarHomeSection } from './AvatarHomeSection';
 
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
 type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
 
 type Props = {
   users: User[];
   avatars: Record<UserId, AvatarProfile>;
-  familyPoints: number;
   activeUser: User | null;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
   places: PlaceItem[];
   events: CalendarEvent[];
   tasks: TaskItem[];
+  avatarGame: AvatarGameState;
+  activeUserId: UserId | null;
+  onCareAction: (userId: UserId, action: 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story') => void;
   onChangePin: (currentPin: string, nextPin: string) => boolean;
   onSetUserPin: (userId: UserId, nextPin: string) => void;
-  onCustomizeAvatar: (userId: UserId, look: AvatarLook) => void;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number };
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;

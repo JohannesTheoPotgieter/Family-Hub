@@ -1,4 +1,6 @@
 import { USERS, type UserId } from './constants';
+import type { AvatarGameState, AvatarCompanion } from '../../domain/avatarTypes';
+import { applyStatDecay } from '../../domain/avatarRewards';
 import type { PinStore } from './pin';
 
 export type CalendarEvent = {
@@ -133,6 +135,7 @@ export type FamilyHubState = {
   setupUserId: UserId | null;
   familyPoints: number;
   avatars: Record<UserId, AvatarProfile>;
+  avatarGame: AvatarGameState;
   places: PlaceItem[];
   reminders: { items: ReminderItem[] };
   settings: AppSettings;
@@ -251,6 +254,92 @@ const sanitizeAvatar = (avatar: Partial<AvatarProfile> | undefined, fallback: Av
   inventory: Array.isArray(avatar?.inventory) ? avatar.inventory.filter((item): item is string => typeof item === 'string') : fallback.inventory
 });
 
+
+
+const defaultCompanion = (userId: UserId, name: string, bodyColor: string): AvatarCompanion => ({
+  id: `companion-${userId}`,
+  userId,
+  name: `${name}'s companion`,
+  species: userId === 'nicole' ? 'mooncat' : userId === 'ella' ? 'bunny' : userId === 'oliver' ? 'cloudbear' : 'foxling',
+  growthStage: 'baby',
+  level: 1,
+  xp: 0,
+  coins: 10,
+  stars: 0,
+  streakDays: 0,
+  completedHouseholdActions: 0,
+  rewardedActionIds: [],
+  lastInteractionAtIso: new Date().toISOString(),
+  lastDecayProcessedAtIso: new Date().toISOString(),
+  mood: 'happy',
+  personality: 'gentle',
+  stats: { energy: 82, hunger: 78, hygiene: 76, happiness: 80, confidence: 62, calm: 68, health: 84 },
+  appearance: { bodyColor, eyeStyle: 'round', outfitId: 'outfit-starter', accessoryIds: ['star-pin'], auraColor: '#ffd77a', sparkleStyle: 'stars' },
+  room: { backgroundTheme: 'sunny_nook', floorTheme: 'wood_honey', decorationIds: ['plant-small'], wallpaperId: 'cloud-warm', windowStyle: 'arched', plushieIds: ['plushie-moon'] },
+  inventory: {
+    foods: ['berry-toast', 'honey-porridge'],
+    toys: ['starlight-ball', 'story-shell'],
+    outfits: ['outfit-starter', 'outfit-cozy-knit', 'outfit-rainbow-hoodie'],
+    stickers: ['welcome-star', 'sun-squad'],
+    rewards: ['starter-pack'],
+    roomDecor: ['moon-lamp', 'cozy-rug', 'wall-stars'],
+    accessories: ['star-pin', 'flower-clip', 'mini-scarf']
+  }
+});
+
+const createInitialAvatarGame = (): AvatarGameState => ({
+  version: 2,
+  companionsByUserId: {
+    johannes: defaultCompanion('johannes', 'Johannes', '#f9b976'),
+    nicole: defaultCompanion('nicole', 'Nicole', '#b4b5ff'),
+    ella: defaultCompanion('ella', 'Ella', '#ffc4dc'),
+    oliver: defaultCompanion('oliver', 'Oliver', '#b0e6ff')
+  },
+  familyRewardTrack: {
+    familyLevel: 1,
+    familyStars: 0,
+    familyCoins: 0,
+    unlockedRoomThemes: ['sunny_nook', 'moonlight_room'],
+    unlockedDecor: ['moon-lamp'],
+    unlockedSquadRewards: ['welcome-banner']
+  },
+  familyChallenges: [],
+  challengeProgressById: {},
+  rewardHistory: []
+});
+
+const migrateAvatarGame = (rawGame: any, rawAvatars: any, familyPoints: any, fallback: AvatarGameState): AvatarGameState => {
+  if (rawGame?.version === 2 && rawGame?.companionsByUserId) {
+    const next = { ...fallback, ...rawGame };
+    const now = new Date();
+    const companionsByUserId = { ...fallback.companionsByUserId, ...next.companionsByUserId };
+    (Object.keys(companionsByUserId) as UserId[]).forEach((id) => {
+      const c = companionsByUserId[id];
+      const elapsedMs = Math.max(0, now.getTime() - new Date(c.lastDecayProcessedAtIso ?? now.toISOString()).getTime());
+      companionsByUserId[id] = applyStatDecay({ ...fallback.companionsByUserId[id], ...c }, Math.min(elapsedMs, 1000 * 60 * 60 * 72));
+    });
+    return { ...next, companionsByUserId };
+  }
+
+  const migrated = createInitialAvatarGame();
+  if (rawAvatars) {
+    (Object.keys(migrated.companionsByUserId) as UserId[]).forEach((id) => {
+      const old = rawAvatars[id];
+      if (!old) return;
+      migrated.companionsByUserId[id] = {
+        ...migrated.companionsByUserId[id],
+        level: Math.max(1, Math.floor((old.points ?? 0) / 80) + 1),
+        xp: (old.points ?? 0) % 100,
+        stars: Math.floor((old.familyContribution ?? 0) / 10),
+        coins: 10 + Math.floor((old.points ?? 0) / 12),
+        mood: old.mood === 'excited' ? 'playful' : old.mood === 'silly' ? 'curious' : old.mood ?? 'happy',
+        inventory: { ...migrated.companionsByUserId[id].inventory, rewards: [...migrated.companionsByUserId[id].inventory.rewards, ...(old.inventory ?? [])] }
+      };
+    });
+  }
+  migrated.familyRewardTrack.familyStars = Math.floor((typeof familyPoints === 'number' ? familyPoints : 0) / 8);
+  return migrated;
+};
 export const createInitialState = (): FamilyHubState => ({
   users: USERS,
   userPins: {},
@@ -260,6 +349,7 @@ export const createInitialState = (): FamilyHubState => ({
   setupUserId: null,
   familyPoints: 0,
   avatars: { ...avatarDefaults },
+  avatarGame: createInitialAvatarGame(),
   places: [],
   reminders: { items: [] },
   settings: { pinHintsEnabled: false },
@@ -296,6 +386,7 @@ export const loadState = (): FamilyHubState => {
         ella: sanitizeAvatar(parsed.avatars?.ella, initial.avatars.ella),
         oliver: sanitizeAvatar(parsed.avatars?.oliver, initial.avatars.oliver)
       },
+      avatarGame: migrateAvatarGame((parsed as any).avatarGame, parsed.avatars, parsed.familyPoints, initial.avatarGame),
       places: (parsed.places ?? [])
         .filter(
           (place) =>
