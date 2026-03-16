@@ -1,27 +1,26 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PlaceItem, TaskItem, AvatarProfile } from '../../lib/family-hub/storage';
+import type { CalendarEvent, PlaceItem, TaskItem, AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
-import type { AvatarGameState } from '../../domain/avatarTypes';
-import { AvatarHomeSection } from './AvatarHomeSection';
 
+type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
 type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
 
 type Props = {
   users: User[];
   avatars: Record<UserId, AvatarProfile>;
+  familyPoints: number;
   activeUser: User | null;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
   places: PlaceItem[];
   events: CalendarEvent[];
   tasks: TaskItem[];
-  avatarGame: AvatarGameState;
-  activeUserId: UserId | null;
-  onCareAction: (userId: UserId, action: 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story') => void;
   onChangePin: (currentPin: string, nextPin: string) => boolean;
   onSetUserPin: (userId: UserId, nextPin: string) => void;
+  onCustomizeAvatar: (userId: UserId, look: AvatarLook) => void;
+  onAvatarAction: (userId: UserId, action: AvatarAction) => { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number };
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
@@ -147,7 +146,7 @@ export const MoreScreen = ({
                   <strong>{item.title}</strong>
                   <small>{formatReminderDate(item.date)}</small>
                 </div>
-              )) : <p className="muted">Nothing due today. Enjoy! 🌤</p>}
+              )) : <p className="muted">Nothing due today.</p>}
             </article>
             <article className="reminder-group">
               <h4>This week</h4>
@@ -157,7 +156,7 @@ export const MoreScreen = ({
                   <strong>{item.title}</strong>
                   <small>{formatReminderDate(item.date)}</small>
                 </div>
-              )) : <p className="muted">Clear week ahead. 🌱</p>}
+              )) : <p className="muted">Clear week ahead.</p>}
             </article>
           </div>
         </FoundationBlock>
@@ -222,7 +221,7 @@ export const MoreScreen = ({
           {places.length === 0 && (
             <div className="tasks-empty stack">
               <p className="tasks-empty-emoji">🗺</p>
-              <p className="muted">No places saved yet. Add somewhere you'd love to visit!</p>
+              <p className="muted">No places saved yet. Add somewhere you would love to visit!</p>
             </div>
           )}
           <div className="places-list">
@@ -231,7 +230,7 @@ export const MoreScreen = ({
                 <div className="place-head">
                   <div>
                     <h4>{place.name}</h4>
-                    <p className="muted">{place.location} {place.roughCost ? `· ${place.roughCost}` : ''}</p>
+                    <p className="muted">{place.location}{place.roughCost ? ` · ${place.roughCost}` : ''}</p>
                   </div>
                   <select
                     value={place.status}
@@ -253,14 +252,14 @@ export const MoreScreen = ({
             <input
               value={placeName}
               placeholder="Place name (e.g. Cape Point)"
-              onChange={(event) => setPlaceName(event.target.value)}
               data-testid="input-place-name"
+              onChange={(event) => setPlaceName(event.target.value)}
             />
             <input
               value={placeLocation}
               placeholder="Location (e.g. Cape Town, SA)"
-              onChange={(event) => setPlaceLocation(event.target.value)}
               data-testid="input-place-location"
+              onChange={(event) => setPlaceLocation(event.target.value)}
             />
             <div className="place-form-row">
               <input
@@ -341,8 +340,8 @@ export const MoreScreen = ({
             <p className="muted">Select a family member and set their 4-digit PIN.</p>
             <select
               value={selectedUserId}
-              onChange={(event) => setSelectedUserId(event.target.value as UserId)}
               data-testid="select-user-for-pin"
+              onChange={(event) => setSelectedUserId(event.target.value as UserId)}
             >
               {users.map((user) => (
                 <option key={user.id} value={user.id}>{user.name}</option>
@@ -366,7 +365,7 @@ export const MoreScreen = ({
               disabled={newUserPin.length !== 4}
               onClick={() => {
                 onSetUserPin(selectedUserId, newUserPin);
-                setUserPinStatus('✓ PIN saved');
+                setUserPinStatus('PIN saved');
                 setNewUserPin('');
                 setTimeout(() => setUserPinStatus(''), 2500);
               }}
@@ -414,11 +413,11 @@ export const MoreScreen = ({
               type="button"
               disabled={currentPin.length !== 4 || nextPin.length !== 4 || confirmPin.length !== 4}
               onClick={() => {
-                if (nextPin !== confirmPin) { setPinError(true); setPinStatus('New PINs don\'t match.'); return; }
+                if (nextPin !== confirmPin) { setPinError(true); setPinStatus('New PINs do not match.'); return; }
                 const changed = onChangePin(currentPin, nextPin);
                 if (!changed) { setPinError(true); setPinStatus('Current PIN is incorrect.'); return; }
                 setPinError(false);
-                setPinStatus('✓ PIN updated successfully.');
+                setPinStatus('PIN updated successfully.');
                 setCurrentPin(''); setNextPin(''); setConfirmPin('');
               }}
             >
@@ -435,7 +434,7 @@ export const MoreScreen = ({
                 const serialized = onExportData();
                 try {
                   await navigator.clipboard.writeText(serialized);
-                  setSettingsStatus('✓ Data copied to clipboard.');
+                  setSettingsStatus('Data copied to clipboard.');
                 } catch {
                   setSettingsStatus('Copy failed. Use browser devtools to access localStorage.');
                 }

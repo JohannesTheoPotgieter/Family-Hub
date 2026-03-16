@@ -1,12 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { formatCurrency } from '../../lib/family-hub/format';
 import type { User } from '../../lib/family-hub/constants';
 import type { UserSetupProfile } from '../../lib/family-hub/storage';
-import { Button } from '../../ui/Button';
-import { Card } from '../../ui/Card';
-import { Progress } from '../../ui/Progress';
-import { Confetti } from '../../ui/Confetti';
-import { useToasts } from '../../ui/useToasts';
-
 
 type Props = {
   user: User;
@@ -34,14 +29,12 @@ type InputRow = {
 const createRow = () => ({ id: crypto.randomUUID(), label: '', value: '' });
 const parseMoney = (value: string) => Number.parseFloat(value.replace(',', '.'));
 
-
 const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'] as const;
 
 export const SetupWizard = ({ user, onFinish }: Props) => {
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<WizardStep>(1);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
-
   const [openingBalance, setOpeningBalance] = useState('');
   const [monthlyIncome, setMonthlyIncome] = useState('');
   const [recurringRows, setRecurringRows] = useState<InputRow[]>([createRow()]);
@@ -62,31 +55,20 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
   const handlePinKey = (key: string, which: 'pin' | 'confirm') => {
     const current = which === 'pin' ? pin : confirmPin;
     const setter = which === 'pin' ? setPin : setConfirmPin;
-    if (key === '⌫') {
-      setter(current.slice(0, -1));
-      setError('');
-      return;
-    }
+    if (key === '⌫') { setter(current.slice(0, -1)); setError(''); return; }
     if (current.length < 4) setter(current + key);
   };
 
   const goNext = () => {
     setError('');
-    if (step === 2 && pin.length !== 4) {
-      setError('Please enter a 4-digit PIN to continue.');
-      return;
-    }
+    if (step === 2 && pin.length !== 4) { setError('Please enter a 4-digit PIN to continue.'); return; }
     if (step === 3) {
       if (confirmPin.length !== 4) { setError('Please confirm your PIN.'); return; }
-      if (pin !== confirmPin) { setError('PINs don\'t match. Please try again.'); setConfirmPin(''); return; }
+      if (pin !== confirmPin) { setError("PINs don't match. Please try again."); setConfirmPin(''); return; }
     }
     if (step === 4) {
-      if (openingBalance && Number.isNaN(parseMoney(openingBalance))) {
-        setError('Please enter a valid opening balance.'); return;
-      }
-      if (monthlyIncome && Number.isNaN(parseMoney(monthlyIncome))) {
-        setError('Please enter a valid income amount.'); return;
-      }
+      if (openingBalance && Number.isNaN(parseMoney(openingBalance))) { setError('Please enter a valid opening balance.'); return; }
+      if (monthlyIncome && Number.isNaN(parseMoney(monthlyIncome))) { setError('Please enter a valid income amount.'); return; }
     }
     setStep((current) => Math.min(TOTAL_STEPS, current + 1) as WizardStep);
   };
@@ -108,15 +90,14 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
         .map((row) => ({ id: row.id, label: row.label.trim(), amount: parseMoney(row.value) }))
     };
     onFinish(pin, profile);
-
   };
 
   return (
     <main className="login-shell">
-
       <div className="bg-orb bg-orb--top" />
       <div className="bg-orb bg-orb--bottom" />
 
+      <section className="glass-card login-card setup-card stack">
         <div className="login-brand">
           <span className="login-logo">🏡</span>
           <p className="eyebrow">Family Hub setup</p>
@@ -126,15 +107,15 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
         <div className="wizard-progress-track" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className="wizard-progress-fill" style={{ width: `${progress}%` }} />
         </div>
-        <p className="muted">Step {step} of {TOTAL_STEPS} · {stepTitle[step]}</p>
+        <p className="muted">Step {step} of {TOTAL_STEPS} · {stepTitle[step as WizardStep]}</p>
 
         <div key={step} className="wizard-step fade-in">
 
           {step === 1 && (
             <div className="setup-summary stack-sm">
               <p className="setup-welcome-emoji">👋</p>
-              <p className="muted">You're setting up Family Hub as <strong>{user.name}</strong>.</p>
-              <p className="muted">This takes about 2 minutes. You can always change everything later.</p>
+              <p className="muted">You are setting up Family Hub as <strong>{user.name}</strong>.</p>
+              <p className="muted">This takes about 2 minutes. You can change everything later.</p>
             </div>
           )}
 
@@ -216,7 +197,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
           {step === 5 && (
             <div className="stack-sm">
-              <p className="muted">Optional — add recurring bills and budget categories. Skip if you prefer to set these up later.</p>
+              <p className="muted">Optional — add recurring bills and budget categories. Skip to set up later.</p>
 
               <h4>Monthly recurring payments</h4>
               {recurringRows.map((row) => (
@@ -271,24 +252,22 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
           {step === 6 && (
             <div className="setup-summary stack-sm">
               <p className="setup-welcome-emoji">🎉</p>
-              <p className="muted">You're all set, <strong>{user.name}</strong>! Here's a quick summary:</p>
-              {openingBalance && <p>💰 Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>}
-              {monthlyIncome && <p>📅 Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>}
-              {recurringValidCount > 0 && <p>🔁 Recurring payments: {recurringValidCount}</p>}
-              {budgetValidCount > 0 && <p>📊 Budget categories: {budgetValidCount}</p>}
+              <p className="muted">You are all set, <strong>{user.name}</strong>! Here is a quick summary:</p>
+              {openingBalance && <p>Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>}
+              {monthlyIncome && <p>Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>}
+              {recurringValidCount > 0 && <p>Recurring payments: {recurringValidCount}</p>}
+              {budgetValidCount > 0 && <p>Budget categories: {budgetValidCount}</p>}
               {!openingBalance && !monthlyIncome && <p className="muted">You can set up your finances anytime in the Money tab.</p>}
             </div>
           )}
 
         </div>
 
-
         {error ? <p className="error-banner">{error}</p> : null}
 
         <div className="wizard-actions">
-
           <button className="btn btn-ghost" type="button" onClick={goBack} disabled={step === 1}>
-            ← Back
+            Back
           </button>
           {step < TOTAL_STEPS ? (
             <div className="wizard-next-group">
@@ -298,17 +277,16 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                 </button>
               )}
               <button className="btn btn-primary" type="button" onClick={goNext}>
-                Continue →
+                Continue
               </button>
             </div>
           ) : (
             <button className="btn btn-primary" type="button" onClick={finish}>
-              Enter Family Hub 🏡
+              Enter Family Hub
             </button>
           )}
-
         </div>
-        {step === 4 ? <Button variant="ghost" onClick={finish}>Skip for now</Button> : null}
+      </section>
     </main>
   );
 };
