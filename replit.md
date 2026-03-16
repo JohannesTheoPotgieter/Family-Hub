@@ -1,70 +1,40 @@
-# Family Hub
+# Family Hub on Replit
 
-A phone-first React web app for Johannes and Nicole's shared household.
+## Safe default for GitHub import + static publish
 
-## Architecture
+- The repo is still safe to import back into GitHub and open in Replit as a normal frontend project.
+- The checked-in `.replit` keeps Replit publishing on a **static deployment** using `dist/`.
+- For that static deployment path, keep `VITE_CALENDAR_MODE=local` so the published app does not depend on the optional Node calendar server.
 
-- **Framework**: React 18 + Vite 7 (TypeScript)
-- **Styling**: Vanilla CSS with glassmorphic premium design system (`src/styles.css`, `src/theme.css`)
-- **State**: localStorage persistence via `loadState`/`saveState` in `src/lib/family-hub/storage.ts`
-- **No backend**: Fully frontend-only, all data in localStorage
-- **Port**: Dev server runs on port 5000
+## Current runtime model
 
-## Project Structure
+- Frontend: React + Vite on port `5000`
+- Optional backend: `server/index.mjs` on port `8787`
+- Static Replit deployment: serves only the built frontend from `dist/`
 
-```
-src/
-  main.tsx                          — App entry point
-  FamilyHubApp.tsx                  — Root component + state management
-  styles.css                        — Component styles
-  theme.css                         — Design tokens + glassmorphic base
-  lib/family-hub/
-    storage.ts                      — All TypeScript types + localStorage
-    constants.ts                    — USERS array, TABS, UserId type
-    date.ts                         — Date helpers (getTodayIso, isSameDay)
-    format.ts                       — formatCurrency (ZAR), formatPoints
-    pin.ts                          — PIN encoding (btoa) + verification
-  components/family-hub/
-    LoginScreen.tsx                 — Profile picker + PIN entry
-    SetupWizard.tsx                 — First-time setup flow
-    HomeScreen.tsx                  — Dashboard with metrics + avatar strip
-    CalendarScreen.tsx              — Calendar with events/payments/tasks
-    TasksScreen.tsx                 — Task list with filters and groups
-    MoneyScreen.tsx                 — Transactions, payments, budget, cashflow
-    MoreScreen.tsx                  — Avatars, places, users, settings
-    AvatarsSection.tsx              — Avatar customization component
-    BaselineScaffold.tsx            — Shared ScreenIntro + FoundationBlock components
-```
+## What works in each mode
 
-## Users
+### Static Replit publish
+- Household app flows
+- Tasks, Money, Places, setup, PINs, reset, export
+- Internal calendar events
+- Manual Google/Microsoft token entry in local mode
 
-- **Johannes** (active) — ID: `johannes`
-- **Nicole** (active) — ID: `nicole`
-- **Ella** (inactive/future) — ID: `ella`
-- **Oliver** (inactive/future) — ID: `oliver`
+### Full-stack / non-static runtime
+- Everything above
+- Google OAuth calendar sync
+- Microsoft OAuth calendar sync
+- ICS subscriptions
 
-## Key Details
-
-- Currency: ZAR (R)
-- Week starts Monday
-- PIN encoding: `btoa('family-hub-local-v1:userId:pin')`
-- User IDs are string literals: `'johannes' | 'nicole' | 'ella' | 'oliver'`
-- No path aliases — use relative imports only
-
-## Development
+## Commands
 
 ```bash
-npm run dev      # Start dev server on port 5000
-npm run build    # TypeScript check + Vite build to dist/
-npm run preview  # Preview production build
+npm run dev        # Replit default web preview
+npm run dev:all    # Frontend + optional backend together
+npm run build      # Production build for static publish
 ```
 
-## Deployment
+## Notes
 
-Static site deployment. Build outputs to `dist/`. Configure in `.replit`:
-```toml
-[deployment]
-build = ["sh", "-c", "npm run build"]
-deploymentTarget = "static"
-publicDir = "dist/"
-```
+- `server/.family-hub-server.json` is ignored so local server credentials/subscriptions are not committed back to GitHub.
+- If you want Google/Microsoft/ICS on a published Replit app, use a deployment type that can run a backend server instead of the static deployment flow.

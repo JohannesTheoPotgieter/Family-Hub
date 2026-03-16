@@ -7,7 +7,7 @@
     "dev": "vite",
     "dev:client": "vite",
     "dev:server": "node server/index.mjs",
-    "dev:all": "sh -c 'npm run dev:server & npm run dev:client'",
+    "dev:all": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "build": "tsc -b && vite build",
     "test": "node --test src/test/*.test.mjs",
     "preview": "vite preview"
@@ -20,6 +20,7 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.2.1",
     "typescript": "^5.5.4",
     "vite": "^5.3.4"
   }
