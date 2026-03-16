@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { AmountText } from './money/AmountText';
 import { BillStatusBadge } from './money/BillStatusBadge';
@@ -25,7 +25,18 @@ import {
   toCents
 } from '../../lib/family-hub/money';
 import { getTodayIso } from '../../lib/family-hub/date';
+import {
+  buildStatementImportNote,
+  buildStatementPreview,
+  createEmptyStatementColumnMapping,
+  parseStatementText,
+  type ParsedStatement,
+  type StatementColumnMapping,
+  type StatementColumnRole
+} from '../../lib/family-hub/statementImport';
 import type { Bill, Budget, MoneyState, MoneyTransaction } from '../../lib/family-hub/storage';
+import { Modal } from '../../ui/Modal';
+import { useToasts } from '../../ui/useToasts';
 
 type Props = {
   money: MoneyState;
@@ -35,21 +46,50 @@ type Props = {
   onMarkBillPaid: (id: string, proofFileName: string) => void;
   onAddTransaction: (tx: Omit<MoneyTransaction, 'id'>) => void;
   onUpdateTransaction: (id: string, tx: Omit<MoneyTransaction, 'id'>) => void;
+  onImportTransactions: (transactions: Array<Omit<MoneyTransaction, 'id'>>) => void;
   onAddBudget: (budget: Omit<Budget, 'id'>) => void;
   onUpdateBudget: (id: string, update: Partial<Budget>) => void;
   onDeleteBudget: (id: string) => void;
 };
 
 type MoneyTab = 'overview' | 'bills' | 'transactions' | 'budget';
+type StatementRowOverride = { include?: boolean; kind?: 'inflow' | 'outflow'; category?: string };
 
-const tabOptions: { key: MoneyTab; label: string }[] = [
+const tabOptions = [
   { key: 'overview', label: 'Overview' },
   { key: 'bills', label: 'Bills' },
   { key: 'transactions', label: 'Transactions' },
   { key: 'budget', label: 'Budget' }
+] as const satisfies Array<{ key: MoneyTab; label: string }>;
+
+const statementColumnLabels: Array<{ role: StatementColumnRole; label: string; optional?: boolean }> = [
+  { role: 'date', label: 'Date' },
+  { role: 'description', label: 'Description' },
+  { role: 'amount', label: 'Amount' },
+  { role: 'debit', label: 'Debit', optional: true },
+  { role: 'credit', label: 'Credit', optional: true },
+  { role: 'direction', label: 'Type / direction', optional: true },
+  { role: 'reference', label: 'Reference', optional: true },
+  { role: 'balance', label: 'Balance', optional: true }
 ];
 
-export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, onMarkBillPaid, onAddTransaction, onUpdateTransaction, onAddBudget, onUpdateBudget, onDeleteBudget }: Props) => {
+const sourceLabel = (source: MoneyTransaction['source']) => source === 'bill' ? 'Linked bill' : source === 'statement' ? 'Statement import' : 'Manual';
+const freshTxDraft = (): { title: string; amount: string; dateIso: string; kind: 'inflow' | 'outflow'; category: string; notes: string } => ({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow', category: 'Other', notes: '' });
+
+export const MoneyScreen = ({
+  money,
+  onAddBill,
+  onUpdateBill,
+  onDuplicateBill,
+  onMarkBillPaid,
+  onAddTransaction,
+  onUpdateTransaction,
+  onImportTransactions,
+  onAddBudget,
+  onUpdateBudget,
+  onDeleteBudget
+}: Props) => {
+  const { push } = useToasts();
   const [tab, setTab] = useState<MoneyTab>('overview');
   const [month, setMonth] = useState(getTodayIso().slice(0, 7));
   const [billStatusFilter, setBillStatusFilter] = useState<'all' | 'overdue' | 'dueSoon' | 'upcoming' | 'paid'>('all');
@@ -58,11 +98,18 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
   const [search, setSearch] = useState('');
   const [txKindFilter, setTxKindFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
   const [txCategoryFilter, setTxCategoryFilter] = useState('all');
-
   const [billDraft, setBillDraft] = useState({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
   const [txEditId, setTxEditId] = useState<string | null>(null);
-  const [txDraft, setTxDraft] = useState({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow' as 'inflow' | 'outflow', category: 'Other', notes: '' });
+  const [txDraft, setTxDraft] = useState(freshTxDraft);
+  const [txDraftSource, setTxDraftSource] = useState<'manual' | 'statement'>('manual');
   const [budgetDraft, setBudgetDraft] = useState({ category: 'Groceries', amount: '' });
+  const [statementModalOpen, setStatementModalOpen] = useState(false);
+  const [statementLoading, setStatementLoading] = useState(false);
+  const [statementError, setStatementError] = useState('');
+  const [statementInfo, setStatementInfo] = useState('');
+  const [statementParsed, setStatementParsed] = useState<ParsedStatement | null>(null);
+  const [statementMapping, setStatementMapping] = useState<StatementColumnMapping>(() => createEmptyStatementColumnMapping());
+  const [statementOverrides, setStatementOverrides] = useState<Record<string, StatementRowOverride>>({});
 
   const todayIso = getTodayIso();
   const monthBills = useMemo(() => getMonthBills(money, month), [money, month]);
@@ -71,13 +118,21 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
   const dueSoonBills = useMemo(() => getDueSoonBills(monthBills, todayIso), [monthBills, todayIso]);
   const paidBills = monthBills.filter((bill) => bill.paid);
   const upcomingBills = monthBills.filter((bill) => !bill.paid && !overdueBills.some((item) => item.id === bill.id) && !dueSoonBills.some((item) => item.id === bill.id));
-
   const income = getMonthIncomeTotal(money, month);
   const spending = getMonthSpendingTotal(money, month);
   const net = getNetBalance(money, month);
   const budgetStatus = getBudgetStatus(money, month);
   const topCategory = getTopSpendingCategory(money, month);
   const recentActivity = getRecentMoneyActivity(money);
+
+  const spendCategories = useMemo(
+    () => Array.from(new Set([...DEFAULT_MONEY_CATEGORIES, 'Other', ...money.bills.map((bill) => bill.category), ...money.transactions.filter((tx) => tx.kind === 'outflow').map((tx) => tx.category)])),
+    [money.bills, money.transactions]
+  );
+  const transactionCategories = useMemo(
+    () => Array.from(new Set([...spendCategories, 'Income', 'Starting balance', ...money.transactions.map((tx) => tx.category)])),
+    [money.transactions, spendCategories]
+  );
 
   const visibleBills = monthBills.filter((bill) => {
     if (billStatusFilter === 'all') return true;
@@ -90,23 +145,43 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
   const visibleTransactions = monthTransactions.filter((tx) => {
     const kindOk = txKindFilter === 'all' ? true : tx.kind === txKindFilter;
     const categoryOk = txCategoryFilter === 'all' ? true : tx.category === txCategoryFilter;
-    const searchOk = tx.title.toLowerCase().includes(search.toLowerCase());
-    return kindOk && categoryOk && searchOk;
+    return kindOk && categoryOk && tx.title.toLowerCase().includes(search.toLowerCase());
   });
 
-  const categories = Array.from(new Set([...DEFAULT_MONEY_CATEGORIES, ...money.transactions.map((tx) => tx.category), ...money.bills.map((bill) => bill.category)]));
+  const statementPreview = useMemo(
+    () => statementParsed ? buildStatementPreview(statementParsed, statementMapping, money.transactions, transactionCategories) : null,
+    [money.transactions, statementMapping, statementParsed, transactionCategories]
+  );
+
+  const statementReviewRows = useMemo(() => {
+    if (!statementPreview) return [];
+    return statementPreview.rows.map((row) => {
+      const override = statementOverrides[row.id] ?? {};
+      const kind = override.kind ?? row.kind;
+      const category = override.category ?? row.category;
+      const warnings = row.warnings.filter((warning) => {
+        if (override.kind && warning === 'Check whether this was money in or money out.') return false;
+        if (override.category && warning === 'Category may need a quick check.') return false;
+        return true;
+      });
+      return { ...row, include: override.include ?? row.includeByDefault, kind, category, warnings, needsFix: !row.dateIso || row.amountCents === null || !kind };
+    });
+  }, [statementOverrides, statementPreview]);
+
+  const statementImportableRows = statementReviewRows.filter((row) => row.include && !row.needsFix);
+  const statementIncludedNeedsFixCount = statementReviewRows.filter((row) => row.include && row.needsFix).length;
+
+  const resetTransactionComposer = () => {
+    setTxEditId(null);
+    setTxDraft(freshTxDraft());
+    setTxDraftSource('manual');
+    setTransactionComposerOpen(false);
+  };
 
   const saveBill = () => {
     const amount = Number.parseFloat(billDraft.amount.replace(',', '.'));
     if (!billDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
-    onAddBill({
-      title: billDraft.title.trim(),
-      amountCents: toCents(amount),
-      dueDateIso: billDraft.dueDateIso,
-      category: billDraft.category,
-      notes: billDraft.notes.trim() || undefined,
-      autoCreateTransaction: billDraft.autoCreateTransaction
-    });
+    onAddBill({ title: billDraft.title.trim(), amountCents: toCents(amount), dueDateIso: billDraft.dueDateIso, category: billDraft.category, notes: billDraft.notes.trim() || undefined, autoCreateTransaction: billDraft.autoCreateTransaction });
     setBillDraft({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
     setBillComposerOpen(false);
   };
@@ -114,27 +189,91 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
   const saveTransaction = () => {
     const amount = Number.parseFloat(txDraft.amount.replace(',', '.'));
     if (!txDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
-    const payload = {
-      title: txDraft.title.trim(),
-      amountCents: toCents(amount),
-      dateIso: txDraft.dateIso,
-      kind: txDraft.kind,
-      category: txDraft.category,
-      notes: txDraft.notes.trim() || undefined,
-      source: 'manual' as const
-    };
+    const payload = { title: txDraft.title.trim(), amountCents: toCents(amount), dateIso: txDraft.dateIso, kind: txDraft.kind, category: txDraft.category, notes: txDraft.notes.trim() || undefined, source: txDraftSource } satisfies Omit<MoneyTransaction, 'id'>;
     if (txEditId) onUpdateTransaction(txEditId, payload);
     else onAddTransaction(payload);
-    setTxEditId(null);
-    setTxDraft({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow', category: 'Other', notes: '' });
-    setTransactionComposerOpen(false);
+    resetTransactionComposer();
+  };
+
+  const openStatementImport = () => {
+    setTab('transactions');
+    setStatementModalOpen(true);
+    setStatementError('');
+  };
+
+  const resetStatementImport = () => {
+    setStatementParsed(null);
+    setStatementMapping(createEmptyStatementColumnMapping());
+    setStatementOverrides({});
+    setStatementError('');
+    setStatementInfo('');
+  };
+
+  const updateStatementMapping = (role: StatementColumnRole, value: string) => {
+    setStatementMapping((current) => {
+      const next = { ...current };
+      const nextValue = value || null;
+      if (nextValue) {
+        (Object.keys(next) as StatementColumnRole[]).forEach((key) => {
+          if (key !== role && next[key] === nextValue) next[key] = null;
+        });
+      }
+      next[role] = nextValue;
+      return next;
+    });
+  };
+
+  const handleStatementFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setStatementLoading(true);
+    setStatementError('');
+    try {
+      const parsed = parseStatementText(file.name, await file.text());
+      setStatementParsed(parsed);
+      setStatementMapping(parsed.suggestedMapping);
+      setStatementOverrides({});
+      setStatementInfo(`Loaded ${parsed.rows.length} row${parsed.rows.length === 1 ? '' : 's'} from ${file.name}.`);
+      if (!parsed.rows.length) setStatementError(parsed.warnings[0] ?? 'No transaction rows were found in that file.');
+    } catch {
+      setStatementError('That file could not be read. Please try a CSV, TSV, OFX, or QFX export from your bank.');
+    } finally {
+      setStatementLoading(false);
+    }
+  };
+
+  const importStatementRows = () => {
+    if (!statementParsed) return;
+    if (!statementImportableRows.length) {
+      setStatementError('Select at least one valid row to import.');
+      return;
+    }
+    if (statementIncludedNeedsFixCount > 0) {
+      setStatementError('Some selected rows still need a transaction type before they can be imported.');
+      return;
+    }
+    const batchId = `statement-${Date.now()}`;
+    onImportTransactions(statementImportableRows.map((row) => ({
+      title: row.title,
+      amountCents: row.amountCents as number,
+      dateIso: row.dateIso as string,
+      kind: row.kind as 'inflow' | 'outflow',
+      category: row.category,
+      notes: buildStatementImportNote(statementParsed.fileName, row),
+      source: 'statement',
+      statementImportId: batchId,
+      statementFileName: statementParsed.fileName
+    })));
+    push(`Imported ${statementImportableRows.length} transaction${statementImportableRows.length === 1 ? '' : 's'} from ${statementParsed.fileName}.`);
+    setStatementModalOpen(false);
+    resetStatementImport();
   };
 
   return (
     <section className="stack-md">
-      <ScreenIntro title="Money Manager" subtitle="Track bills, money in and out, and monthly budgets in one clear place." badge="Money" />
+      <ScreenIntro title="Money Manager" subtitle="Track bills, money in and money out, and monthly budgets in one clear place." badge="Money" />
       <MoneyFilterBar options={tabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
-
       {tab === 'overview' ? (
         <>
           <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan.">
@@ -151,11 +290,11 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
             </div>
             <div className="money-payment-meta">
               <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }}>Add bill</button>
-              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); }}>Add transaction</button>
+              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(freshTxDraft()); setTxDraftSource('manual'); }}>Add transaction</button>
+              <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
               <button className="btn btn-ghost" onClick={() => { const due = dueSoonBills[0] ?? overdueBills[0]; if (due) onMarkBillPaid(due.id, 'manual-proof'); }}>Mark paid</button>
             </div>
           </FoundationBlock>
-
           <FoundationBlock title="What needs attention" description={`Overdue: ${overdueBills.length} · Due soon: ${dueSoonBills.length} · Over budget categories: ${budgetStatus.overBudgetCount}`}>
             {recentActivity.length ? (
               <div className="stack-sm">
@@ -165,7 +304,6 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
           </FoundationBlock>
         </>
       ) : null}
-
       {tab === 'bills' ? (
         <FoundationBlock title="Bills" description="Plan upcoming bills and confirm what is paid.">
           <MoneySectionHeader title="Bill planner" subtitle="Group by status and filter your month." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
@@ -185,7 +323,7 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
                 <input type="date" value={billDraft.dueDateIso} onChange={(event) => setBillDraft((prev) => ({ ...prev, dueDateIso: event.target.value }))} />
               </div>
               <div className="money-editor-grid">
-                <select value={billDraft.category} onChange={(event) => setBillDraft((prev) => ({ ...prev, category: event.target.value }))}>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+                <select value={billDraft.category} onChange={(event) => setBillDraft((prev) => ({ ...prev, category: event.target.value }))}>{spendCategories.map((category) => <option key={category}>{category}</option>)}</select>
                 <input value={billDraft.notes} placeholder="Notes (optional)" onChange={(event) => setBillDraft((prev) => ({ ...prev, notes: event.target.value }))} />
               </div>
               <label className="task-shared-toggle"><input type="checkbox" checked={billDraft.autoCreateTransaction} onChange={(event) => setBillDraft((prev) => ({ ...prev, autoCreateTransaction: event.target.checked }))} />Auto-create transaction when paid</label>
@@ -217,7 +355,6 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
           ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)}>Add bill</button>} />}
         </FoundationBlock>
       ) : null}
-
       {tab === 'transactions' ? (
         <FoundationBlock title="Transactions" description="A clean ledger of money in and money out.">
           <MoneySectionHeader title="Ledger" subtitle="Filter by month, category, type, and search." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
@@ -227,11 +364,20 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
             <MoneyStatCard label="Net change" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} />
           </div>
           <div className="money-payment-meta">
-            <button className="btn btn-primary" onClick={() => setTransactionComposerOpen((open) => !open)}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
+            <button className="btn btn-primary" onClick={() => {
+              if (transactionComposerOpen) resetTransactionComposer();
+              else {
+                setTxEditId(null);
+                setTxDraft(freshTxDraft());
+                setTxDraftSource('manual');
+                setTransactionComposerOpen(true);
+              }
+            }}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
+            <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
             <input value={search} placeholder="Search title" onChange={(event) => setSearch(event.target.value)} />
           </div>
           <div className="money-editor-grid">
-            <select value={txCategoryFilter} onChange={(event) => setTxCategoryFilter(event.target.value)}><option value="all">All categories</option>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+            <select value={txCategoryFilter} onChange={(event) => setTxCategoryFilter(event.target.value)}><option value="all">All categories</option>{transactionCategories.map((category) => <option key={category}>{category}</option>)}</select>
             <MoneyFilterBar options={[{ key: 'all', label: 'All' }, { key: 'inflow', label: 'Money in' }, { key: 'outflow', label: 'Money out' }]} value={txKindFilter} onChange={(next) => setTxKindFilter(next as typeof txKindFilter)} />
           </div>
           {transactionComposerOpen ? (
@@ -243,7 +389,7 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
               </div>
               <div className="money-editor-grid">
                 <select value={txDraft.kind} onChange={(event) => setTxDraft((prev) => ({ ...prev, kind: event.target.value as 'inflow' | 'outflow' }))}><option value="inflow">Money in</option><option value="outflow">Money out</option></select>
-                <select value={txDraft.category} onChange={(event) => setTxDraft((prev) => ({ ...prev, category: event.target.value }))}>{categories.map((category) => <option key={category}>{category}</option>)}</select>
+                <select value={txDraft.category} onChange={(event) => setTxDraft((prev) => ({ ...prev, category: event.target.value }))}>{transactionCategories.map((category) => <option key={category}>{category}</option>)}</select>
               </div>
               <input value={txDraft.notes} placeholder="Note (optional)" onChange={(event) => setTxDraft((prev) => ({ ...prev, notes: event.target.value }))} />
               <button className="btn btn-primary" onClick={saveTransaction}>{txEditId ? 'Save changes' : 'Add transaction'}</button>
@@ -258,20 +404,24 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
                     <p className="muted">{formatDueDateFriendly(tx.dateIso)} · {tx.category} {tx.notes ? `· ${tx.notes}` : ''}</p>
                     <div className="money-payment-meta">
                       <span className={`item-tag ${tx.kind === 'inflow' ? 'is-soft' : 'is-task'}`}>{tx.kind === 'inflow' ? 'Inflow' : 'Outflow'}</span>
-                      <span className="route-pill">Source: {tx.source === 'bill' ? 'Linked bill' : 'Manual'}</span>
+                      <span className="route-pill">Source: {sourceLabel(tx.source)}</span>
                     </div>
                   </div>
                   <div className="money-activity-meta">
                     <AmountText amountCents={tx.amountCents} kind={tx.kind === 'inflow' ? 'positive' : 'negative'} />
-                    {tx.source === 'manual' ? <button className="money-inline-btn" onClick={() => { setTxEditId(tx.id); setTransactionComposerOpen(true); setTxDraft({ title: tx.title, amount: String(tx.amountCents / 100), dateIso: tx.dateIso, kind: tx.kind, category: tx.category, notes: tx.notes ?? '' }); }}>Edit</button> : null}
+                    {tx.source !== 'bill' ? <button className="money-inline-btn" onClick={() => {
+                      setTxEditId(tx.id);
+                      setTxDraft({ title: tx.title, amount: String(tx.amountCents / 100), dateIso: tx.dateIso, kind: tx.kind, category: tx.category, notes: tx.notes ?? '' });
+                      setTxDraftSource(tx.source === 'statement' ? 'statement' : 'manual');
+                      setTransactionComposerOpen(true);
+                    }}>Edit</button> : null}
                   </div>
                 </article>
               ))}
             </div>
-          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)}>Add transaction</button>} />}
+          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one or import a statement to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)}>Add transaction</button>} />}
         </FoundationBlock>
       ) : null}
-
       {tab === 'budget' ? (
         <FoundationBlock title="Budget" description="Set category limits and track spending against plan.">
           <MoneySectionHeader title="Monthly budget" subtitle="Set and review category limits." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
@@ -282,7 +432,7 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
           </div>
           <article className="money-editor stack-sm">
             <div className="money-editor-grid">
-              <select value={budgetDraft.category} onChange={(event) => setBudgetDraft((prev) => ({ ...prev, category: event.target.value }))}>{DEFAULT_MONEY_CATEGORIES.map((category) => <option key={category}>{category}</option>)}</select>
+              <select value={budgetDraft.category} onChange={(event) => setBudgetDraft((prev) => ({ ...prev, category: event.target.value }))}>{spendCategories.map((category) => <option key={category}>{category}</option>)}</select>
               <input value={budgetDraft.amount} inputMode="decimal" placeholder="Budget amount" onChange={(event) => setBudgetDraft((prev) => ({ ...prev, amount: event.target.value }))} />
             </div>
             <button className="btn btn-primary" onClick={() => {
@@ -301,6 +451,98 @@ export const MoneyScreen = ({ money, onAddBill, onUpdateBill, onDuplicateBill, o
           </div>
         </FoundationBlock>
       ) : null}
+      <Modal open={statementModalOpen} title="Import bank statement" onClose={() => setStatementModalOpen(false)}>
+        <div className="stack-sm">
+          {statementError ? <div className="error-banner">{statementError}</div> : null}
+          {statementInfo ? <div className="status-banner is-success">{statementInfo}</div> : null}
+          {!statementParsed ? (
+            <article className="money-editor stack-sm">
+              <p className="muted">Upload a CSV, TSV, OFX, or QFX export from your bank. We will map it into transactions, update cashflow automatically, and ask you to review anything that looks uncertain.</p>
+              <label className="btn btn-primary money-upload-btn">
+                {statementLoading ? 'Reading statement...' : 'Choose statement file'}
+                <input type="file" accept=".csv,.tsv,.txt,.ofx,.qfx" onChange={(event) => void handleStatementFileChange(event)} />
+              </label>
+              <p className="muted">PDF statements are not supported yet, so the cleanest path is to export CSV or OFX/QFX from your bank.</p>
+            </article>
+          ) : (
+            <>
+              <article className="money-editor stack-sm">
+                <div className="money-editor-head">
+                  <div>
+                    <p className="money-activity-title">{statementParsed.fileName}</p>
+                    <p className="muted">{statementParsed.rows.length} detected row{statementParsed.rows.length === 1 ? '' : 's'}.</p>
+                  </div>
+                  <div className="money-payment-meta">
+                    <label className="money-inline-btn money-upload-btn">
+                      Replace file
+                      <input type="file" accept=".csv,.tsv,.txt,.ofx,.qfx" onChange={(event) => void handleStatementFileChange(event)} />
+                    </label>
+                    <button className="money-inline-btn" onClick={resetStatementImport}>Start over</button>
+                  </div>
+                </div>
+                <div className={`status-banner ${statementPreview?.requiresMappingReview ? 'is-error' : 'is-success'}`}>
+                  {statementPreview?.requiresMappingReview ? 'This statement needs a quick mapping review before import. Confirm the columns and any highlighted rows.' : 'Mapping looks good. Review any highlighted rows, then import the approved ones.'}
+                </div>
+                {statementParsed.warnings.map((warning) => <p key={warning} className="muted">{warning}</p>)}
+                <div className="statement-import-summary">
+                  <MoneyStatCard label="Ready" value={<strong>{statementPreview?.readyCount ?? 0}</strong>} />
+                  <MoneyStatCard label="Needs review" value={<strong>{statementPreview?.needsAttentionCount ?? 0}</strong>} />
+                  <MoneyStatCard label="Duplicates" value={<strong>{statementPreview?.duplicateCount ?? 0}</strong>} />
+                  <MoneyStatCard label="Missing info" value={<strong>{statementPreview?.missingRequiredCount ?? 0}</strong>} />
+                </div>
+              </article>
+              <article className="money-editor stack-sm">
+                <p className="money-activity-title">Column mapping</p>
+                <div className="statement-mapping-grid">
+                  {statementColumnLabels.map((item) => (
+                    <label key={item.role} className="stack-sm">
+                      <span className="muted">{item.label}{item.optional ? ' (optional)' : ''}</span>
+                      <select value={statementMapping[item.role] ?? ''} onChange={(event) => updateStatementMapping(item.role, event.target.value)}>
+                        <option value="">Not used</option>
+                        {statementParsed.headers.map((header) => <option key={header} value={header}>{header}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              </article>
+              <div className="statement-preview-list">
+                {statementReviewRows.length ? statementReviewRows.map((row) => (
+                  <article key={row.id} className={`statement-preview-row ${row.include ? 'is-selected' : ''} ${row.duplicate ? 'is-duplicate' : ''}`}>
+                    <div className="statement-preview-head">
+                      <label className="statement-toggle">
+                        <input type="checkbox" checked={row.include} onChange={(event) => setStatementOverrides((current) => ({ ...current, [row.id]: { ...(current[row.id] ?? {}), include: event.target.checked } }))} />
+                        Import
+                      </label>
+                      <div className="statement-preview-meta">
+                        <p className="money-activity-title">{row.title || 'Untitled transaction'}</p>
+                        <p className="muted">{row.dateIso ? formatDueDateFriendly(row.dateIso) : 'Unknown date'}{row.reference ? ` · Ref ${row.reference}` : ''}</p>
+                      </div>
+                      <AmountText amountCents={row.amountCents ?? 0} kind={row.kind === 'outflow' ? 'negative' : row.kind === 'inflow' ? 'positive' : 'neutral'} />
+                    </div>
+                    <div className="statement-preview-controls">
+                      <select value={row.kind ?? ''} onChange={(event) => setStatementOverrides((current) => ({ ...current, [row.id]: { ...(current[row.id] ?? {}), kind: event.target.value as 'inflow' | 'outflow' } }))}>
+                        <option value="">Needs type review</option>
+                        <option value="inflow">Money in</option>
+                        <option value="outflow">Money out</option>
+                      </select>
+                      <select value={row.category} onChange={(event) => setStatementOverrides((current) => ({ ...current, [row.id]: { ...(current[row.id] ?? {}), category: event.target.value } }))}>
+                        {transactionCategories.map((category) => <option key={category}>{category}</option>)}
+                      </select>
+                    </div>
+                    <div className="statement-badge-row">
+                      {row.warnings.length ? row.warnings.map((warning) => <span key={warning} className="route-pill">{warning}</span>) : <span className="route-pill">Ready to import</span>}
+                    </div>
+                  </article>
+                )) : <EmptyStateCard title="No rows found" description="Try a different export file from your bank." />}
+              </div>
+              <div className="task-composer-actions">
+                <button className="btn btn-ghost" onClick={() => setStatementModalOpen(false)}>Cancel</button>
+                <button className="btn btn-primary" onClick={importStatementRows}>Import {statementImportableRows.length} approved transaction{statementImportableRows.length === 1 ? '' : 's'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </section>
   );
 };

@@ -72,10 +72,10 @@ export const getRecentMoneyActivity = (state: MoneyState) => {
   const paidBills = state.bills
     .filter((bill) => bill.paid && bill.paidDateIso)
     .map((bill) => ({ id: `bill-${bill.id}`, dateIso: bill.paidDateIso as string, title: `${bill.title} paid`, amountCents: bill.amountCents, type: 'bill' as const }));
-  const manualTransactions = state.transactions
-    .filter((tx) => tx.source === 'manual')
+  const importedTransactions = state.transactions
+    .filter((tx) => tx.source !== 'bill')
     .map((tx) => ({ id: `tx-${tx.id}`, dateIso: tx.dateIso, title: tx.title, amountCents: tx.kind === 'outflow' ? -tx.amountCents : tx.amountCents, type: 'transaction' as const }));
-  return [...paidBills, ...manualTransactions].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).slice(0, 5);
+  return [...paidBills, ...importedTransactions].sort((a, b) => b.dateIso.localeCompare(a.dateIso)).slice(0, 5);
 };
 
 export const markBillPaidWithOptionalTransaction = (

@@ -43,8 +43,10 @@ export type MoneyTransaction = {
   kind: 'inflow' | 'outflow';
   category: string;
   notes?: string;
-  source: 'manual' | 'bill';
+  source: 'manual' | 'bill' | 'statement';
   sourceBillId?: string;
+  statementImportId?: string;
+  statementFileName?: string;
 };
 
 export type Budget = {
@@ -246,6 +248,13 @@ export const seedMoneyFromSetupProfiles = (
   };
 };
 
+export const clearSetupArtifactsForUser = (money: MoneyState, userId: UserId): MoneyState => ({
+  ...money,
+  bills: money.bills.filter((bill) => !bill.id.startsWith(`setup-bill-${userId}-`)),
+  transactions: money.transactions.filter((tx) => !tx.id.startsWith(`setup-opening-${userId}`) && !tx.id.startsWith(`setup-income-${userId}-`)),
+  budgets: money.budgets.filter((budget) => !budget.id.startsWith(`setup-budget-${userId}-`))
+});
+
 const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }) : MoneyState => {
   const bills = Array.isArray(rawMoney.bills)
     ? rawMoney.bills
@@ -273,8 +282,10 @@ const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actual
         kind: (tx.kind === 'inflow' ? 'inflow' : 'outflow') as 'inflow' | 'outflow',
         category: typeof tx.category === 'string' ? tx.category : 'Other',
         notes: typeof tx.notes === 'string' ? tx.notes : undefined,
-        source: (tx.source === 'bill' ? 'bill' : 'manual') as 'manual' | 'bill',
-        sourceBillId: typeof tx.sourceBillId === 'string' ? tx.sourceBillId : typeof tx.sourcePaymentId === 'string' ? tx.sourcePaymentId : undefined
+        source: (tx.source === 'bill' || tx.source === 'statement' ? tx.source : 'manual') as 'manual' | 'bill' | 'statement',
+        sourceBillId: typeof tx.sourceBillId === 'string' ? tx.sourceBillId : typeof tx.sourcePaymentId === 'string' ? tx.sourcePaymentId : undefined,
+        statementImportId: typeof tx.statementImportId === 'string' ? tx.statementImportId : undefined,
+        statementFileName: typeof tx.statementFileName === 'string' ? tx.statementFileName : undefined
       }));
 
   const budgets = Array.isArray(rawMoney.budgets)

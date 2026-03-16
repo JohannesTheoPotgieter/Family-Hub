@@ -1013,6 +1013,43 @@ button:focus-visible {
   min-height: 34px;
 }
 .money-receipt-preview { width: 100%; border-radius: 14px; max-height: 220px; object-fit: cover; }
+.statement-import-summary,
+.statement-mapping-grid,
+.statement-preview-controls { display: grid; gap: 8px; }
+.statement-import-summary,
+.statement-preview-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.statement-mapping-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.statement-preview-list { display: grid; gap: 10px; }
+.statement-preview-row {
+  border: 1px solid rgba(125,151,207,0.26);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255,255,255,0.7);
+  display: grid;
+  gap: 10px;
+}
+.statement-preview-row.is-selected {
+  border-color: rgba(69,112,195,0.34);
+  box-shadow: 0 6px 18px rgba(69,112,195,0.12);
+}
+.statement-preview-row.is-duplicate {
+  background: linear-gradient(160deg, rgba(255,250,239,0.9), rgba(255,255,255,0.72));
+}
+.statement-preview-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+.statement-preview-meta { display: grid; gap: 2px; }
+.statement-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  color: #315387;
+}
+.statement-badge-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* ─────────────────────────────────────────
    More screen
@@ -1160,13 +1197,17 @@ button:focus-visible {
   .foundation-grid { grid-template-columns: 1fr; }
   .money-kpi-grid { grid-template-columns: 1fr 1fr; }
   .money-capture-actions,
-  .money-editor-grid { grid-template-columns: 1fr; }
+  .money-editor-grid,
+  .statement-import-summary,
+  .statement-mapping-grid,
+  .statement-preview-controls { grid-template-columns: 1fr; }
   .avatar-look-grid,
   .avatar-action-row,
   .place-form-row { grid-template-columns: 1fr; }
   .avatar-action-row .chip-action:last-child { grid-column: auto; }
   .month-grid,
   .week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .statement-preview-head { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {

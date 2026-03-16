@@ -7,6 +7,7 @@ type Props = {
   isSetupComplete: (userId: UserId) => boolean;
   onUnlock: (userId: UserId, pin: string) => Promise<boolean>;
   onStartSetup: (userId: UserId) => void;
+  onRestartSetup: (userId: UserId) => void;
 };
 
 const USER_COLORS: Record<string, string> = {
@@ -18,7 +19,7 @@ const USER_COLORS: Record<string, string> = {
 
 const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 
-export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
+export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup, onRestartSetup }: Props) => {
   const activeUsers = users.filter((user) => user.active);
   const inactiveUsers = users.filter((user) => !user.active);
   const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
@@ -26,6 +27,7 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
   const [error, setError] = useState('');
   const [shaking, setShaking] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [confirmResetProfile, setConfirmResetProfile] = useState(false);
 
   const needsSetup = useMemo(
     () => !hasPin(selectedUser) || !isSetupComplete(selectedUser),
@@ -83,6 +85,7 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                 setPin('');
                 setError('');
                 setIsUnlocking(false);
+                setConfirmResetProfile(false);
               }}
               type="button"
             >
@@ -143,6 +146,41 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                 )
               ))}
             </div>
+            {!confirmResetProfile ? (
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => {
+                  setConfirmResetProfile(true);
+                  setError('');
+                }}
+                disabled={isUnlocking}
+              >
+                I forgot my PIN
+              </button>
+            ) : (
+              <div className="stack-sm">
+                <p className="error-banner">
+                  This clears {users.find((user) => user.id === selectedUser)?.name}&apos;s saved PIN and setup data on this device so you can start again.
+                </p>
+                <div className="task-composer-actions">
+                  <button className="btn btn-ghost" type="button" onClick={() => setConfirmResetProfile(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={() => {
+                      onRestartSetup(selectedUser);
+                      setConfirmResetProfile(false);
+                      setPin('');
+                    }}
+                  >
+                    Reset and restart setup
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </section>

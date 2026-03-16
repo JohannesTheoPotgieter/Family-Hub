@@ -27,6 +27,7 @@ type Props = {
   onExportData: () => string;
   onResetData: () => void;
   onLock: () => void;
+  onRestartSetup: (userId: UserId) => void;
 };
 
 const SECTION_TABS: { key: MoreSection; icon: string; label: string }[] = [
@@ -67,7 +68,8 @@ export const MoreScreen = ({
   onUpdatePlace,
   onExportData,
   onResetData,
-  onLock
+  onLock,
+  onRestartSetup
 }: Props) => {
   const [section, setSection] = useState<MoreSection>('reminders');
 
@@ -432,6 +434,12 @@ export const MoreScreen = ({
             <button className="btn btn-ghost" type="button" onClick={onLock}>
               Lock Family Hub
             </button>
+
+            {activeUserId ? (
+              <button className="btn btn-ghost" type="button" onClick={() => onRestartSetup(activeUserId)}>
+                Redo startup setup
+              </button>
+            ) : null}
 
             <div className="settings-divider" />
 

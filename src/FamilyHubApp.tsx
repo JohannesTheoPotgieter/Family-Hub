@@ -9,7 +9,7 @@ import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab, type UserId } from './lib/family-hub/constants';
 import { markBillPaidWithOptionalTransaction } from './lib/family-hub/money';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
-import { clearState, createInitialState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
+import { clearSetupArtifactsForUser, clearState, createInitialState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
 import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
@@ -133,6 +133,29 @@ const AppInner = () => {
     });
   };
 
+  const buildRestartSetupState = (current: FamilyHubState, userId: UserId, startSetup: boolean): FamilyHubState => {
+    const nextPins = { ...current.userPins };
+    delete nextPins[userId];
+
+    const nextProfiles = { ...current.userSetupProfiles };
+    delete nextProfiles[userId];
+
+    return {
+      ...current,
+      activeUserId: startSetup ? null : current.activeUserId,
+      setupUserId: startSetup ? userId : current.setupUserId,
+      userPins: nextPins,
+      userSetupProfiles: nextProfiles,
+      setupCompleted: { ...current.setupCompleted, [userId]: false },
+      money: clearSetupArtifactsForUser(current.money, userId)
+    };
+  };
+
+  const restartSetup = (userId: UserId) => {
+    setActiveTab('Home');
+    setState((current) => buildRestartSetupState(current, userId, true));
+  };
+
   const lockApp = () => {
     setActiveTab('Home');
     setState((current) => ({ ...current, activeUserId: null, setupUserId: null }));
@@ -188,6 +211,7 @@ const AppInner = () => {
           return unlocked;
         }}
         onStartSetup={(id) => setState((current) => ({ ...current, setupUserId: id }))}
+        onRestartSetup={restartSetup}
       />
     );
   }
@@ -260,6 +284,18 @@ const AppInner = () => {
                 })
               }
               onAddTransaction={(transaction) => setState((current) => ({ ...current, money: { ...current.money, transactions: [{ id: `tx-${Date.now()}`, ...transaction }, ...current.money.transactions] } }))}
+              onImportTransactions={(transactions) =>
+                setState((current) => ({
+                  ...current,
+                  money: {
+                    ...current.money,
+                    transactions: [
+                      ...transactions.map((transaction, index) => ({ id: `tx-${Date.now()}-${index}-${crypto.randomUUID()}`, ...transaction })),
+                      ...current.money.transactions
+                    ]
+                  }
+                }))
+              }
               onUpdateTransaction={(id, transaction) =>
                 setState((current) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } }))
               }
@@ -300,6 +336,7 @@ const AppInner = () => {
               onExportData={() => JSON.stringify({ ...state, activeUserId: null, setupUserId: null }, null, 2)}
               onResetData={resetAppData}
               onLock={lockApp}
+              onRestartSetup={restartSetup}
             />
           )}
         </section>
