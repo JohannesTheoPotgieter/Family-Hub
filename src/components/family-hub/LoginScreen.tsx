@@ -5,12 +5,8 @@ type Props = {
   users: User[];
   hasPin: (userId: UserId) => boolean;
   isSetupComplete: (userId: UserId) => boolean;
-  onUnlock: (userId: UserId, pin: string) => boolean;
+  onUnlock: (userId: UserId, pin: string) => Promise<boolean>;
   onStartSetup: (userId: UserId) => void;
-};
-
-const AVATAR_EMOJI: Record<string, string> = {
-  fox: '🦊', cat: '🐱', bear: '🐻', bunny: '🐰'
 };
 
 const USER_COLORS: Record<string, string> = {
@@ -20,7 +16,7 @@ const USER_COLORS: Record<string, string> = {
   oliver: 'profile-chip--green'
 };
 
-const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'] as const;
+const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 
 export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup }: Props) => {
   const activeUsers = users.filter((user) => user.active);
@@ -29,15 +25,17 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [shaking, setShaking] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   const needsSetup = useMemo(
     () => !hasPin(selectedUser) || !isSetupComplete(selectedUser),
     [hasPin, isSetupComplete, selectedUser]
   );
 
-  const handlePadKey = (key: string) => {
+  const handlePadKey = async (key: string) => {
+    if (isUnlocking) return;
     if (key === '⌫') {
-      setPin((p) => p.slice(0, -1));
+      setPin((current) => current.slice(0, -1));
       setError('');
       return;
     }
@@ -45,12 +43,19 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
     const next = pin + key;
     setPin(next);
     if (next.length === 4) {
-      const unlocked = onUnlock(selectedUser, next);
+      setIsUnlocking(true);
+      const unlocked = await onUnlock(selectedUser, next);
       if (!unlocked) {
         setShaking(true);
         setError('Wrong PIN. Please try again.');
-        setTimeout(() => { setPin(''); setShaking(false); }, 600);
+        window.setTimeout(() => {
+          setPin('');
+          setShaking(false);
+          setIsUnlocking(false);
+        }, 600);
+        return;
       }
+      setIsUnlocking(false);
     }
   };
 
@@ -77,7 +82,9 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                 setSelectedUser(user.id);
                 setPin('');
                 setError('');
+                setIsUnlocking(false);
               }}
+              type="button"
             >
               <span className="profile-avatar">👤</span>
               <span className="profile-name">{user.name}</span>
@@ -104,29 +111,32 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
             data-testid="btn-start-setup"
             className="btn btn-primary"
             onClick={() => onStartSetup(selectedUser)}
+            type="button"
           >
             Set up my profile →
           </button>
         ) : (
           <div className={`pin-entry ${shaking ? 'is-shaking' : ''}`}>
             <div className="pin-dots" aria-label="PIN entry">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className={`pin-dot ${pin.length > i ? 'is-filled' : ''}`} />
+              {[0, 1, 2, 3].map((index) => (
+                <div key={index} className={`pin-dot ${pin.length > index ? 'is-filled' : ''}`} />
               ))}
             </div>
             {error ? <p className="error-banner">{error}</p> : null}
+            {isUnlocking ? <p className="muted">Unlocking your profile…</p> : null}
             <div className="pin-pad" role="group" aria-label="Number pad">
-              {PAD_KEYS.map((key, i) => (
+              {PAD_KEYS.map((key, index) => (
                 key === '' ? (
-                  <div key={i} />
+                  <div key={index} />
                 ) : (
                   <button
-                    key={i}
+                    key={index}
                     data-testid={`pin-key-${key}`}
                     className={`pin-pad-key ${key === '⌫' ? 'is-back' : ''}`}
                     type="button"
-                    onClick={() => handlePadKey(key)}
+                    onClick={() => void handlePadKey(key)}
                     aria-label={key === '⌫' ? 'Delete' : key}
+                    disabled={isUnlocking}
                   >
                     {key}
                   </button>

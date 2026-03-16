@@ -9,12 +9,12 @@ import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab, type UserId } from './lib/family-hub/constants';
 import { markBillPaidWithOptionalTransaction } from './lib/family-hub/money';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
-import { loadState, saveState, type FamilyHubState } from './lib/family-hub/storage';
+import { clearState, createInitialState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
 import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
 import type { AvatarActivityEvent } from './domain/avatarTypes';
-
+import { resetCalendarConnections } from './integrations/calendar';
 
 const tabIcons: Record<Tab, string> = {
   Home: '🏡',
@@ -24,8 +24,6 @@ const tabIcons: Record<Tab, string> = {
   More: '⋯'
 };
 
-
-
 const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
   if (state.avatarGame.familyChallenges.length) return state;
   const now = new Date();
@@ -33,20 +31,29 @@ const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
   const weekEnd = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7).toISOString();
   const monthEnd = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
   const challenges = [
-    { id: 'challenge-tasks-week', title: 'Together task burst', description: 'Finish 5 household tasks together this week.', category: 'tasks', cadence: 'weekly', targetType: 'count', targetValue: 5, progressValue: 0, rewardType: 'room_unlock', rewardPayload: 'moon-lamp', startsAtIso: start, endsAtIso: weekEnd, completed: false, participantUserIds: state.users.map((u) => u.id) },
-    { id: 'challenge-plan-month', title: 'Cozy planning circle', description: 'Plan 3 family events this month.', category: 'planning', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'stars', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((u) => u.id) },
-    { id: 'challenge-money-month', title: 'Bright budget month', description: 'Pay bills on time as a family this month.', category: 'money', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'family_theme', rewardPayload: 'cozy-study', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((u) => u.id) }
+    { id: 'challenge-tasks-week', title: 'Together task burst', description: 'Finish 5 household tasks together this week.', category: 'tasks', cadence: 'weekly', targetType: 'count', targetValue: 5, progressValue: 0, rewardType: 'room_unlock', rewardPayload: 'moon-lamp', startsAtIso: start, endsAtIso: weekEnd, completed: false, participantUserIds: state.users.map((user) => user.id) },
+    { id: 'challenge-plan-month', title: 'Cozy planning circle', description: 'Plan 3 family events this month.', category: 'planning', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'stars', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((user) => user.id) },
+    { id: 'challenge-money-month', title: 'Bright budget month', description: 'Pay bills on time as a family this month.', category: 'money', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'family_theme', rewardPayload: 'cozy-study', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((user) => user.id) }
   ] as FamilyHubState['avatarGame']['familyChallenges'];
   const progressById = Object.fromEntries(challenges.map((item) => [item.id, { challengeId: item.id, contributionsByUserId: {}, contributingActionIds: [] }]));
   return { ...state, avatarGame: { ...state.avatarGame, familyChallenges: challenges, challengeProgressById: progressById } };
 };
 
+const getInitialTab = (): Tab => {
+  const raw = new URLSearchParams(window.location.search).get('tab');
+  return raw && TABS.includes(raw as Tab) ? (raw as Tab) : 'Home';
+};
+
 const AppInner = () => {
   const [state, setState] = useState<FamilyHubState>(() => ensureChallenges(loadState()));
-  const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [activeTab, setActiveTab] = useState<Tab>(getInitialTab);
+
   useEffect(() => saveState(state), [state]);
 
-  const activeUser = useMemo(() => state.users.find((user) => user.id === state.activeUserId) ?? null, [state.users, state.activeUserId]);
+  const activeUser = useMemo(
+    () => state.users.find((user) => user.id === state.activeUserId) ?? null,
+    [state.users, state.activeUserId]
+  );
 
   const rewardActivity = (current: FamilyHubState, event: AvatarActivityEvent) => {
     const currentCompanion = current.avatarGame.companionsByUserId[event.userId];
@@ -81,6 +88,7 @@ const AppInner = () => {
         };
       }
     }
+
     return { ...current, avatarGame: nextGame };
   };
 
@@ -88,7 +96,19 @@ const AppInner = () => {
     setState((current) => {
       const companion = current.avatarGame.companionsByUserId[userId];
       if (!companion) return current;
-      const buff: Partial<typeof companion.stats> = action === 'feed' ? { hunger: 16, happiness: 4 } : action === 'play' ? { happiness: 12, energy: -6 } : action === 'clean' ? { hygiene: 18, calm: 4 } : action === 'rest' ? { energy: 22, calm: 8 } : action === 'pet' ? { happiness: 6 } : { calm: 10, happiness: 6 };
+      const buff: Partial<typeof companion.stats> =
+        action === 'feed'
+          ? { hunger: 16, happiness: 4 }
+          : action === 'play'
+            ? { happiness: 12, energy: -6 }
+            : action === 'clean'
+              ? { hygiene: 18, calm: 4 }
+              : action === 'rest'
+                ? { energy: 22, calm: 8 }
+                : action === 'pet'
+                  ? { happiness: 6 }
+                  : { calm: 10, happiness: 6 };
+
       const stats = {
         ...companion.stats,
         energy: Math.max(0, Math.min(100, companion.stats.energy + (buff.energy ?? 0))),
@@ -99,16 +119,60 @@ const AppInner = () => {
         calm: Math.max(0, Math.min(100, companion.stats.calm + (buff.calm ?? 0))),
         health: companion.stats.health
       };
-      return { ...current, avatarGame: { ...current.avatarGame, companionsByUserId: { ...current.avatarGame.companionsByUserId, [userId]: { ...companion, stats, lastInteractionAtIso: new Date().toISOString() } } } };
+
+      return {
+        ...current,
+        avatarGame: {
+          ...current.avatarGame,
+          companionsByUserId: {
+            ...current.avatarGame.companionsByUserId,
+            [userId]: { ...companion, stats, lastInteractionAtIso: new Date().toISOString() }
+          }
+        }
+      };
     });
+  };
+
+  const lockApp = () => {
+    setActiveTab('Home');
+    setState((current) => ({ ...current, activeUserId: null, setupUserId: null }));
+  };
+
+  const resetAppData = () => {
+    clearState();
+    void resetCalendarConnections();
+    setActiveTab('Home');
+    setState(ensureChallenges(createInitialState()));
   };
 
   if (state.setupUserId) {
     const user = state.users.find((item) => item.id === state.setupUserId);
     if (!user) return null;
-    return <SetupWizard user={user} onFinish={(pin, profile) => setState((current) => rewardActivity({ ...current, activeUserId: user.id, setupUserId: null, userPins: { ...current.userPins, [user.id]: encodePin(user.id, pin) }, userSetupProfiles: { ...current.userSetupProfiles, [user.id]: profile }, setupCompleted: { ...current.setupCompleted, [user.id]: true } }, { type: 'APP_PROFILE_COMPLETED', userId: user.id, actionId: `profile-${user.id}`, createdAtIso: new Date().toISOString() }))} />;
-  }
 
+    return (
+      <SetupWizard
+        user={user}
+        onFinish={async (pin, profile) => {
+          const encodedPin = await encodePin(user.id, pin);
+          setState((current) => {
+            const userSetupProfiles = { ...current.userSetupProfiles, [user.id]: profile };
+            return rewardActivity(
+              {
+                ...current,
+                activeUserId: user.id,
+                setupUserId: null,
+                userPins: { ...current.userPins, [user.id]: encodedPin },
+                userSetupProfiles,
+                setupCompleted: { ...current.setupCompleted, [user.id]: true },
+                money: seedMoneyFromSetupProfiles(current.money, userSetupProfiles)
+              },
+              { type: 'APP_PROFILE_COMPLETED', userId: user.id, actionId: `profile-${user.id}`, createdAtIso: new Date().toISOString() }
+            );
+          });
+        }}
+      />
+    );
+  }
 
   if (!state.activeUserId) {
     return (
@@ -116,8 +180,8 @@ const AppInner = () => {
         users={state.users}
         hasPin={(id) => Boolean(state.userPins[id])}
         isSetupComplete={(id) => state.setupCompleted[id]}
-        onUnlock={(id, pin) => {
-          const unlocked = verifyPin(id, pin, state.userPins[id]);
+        onUnlock={async (id, pin) => {
+          const unlocked = await verifyPin(id, pin, state.userPins[id]);
           if (unlocked) {
             setState((current) => ({ ...current, activeUserId: id }));
           }
@@ -135,14 +199,38 @@ const AppInner = () => {
 
       <div className="app-phone-frame">
         <section className="screen-content">
-          {activeTab === 'Home' && <HomeScreen state={state} />}
-          {activeTab === 'Calendar' && <CalendarScreen events={state.calendar.events} onAddEvent={(event) => setState((current) => rewardActivity({ ...current, calendar: { events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } }, { type: 'APP_CALENDAR_EVENT_ADDED', userId: current.activeUserId!, actionId: `event-${event.title}-${event.date}`, createdAtIso: new Date().toISOString() }))} />}
-          {activeTab === 'Tasks' && <TasksScreen tasks={state.tasks.items} activeUserId={state.activeUserId} onAddTask={(task) => setState((c) => ({ ...c, tasks: { items: [{ id: `task-${Date.now()}`, completed: false, ...task }, ...c.tasks.items] } }))} onUpdateTask={(id, update) => setState((c) => ({ ...c, tasks: { items: c.tasks.items.map((task) => task.id === id ? { ...task, ...update } : task) } }))} onToggleTask={(id) => setState((c) => {
-            const task = c.tasks.items.find((t) => t.id === id);
-            const next = { ...c, tasks: { items: c.tasks.items.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t)) } };
-            if (!task || task.completed) return next;
-            return rewardActivity(next, { type: task.shared ? 'APP_SHARED_TASK_COMPLETED' : 'APP_TASK_COMPLETED', userId: c.activeUserId!, actionId: `task-${id}`, createdAtIso: new Date().toISOString() });
-          })} />}
+          {activeTab === 'Home' && <HomeScreen state={state} onCareAction={onCareAction} onLock={lockApp} />}
+          {activeTab === 'Calendar' && (
+            <CalendarScreen
+              events={state.calendar.events}
+              onAddEvent={(event) =>
+                setState((current) =>
+                  rewardActivity(
+                    { ...current, calendar: { events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } },
+                    { type: 'APP_CALENDAR_EVENT_ADDED', userId: current.activeUserId!, actionId: `event-${event.title}-${event.date}`, createdAtIso: new Date().toISOString() }
+                  )
+                )
+              }
+            />
+          )}
+          {activeTab === 'Tasks' && (
+            <TasksScreen
+              tasks={state.tasks.items}
+              activeUserId={state.activeUserId}
+              onAddTask={(task) => setState((current) => ({ ...current, tasks: { items: [{ id: `task-${Date.now()}`, completed: false, ...task }, ...current.tasks.items] } }))}
+              onUpdateTask={(id, update) =>
+                setState((current) => ({ ...current, tasks: { items: current.tasks.items.map((task) => (task.id === id ? { ...task, ...update } : task)) } }))
+              }
+              onToggleTask={(id) =>
+                setState((current) => {
+                  const task = current.tasks.items.find((item) => item.id === id);
+                  const next = { ...current, tasks: { items: current.tasks.items.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)) } };
+                  if (!task || task.completed) return next;
+                  return rewardActivity(next, { type: task.shared ? 'APP_SHARED_TASK_COMPLETED' : 'APP_TASK_COMPLETED', userId: current.activeUserId!, actionId: `task-${id}`, createdAtIso: new Date().toISOString() });
+                })
+              }
+            />
+          )}
           {activeTab === 'Money' && (
             <MoneyScreen
               money={state.money}
@@ -162,13 +250,15 @@ const AppInner = () => {
                   return { ...current, money: { ...current.money, bills: [{ ...bill, id: `bill-${Date.now()}`, paid: false, paidDateIso: undefined, linkedTransactionId: undefined }, ...current.money.bills] } };
                 })
               }
-              onMarkBillPaid={(id, proofFileName) => setState((current) => {
-                const bill = current.money.bills.find((b) => b.id === id);
-                const next = { ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) };
-                if (!bill) return next;
-                const dueSoon = bill.dueDateIso >= new Date().toISOString().slice(0, 10);
-                return rewardActivity(next, { type: dueSoon ? 'APP_PAYMENT_PAID_ON_TIME' : 'APP_PAYMENT_MARKED_PAID', userId: current.activeUserId!, actionId: `bill-${id}-paid`, createdAtIso: new Date().toISOString() });
-              })}
+              onMarkBillPaid={(id, proofFileName) =>
+                setState((current) => {
+                  const bill = current.money.bills.find((item) => item.id === id);
+                  const next = { ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) };
+                  if (!bill) return next;
+                  const dueSoon = bill.dueDateIso >= new Date().toISOString().slice(0, 10);
+                  return rewardActivity(next, { type: dueSoon ? 'APP_PAYMENT_PAID_ON_TIME' : 'APP_PAYMENT_MARKED_PAID', userId: current.activeUserId!, actionId: `bill-${id}-paid`, createdAtIso: new Date().toISOString() });
+                })
+              }
               onAddTransaction={(transaction) => setState((current) => ({ ...current, money: { ...current.money, transactions: [{ id: `tx-${Date.now()}`, ...transaction }, ...current.money.transactions] } }))}
               onUpdateTransaction={(id, transaction) =>
                 setState((current) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } }))
@@ -180,9 +270,39 @@ const AppInner = () => {
               onDeleteBudget={(id) => setState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id) } }))}
             />
           )}
-          {activeTab === 'More' && <MoreScreen users={state.users} avatars={state.avatars} activeUser={activeUser} setupCompleted={state.setupCompleted} userPins={state.userPins} places={state.places} events={state.calendar.events} tasks={state.tasks.items} avatarGame={state.avatarGame} activeUserId={state.activeUserId} onCareAction={onCareAction} onChangePin={() => false} onSetUserPin={() => undefined} onAddPlace={() => undefined} onUpdatePlace={() => undefined} onExportData={() => JSON.stringify(state, null, 2)} onResetData={() => setState(ensureChallenges(loadState()))} />}
+          {activeTab === 'More' && (
+            <MoreScreen
+              users={state.users}
+              activeUser={activeUser}
+              activeUserId={state.activeUserId}
+              avatarGame={state.avatarGame}
+              setupCompleted={state.setupCompleted}
+              userPins={state.userPins}
+              places={state.places}
+              events={state.calendar.events}
+              tasks={state.tasks.items}
+              onCareAction={onCareAction}
+              onChangePin={async (currentPin, nextPin) => {
+                const activeUserId = state.activeUserId;
+                if (!activeUserId) return false;
+                const matches = await verifyPin(activeUserId, currentPin, state.userPins[activeUserId]);
+                if (!matches) return false;
+                const encodedPin = await encodePin(activeUserId, nextPin);
+                setState((current) => ({ ...current, userPins: { ...current.userPins, [activeUserId]: encodedPin } }));
+                return true;
+              }}
+              onSetUserPin={async (userId, nextPin) => {
+                const encodedPin = await encodePin(userId, nextPin);
+                setState((current) => ({ ...current, userPins: { ...current.userPins, [userId]: encodedPin } }));
+              }}
+              onAddPlace={(place) => setState((current) => ({ ...current, places: [{ id: `place-${Date.now()}`, ...place }, ...current.places] }))}
+              onUpdatePlace={(id, patch) => setState((current) => ({ ...current, places: current.places.map((place) => (place.id === id ? { ...place, ...patch } : place)) }))}
+              onExportData={() => JSON.stringify({ ...state, activeUserId: null, setupUserId: null }, null, 2)}
+              onResetData={resetAppData}
+              onLock={lockApp}
+            />
+          )}
         </section>
-
 
         <nav className="bottom-nav glass-card" aria-label="Primary">
           {TABS.map((tab) => (
@@ -197,7 +317,6 @@ const AppInner = () => {
               <span>{tab}</span>
             </button>
           ))}
-
         </nav>
       </div>
       <ToastViewport />
@@ -205,4 +324,8 @@ const AppInner = () => {
   );
 };
 
-export const FamilyHubApp = () => <ToastProvider><AppInner /></ToastProvider>;
+export const FamilyHubApp = () => (
+  <ToastProvider>
+    <AppInner />
+  </ToastProvider>
+);

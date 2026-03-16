@@ -5,7 +5,7 @@ import type { UserSetupProfile } from '../../lib/family-hub/storage';
 
 type Props = {
   user: User;
-  onFinish: (pin: string, profile: UserSetupProfile) => void;
+  onFinish: (pin: string, profile: UserSetupProfile) => Promise<void>;
 };
 
 type WizardStep = 1 | 2 | 3 | 4 | 5 | 6;
@@ -29,7 +29,7 @@ type InputRow = {
 const createRow = () => ({ id: crypto.randomUUID(), label: '', value: '' });
 const parseMoney = (value: string) => Number.parseFloat(value.replace(',', '.'));
 
-const PAD_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'] as const;
+const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 
 export const SetupWizard = ({ user, onFinish }: Props) => {
   const [step, setStep] = useState<WizardStep>(1);
@@ -40,6 +40,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
   const [recurringRows, setRecurringRows] = useState<InputRow[]>([createRow()]);
   const [budgetRows, setBudgetRows] = useState<InputRow[]>([createRow()]);
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const progress = Math.round((step / TOTAL_STEPS) * 100);
 
@@ -55,20 +56,40 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
   const handlePinKey = (key: string, which: 'pin' | 'confirm') => {
     const current = which === 'pin' ? pin : confirmPin;
     const setter = which === 'pin' ? setPin : setConfirmPin;
-    if (key === '⌫') { setter(current.slice(0, -1)); setError(''); return; }
+    if (key === '⌫') {
+      setter(current.slice(0, -1));
+      setError('');
+      return;
+    }
     if (current.length < 4) setter(current + key);
   };
 
   const goNext = () => {
     setError('');
-    if (step === 2 && pin.length !== 4) { setError('Please enter a 4-digit PIN to continue.'); return; }
+    if (step === 2 && pin.length !== 4) {
+      setError('Please enter a 4-digit PIN to continue.');
+      return;
+    }
     if (step === 3) {
-      if (confirmPin.length !== 4) { setError('Please confirm your PIN.'); return; }
-      if (pin !== confirmPin) { setError("PINs don't match. Please try again."); setConfirmPin(''); return; }
+      if (confirmPin.length !== 4) {
+        setError('Please confirm your PIN.');
+        return;
+      }
+      if (pin !== confirmPin) {
+        setError("PINs don't match. Please try again.");
+        setConfirmPin('');
+        return;
+      }
     }
     if (step === 4) {
-      if (openingBalance && Number.isNaN(parseMoney(openingBalance))) { setError('Please enter a valid opening balance.'); return; }
-      if (monthlyIncome && Number.isNaN(parseMoney(monthlyIncome))) { setError('Please enter a valid income amount.'); return; }
+      if (openingBalance && Number.isNaN(parseMoney(openingBalance))) {
+        setError('Please enter a valid opening balance.');
+        return;
+      }
+      if (monthlyIncome && Number.isNaN(parseMoney(monthlyIncome))) {
+        setError('Please enter a valid income amount.');
+        return;
+      }
     }
     setStep((current) => Math.min(TOTAL_STEPS, current + 1) as WizardStep);
   };
@@ -78,7 +99,12 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
     setStep((current) => Math.max(1, current - 1) as WizardStep);
   };
 
-  const finish = () => {
+  const finish = async () => {
+    if (pin.length !== 4) {
+      setError('Please choose a valid 4-digit PIN.');
+      return;
+    }
+
     const profile: UserSetupProfile = {
       openingBalance: parseMoney(openingBalance) || 0,
       monthlyIncome: parseMoney(monthlyIncome) || 0,
@@ -89,7 +115,15 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
         .filter((row) => row.label.trim() && !Number.isNaN(parseMoney(row.value)))
         .map((row) => ({ id: row.id, label: row.label.trim(), amount: parseMoney(row.value) }))
     };
-    onFinish(pin, profile);
+
+    setIsSaving(true);
+    setError('');
+    try {
+      await onFinish(pin, profile);
+    } catch {
+      setError('We could not finish setup right now. Please try again.');
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -102,15 +136,14 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
           <span className="login-logo">🏡</span>
           <p className="eyebrow">Family Hub setup</p>
         </div>
-        <h1>{user.name}, let's get you set up</h1>
+        <h1>{user.name}, let&apos;s get you set up</h1>
 
         <div className="wizard-progress-track" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className="wizard-progress-fill" style={{ width: `${progress}%` }} />
         </div>
-        <p className="muted">Step {step} of {TOTAL_STEPS} · {stepTitle[step as WizardStep]}</p>
+        <p className="muted">Step {step} of {TOTAL_STEPS} · {stepTitle[step]}</p>
 
         <div key={step} className="wizard-step fade-in">
-
           {step === 1 && (
             <div className="setup-summary stack-sm">
               <p className="setup-welcome-emoji">👋</p>
@@ -123,19 +156,20 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
             <div className="stack-sm">
               <p className="muted">Choose a 4-digit PIN to protect your profile.</p>
               <div className="pin-dots">
-                {[0,1,2,3].map((i) => (
-                  <div key={i} className={`pin-dot ${pin.length > i ? 'is-filled' : ''}`} />
+                {[0, 1, 2, 3].map((index) => (
+                  <div key={index} className={`pin-dot ${pin.length > index ? 'is-filled' : ''}`} />
                 ))}
               </div>
               <div className="pin-pad">
-                {PAD_KEYS.map((key, i) => (
-                  key === '' ? <div key={i} /> : (
+                {PAD_KEYS.map((key, index) => (
+                  key === '' ? <div key={index} /> : (
                     <button
-                      key={i}
+                      key={index}
                       className={`pin-pad-key ${key === '⌫' ? 'is-back' : ''}`}
                       type="button"
                       onClick={() => handlePinKey(key, 'pin')}
                       aria-label={key === '⌫' ? 'Delete' : key}
+                      disabled={isSaving}
                     >
                       {key}
                     </button>
@@ -149,19 +183,20 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
             <div className="stack-sm">
               <p className="muted">Enter your PIN once more to confirm.</p>
               <div className="pin-dots">
-                {[0,1,2,3].map((i) => (
-                  <div key={i} className={`pin-dot ${confirmPin.length > i ? 'is-filled' : ''}`} />
+                {[0, 1, 2, 3].map((index) => (
+                  <div key={index} className={`pin-dot ${confirmPin.length > index ? 'is-filled' : ''}`} />
                 ))}
               </div>
               <div className="pin-pad">
-                {PAD_KEYS.map((key, i) => (
-                  key === '' ? <div key={i} /> : (
+                {PAD_KEYS.map((key, index) => (
+                  key === '' ? <div key={index} /> : (
                     <button
-                      key={i}
+                      key={index}
                       className={`pin-pad-key ${key === '⌫' ? 'is-back' : ''}`}
                       type="button"
                       onClick={() => handlePinKey(key, 'confirm')}
                       aria-label={key === '⌫' ? 'Delete' : key}
+                      disabled={isSaving}
                     >
                       {key}
                     </button>
@@ -181,6 +216,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                   inputMode="decimal"
                   placeholder="e.g. 12500"
                   onChange={(event) => setOpeningBalance(event.target.value)}
+                  disabled={isSaving}
                 />
               </label>
               <label className="task-field">
@@ -190,6 +226,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                   inputMode="decimal"
                   placeholder="e.g. 45000"
                   onChange={(event) => setMonthlyIncome(event.target.value)}
+                  disabled={isSaving}
                 />
               </label>
             </div>
@@ -197,7 +234,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
           {step === 5 && (
             <div className="stack-sm">
-              <p className="muted">Optional — add recurring bills and budget categories. Skip to set up later.</p>
+              <p className="muted">Optional — add recurring bills and budget categories. We will place them straight into Money for this month.</p>
 
               <h4>Monthly recurring payments</h4>
               {recurringRows.map((row) => (
@@ -208,6 +245,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                     onChange={(event) =>
                       setRecurringRows((current) => current.map((item) => item.id === row.id ? { ...item, label: event.target.value } : item))
                     }
+                    disabled={isSaving}
                   />
                   <input
                     value={row.value}
@@ -216,10 +254,11 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                     onChange={(event) =>
                       setRecurringRows((current) => current.map((item) => item.id === row.id ? { ...item, value: event.target.value } : item))
                     }
+                    disabled={isSaving}
                   />
                 </div>
               ))}
-              <button className="btn btn-ghost" type="button" onClick={() => setRecurringRows((current) => [...current, createRow()])}>
+              <button className="btn btn-ghost" type="button" onClick={() => setRecurringRows((current) => [...current, createRow()])} disabled={isSaving}>
                 + Add payment
               </button>
 
@@ -232,6 +271,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                     onChange={(event) =>
                       setBudgetRows((current) => current.map((item) => item.id === row.id ? { ...item, label: event.target.value } : item))
                     }
+                    disabled={isSaving}
                   />
                   <input
                     value={row.value}
@@ -240,10 +280,11 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
                     onChange={(event) =>
                       setBudgetRows((current) => current.map((item) => item.id === row.id ? { ...item, value: event.target.value } : item))
                     }
+                    disabled={isSaving}
                   />
                 </div>
               ))}
-              <button className="btn btn-ghost" type="button" onClick={() => setBudgetRows((current) => [...current, createRow()])}>
+              <button className="btn btn-ghost" type="button" onClick={() => setBudgetRows((current) => [...current, createRow()])} disabled={isSaving}>
                 + Add category
               </button>
             </div>
@@ -252,37 +293,38 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
           {step === 6 && (
             <div className="setup-summary stack-sm">
               <p className="setup-welcome-emoji">🎉</p>
-              <p className="muted">You are all set, <strong>{user.name}</strong>! Here is a quick summary:</p>
-              {openingBalance && <p>Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p>}
-              {monthlyIncome && <p>Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p>}
-              {recurringValidCount > 0 && <p>Recurring payments: {recurringValidCount}</p>}
-              {budgetValidCount > 0 && <p>Budget categories: {budgetValidCount}</p>}
-              {!openingBalance && !monthlyIncome && <p className="muted">You can set up your finances anytime in the Money tab.</p>}
+              <p className="muted">You are all set, <strong>{user.name}</strong>. Here is what will be added to Family Hub right away:</p>
+              {openingBalance ? <p>Opening balance: {formatCurrency(parseMoney(openingBalance) || 0)}</p> : null}
+              {monthlyIncome ? <p>Monthly income: {formatCurrency(parseMoney(monthlyIncome) || 0)}</p> : null}
+              {recurringValidCount > 0 ? <p>Recurring bills seeded this month: {recurringValidCount}</p> : null}
+              {budgetValidCount > 0 ? <p>Budget categories seeded this month: {budgetValidCount}</p> : null}
+              {!openingBalance && !monthlyIncome && !recurringValidCount && !budgetValidCount ? (
+                <p className="muted">You can set up your finances anytime in the Money tab.</p>
+              ) : null}
             </div>
           )}
-
         </div>
 
         {error ? <p className="error-banner">{error}</p> : null}
 
         <div className="wizard-actions">
-          <button className="btn btn-ghost" type="button" onClick={goBack} disabled={step === 1}>
+          <button className="btn btn-ghost" type="button" onClick={goBack} disabled={step === 1 || isSaving}>
             Back
           </button>
           {step < TOTAL_STEPS ? (
             <div className="wizard-next-group">
               {(step === 4 || step === 5) && (
-                <button className="btn btn-ghost" type="button" onClick={goNext}>
+                <button className="btn btn-ghost" type="button" onClick={goNext} disabled={isSaving}>
                   Skip
                 </button>
               )}
-              <button className="btn btn-primary" type="button" onClick={goNext}>
+              <button className="btn btn-primary" type="button" onClick={goNext} disabled={isSaving}>
                 Continue
               </button>
             </div>
           ) : (
-            <button className="btn btn-primary" type="button" onClick={finish}>
-              Enter Family Hub
+            <button className="btn btn-primary" type="button" onClick={() => void finish()} disabled={isSaving}>
+              {isSaving ? 'Finishing setup…' : 'Enter Family Hub'}
             </button>
           )}
         </div>

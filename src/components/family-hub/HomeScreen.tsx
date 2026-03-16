@@ -1,21 +1,42 @@
 import { useState } from 'react';
-import { formatPoints } from '../../lib/family-hub/format';
 import type { UserId } from '../../lib/family-hub/constants';
 import type { FamilyHubState } from '../../lib/family-hub/storage';
+import { getTodayIso } from '../../lib/family-hub/date';
 
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
+type CareAction = 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story';
 
 type HomeScreenProps = {
   state: FamilyHubState;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { pointsEarned: number; familyPointsEarned: number };
+  onCareAction: (userId: UserId, action: CareAction) => void;
+  onLock: () => void;
 };
 
-const BODY_EMOJI: Record<string, string> = {
-  fox: '🦊', cat: '🐱', bear: '🐻', bunny: '🐰'
+const moodEmoji: Record<string, string> = {
+  happy: '🙂',
+  sleepy: '😴',
+  playful: '🤸',
+  proud: '😎',
+  hungry: '🍎',
+  sad: '🥺',
+  curious: '🧭',
+  calm: '🌿',
+  sparkly: '✨'
 };
 
-const MOOD_EMOJI: Record<string, string> = {
-  happy: '😊', sleepy: '😴', excited: '🤩', proud: '😎', silly: '😜'
+const speciesEmoji: Record<string, string> = {
+  foxling: '🦊',
+  mooncat: '🐱',
+  cloudbear: '🐻',
+  bunny: '🐰'
+};
+
+const careLabels: Record<CareAction, string> = {
+  feed: 'Feed',
+  play: 'Play',
+  clean: 'Freshen up',
+  rest: 'Rest',
+  pet: 'Pet',
+  story: 'Story time'
 };
 
 const getGreeting = () => {
@@ -29,56 +50,55 @@ const getTodayLabel = () =>
   new Intl.DateTimeFormat('en-ZA', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 
 const getDueSoonCount = (state: FamilyHubState) => {
-  const now = new Date();
-  const inSevenDays = new Date(now);
-  inSevenDays.setDate(now.getDate() + 7);
-
-  return state.money.bills.filter((b) => {
-    if (b.paid) return false;
-    const due = new Date(b.dueDateIso);
-    return due >= now && due <= inSevenDays;
-  }).length;
+  const todayIso = getTodayIso();
+  const endDate = new Date(`${todayIso}T12:00:00`);
+  endDate.setDate(endDate.getDate() + 7);
+  const endIso = endDate.toISOString().slice(0, 10);
+  return state.money.bills.filter((bill) => !bill.paid && bill.dueDateIso >= todayIso && bill.dueDateIso <= endIso).length;
 };
 
-const getOpenTasksCount = (state: FamilyHubState) =>
-  state.tasks.items.filter((t) => !t.completed).length;
+const getOpenTasksCount = (state: FamilyHubState) => state.tasks.items.filter((task) => !task.completed).length;
 
 const getUpcomingEvents = (state: FamilyHubState) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayIso = getTodayIso();
   return state.calendar.events
-    .filter((e) => e.date >= today)
+    .filter((event) => event.date >= todayIso)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 3);
 };
 
 const getOverduePayments = (state: FamilyHubState) => {
-  const today = new Date().toISOString().slice(0, 10);
-  return state.money.bills.filter((b) => !b.paid && b.dueDateIso < today).length;
+  const todayIso = getTodayIso();
+  return state.money.bills.filter((bill) => !bill.paid && bill.dueDateIso < todayIso).length;
 };
 
-export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
+export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => {
   const dueSoonCount = getDueSoonCount(state);
   const openTasksCount = getOpenTasksCount(state);
   const overdueCount = getOverduePayments(state);
   const upcomingEvents = getUpcomingEvents(state);
   const [reaction, setReaction] = useState('');
 
-  const activeUser = state.users.find((u) => u.id === state.activeUserId);
-  const activeAvatar = state.activeUserId ? state.avatars[state.activeUserId] : null;
+  const activeUser = state.users.find((user) => user.id === state.activeUserId) ?? null;
+  const activeCompanion = state.activeUserId ? state.avatarGame.companionsByUserId[state.activeUserId] : null;
+  const familyTrack = state.avatarGame.familyRewardTrack;
 
   return (
     <section className="home-screen stack-lg">
       <header className="glass-panel today-hero">
         <div className="today-hero-top">
-          {activeAvatar && (
+          {activeCompanion ? (
             <span className="today-avatar-badge">
-              {BODY_EMOJI[activeAvatar.look.body]} {MOOD_EMOJI[activeAvatar.mood]}
+              {speciesEmoji[activeCompanion.species] ?? '🐾'} {moodEmoji[activeCompanion.mood] ?? '✨'}
             </span>
-          )}
+          ) : null}
+          <button className="btn btn-ghost" type="button" onClick={onLock}>
+            Switch profile
+          </button>
         </div>
         <p className="eyebrow">{getTodayLabel()}</p>
         <h2>{getGreeting()}{activeUser ? `, ${activeUser.name}` : ''}</h2>
-        <p className="muted">Here's what's on for your family today.</p>
+        <p className="muted">Here&apos;s what needs care across your home today.</p>
       </header>
 
       <section className="metric-row-3" aria-label="Key metrics">
@@ -99,7 +119,7 @@ export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
       {upcomingEvents.length > 0 && (
         <section className="glass-panel home-events-panel" aria-label="Upcoming events">
           <div className="section-head">
-            <h3>📅 Coming up</h3>
+            <h3>Coming up</h3>
           </div>
           <div className="home-events-list">
             {upcomingEvents.map((event) => (
@@ -120,56 +140,48 @@ export const HomeScreen = ({ state, onAvatarAction }: HomeScreenProps) => {
       <section className="glass-panel crew-strip stack-sm" aria-label="Family crew">
         <div className="crew-header">
           <h3>Your crew</h3>
-          <span className="crew-points">{formatPoints(state.familyPoints)}</span>
+          <span className="crew-points">{familyTrack.familyStars} stars</span>
         </div>
         <div className="avatar-row">
           {state.users.map((user) => {
-            const av = state.avatars[user.id];
+            const companion = state.avatarGame.companionsByUserId[user.id];
             return (
               <div
                 key={user.id}
                 className={`avatar-pill ${state.activeUserId === user.id ? 'is-active' : ''} ${!user.active ? 'is-inactive-user' : ''}`}
               >
-                <span className="avatar-badge">{BODY_EMOJI[av.look.body]}</span>
+                <span className="avatar-badge">{speciesEmoji[companion.species] ?? '🐾'}</span>
                 <div className="avatar-pill-info">
                   <span className="avatar-pill-name">{user.name}</span>
-                  <span className="avatar-mini-points">{av.points} pts</span>
+                  <span className="avatar-mini-points">Lv {companion.level} · {companion.mood}</span>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {state.activeUserId ? (
+        {state.activeUserId && activeCompanion ? (
           <>
-            <div className="quick-actions" role="group" aria-label="Quick avatar actions">
-              {(['feed', 'dance', 'ball', 'adventure'] as const).map((action) => {
-                const labels: Record<typeof action, string> = {
-                  feed: '🍎 Feed', dance: '💃 Dance', ball: '⚽ Play', adventure: '🗺 Explore'
-                };
-                return (
-                  <button
-                    key={action}
-                    className="chip-action"
-                    data-testid={`btn-avatar-${action}`}
-                    type="button"
-                    onClick={() => {
-                      const result = onAvatarAction(state.activeUserId as UserId, action);
-                      const msgs: Record<typeof action, string> = {
-                        feed: `Snack time! +${result.pointsEarned} pts`,
-                        dance: `Dance burst! +${result.pointsEarned} pts`,
-                        ball: `Ball play! +${result.pointsEarned} pts`,
-                        adventure: `Adventure done! +${result.pointsEarned} pts`
-                      };
-                      setReaction(msgs[action]);
-                    }}
-                  >
-                    {labels[action]}
-                  </button>
-                );
-              })}
+            <div className="quick-actions" role="group" aria-label="Quick companion care actions">
+              {(['feed', 'play', 'rest', 'story'] as const).map((action) => (
+                <button
+                  key={action}
+                  className="chip-action"
+                  data-testid={`btn-avatar-${action}`}
+                  type="button"
+                  onClick={() => {
+                    onCareAction(state.activeUserId as UserId, action);
+                    setReaction(`${careLabels[action]} done for ${activeCompanion.name}.`);
+                  }}
+                >
+                  {careLabels[action]}
+                </button>
+              ))}
             </div>
-            {reaction && <p className="status-banner is-success">{reaction}</p>}
+            {reaction ? <p className="status-banner is-success">{reaction}</p> : null}
+            <p className="muted">
+              {activeCompanion.name} is level {activeCompanion.level} with {activeCompanion.coins} coins and {activeCompanion.stars} stars.
+            </p>
           </>
         ) : null}
       </section>

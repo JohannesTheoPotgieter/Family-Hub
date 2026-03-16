@@ -1,4 +1,5 @@
 import { USERS, type UserId } from './constants';
+import { getTodayIso } from './date';
 import type { AvatarGameState, AvatarCompanion } from '../../domain/avatarTypes';
 import { applyStatDecay } from '../../domain/avatarRewards';
 import type { PinStore } from './pin';
@@ -145,8 +146,105 @@ export type FamilyHubState = {
 };
 
 const STORAGE_KEY = 'family-hub-state';
+const SETUP_IMPORT_NOTE = 'Imported from setup wizard';
 
 const toCents = (value: unknown) => (typeof value === 'number' ? Math.round(value * 100) : 0);
+const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
+const getMonthEndIso = (monthIsoYYYYMM: string) => {
+  const [year, month] = monthIsoYYYYMM.split('-').map(Number);
+  return new Date(year, month, 0).toISOString().slice(0, 10);
+};
+
+export const seedMoneyFromSetupProfiles = (
+  money: MoneyState,
+  profiles: Partial<Record<UserId, UserSetupProfile>>
+): MoneyState => {
+  const entries = Object.entries(profiles) as [UserId, UserSetupProfile][];
+  if (!entries.length) return money;
+
+  const todayIso = getTodayIso();
+  const currentMonth = todayIso.slice(0, 7);
+  const monthEndIso = getMonthEndIso(currentMonth);
+
+  const transactions = [...money.transactions];
+  const bills = [...money.bills];
+  const budgets = [...money.budgets];
+
+  for (const [userId, profile] of entries) {
+    if (profile.openingBalance > 0) {
+      const id = `setup-opening-${userId}`;
+      if (!transactions.some((tx) => tx.id === id)) {
+        transactions.unshift({
+          id,
+          title: `${USERS.find((user) => user.id === userId)?.name ?? userId} opening balance`,
+          amountCents: toCents(profile.openingBalance),
+          dateIso: todayIso,
+          kind: 'inflow',
+          category: 'Starting balance',
+          notes: SETUP_IMPORT_NOTE,
+          source: 'manual'
+        });
+      }
+    }
+
+    if (profile.monthlyIncome > 0) {
+      const id = `setup-income-${userId}-${currentMonth}`;
+      if (!transactions.some((tx) => tx.id === id)) {
+        transactions.unshift({
+          id,
+          title: `${USERS.find((user) => user.id === userId)?.name ?? userId} monthly income`,
+          amountCents: toCents(profile.monthlyIncome),
+          dateIso: `${currentMonth}-01`,
+          kind: 'inflow',
+          category: 'Income',
+          notes: SETUP_IMPORT_NOTE,
+          source: 'manual'
+        });
+      }
+    }
+
+    profile.recurringPayments.forEach((payment) => {
+      if (payment.amount <= 0) return;
+      const id = `setup-bill-${userId}-${payment.id}-${currentMonth}`;
+      if (!bills.some((bill) => bill.id === id)) {
+        bills.unshift({
+          id,
+          title: payment.title,
+          amountCents: toCents(payment.amount),
+          dueDateIso: monthEndIso,
+          category: 'Recurring',
+          paid: false,
+          notes: `${SETUP_IMPORT_NOTE}. Review the due date when you are ready.`,
+          autoCreateTransaction: true
+        });
+      }
+    });
+
+    profile.budgetCategories.forEach((budget) => {
+      if (budget.amount < 0) return;
+      const id = `setup-budget-${userId}-${slugify(budget.label)}-${currentMonth}`;
+      if (!budgets.some((item) => item.id === id)) {
+        budgets.unshift({
+          id,
+          monthIsoYYYYMM: currentMonth,
+          category: budget.label,
+          limitCents: toCents(budget.amount)
+        });
+      }
+    });
+  }
+
+  return {
+    ...money,
+    bills,
+    transactions,
+    budgets,
+    settings: {
+      ...money.settings,
+      monthlyStartDay: money.settings.monthlyStartDay ?? 1
+    }
+  };
+};
 
 const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }) : MoneyState => {
   const bills = Array.isArray(rawMoney.bills)
@@ -370,6 +468,8 @@ export const loadState = (): FamilyHubState => {
   try {
     const parsed = JSON.parse(raw) as Partial<FamilyHubState>;
     const initial = createInitialState();
+    const userSetupProfiles = parsed.userSetupProfiles ?? {};
+    const migratedMoney = seedMoneyFromSetupProfiles(migrateMoney((parsed.money as any) ?? {}), userSetupProfiles);
 
     const parsedTasks = parsed.tasks?.items ?? [];
 
@@ -377,8 +477,10 @@ export const loadState = (): FamilyHubState => {
       ...initial,
       ...parsed,
       users: USERS,
+      activeUserId: null,
+      setupUserId: null,
       setupCompleted: { ...initial.setupCompleted, ...(parsed.setupCompleted ?? {}) },
-      userSetupProfiles: parsed.userSetupProfiles ?? {},
+      userSetupProfiles,
       familyPoints: typeof parsed.familyPoints === 'number' ? parsed.familyPoints : initial.familyPoints,
       avatars: {
         johannes: sanitizeAvatar(parsed.avatars?.johannes, initial.avatars.johannes),
@@ -427,7 +529,7 @@ export const loadState = (): FamilyHubState => {
           }))
           .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
       },
-      money: migrateMoney((parsed.money as any) ?? {})
+      money: migratedMoney
     };
   } catch {
     return createInitialState();
@@ -435,5 +537,16 @@ export const loadState = (): FamilyHubState => {
 };
 
 export const saveState = (state: FamilyHubState) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      ...state,
+      activeUserId: null,
+      setupUserId: null
+    } satisfies FamilyHubState)
+  );
+};
+
+export const clearState = () => {
+  localStorage.removeItem(STORAGE_KEY);
 };

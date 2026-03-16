@@ -1,51 +1,73 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PlaceItem, TaskItem, AvatarLook, AvatarMood, AvatarProfile } from '../../lib/family-hub/storage';
+import type { CalendarEvent, PlaceItem, TaskItem } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
+import type { AvatarGameState } from '../../domain/avatarTypes';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
+import { AvatarHomeSection } from './AvatarHomeSection';
 
-type AvatarAction = 'feed' | 'dance' | 'ball' | 'adventure';
+type CareAction = 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story';
 type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
 
 type Props = {
   users: User[];
-  avatars: Record<UserId, AvatarProfile>;
-  familyPoints: number;
   activeUser: User | null;
+  activeUserId: UserId | null;
+  avatarGame: AvatarGameState;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
   places: PlaceItem[];
   events: CalendarEvent[];
   tasks: TaskItem[];
-  onChangePin: (currentPin: string, nextPin: string) => boolean;
-  onSetUserPin: (userId: UserId, nextPin: string) => void;
-  onCustomizeAvatar: (userId: UserId, look: AvatarLook) => void;
-  onAvatarAction: (userId: UserId, action: AvatarAction) => { mood: AvatarMood; pointsEarned: number; familyPointsEarned: number };
+  onCareAction: (userId: UserId, action: CareAction) => void;
+  onChangePin: (currentPin: string, nextPin: string) => Promise<boolean>;
+  onSetUserPin: (userId: UserId, nextPin: string) => Promise<void>;
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
   onResetData: () => void;
+  onLock: () => void;
 };
 
 const SECTION_TABS: { key: MoreSection; icon: string; label: string }[] = [
   { key: 'reminders', icon: '🔔', label: 'Alerts' },
-  { key: 'avatars', icon: '🐾', label: 'Avatars' },
+  { key: 'avatars', icon: '🐾', label: 'Companions' },
   { key: 'places', icon: '📍', label: 'Places' },
   { key: 'users', icon: '👥', label: 'People' },
   { key: 'settings', icon: '⚙️', label: 'Settings' }
 ];
 
-const BODY_EMOJI: Record<string, string> = { fox: '🦊', cat: '🐱', bear: '🐻', bunny: '🐰' };
-const MOOD_EMOJI: Record<string, string> = { happy: '😊', sleepy: '😴', excited: '🤩', proud: '😎', silly: '😜' };
+const speciesEmoji: Record<string, string> = {
+  foxling: '🦊',
+  mooncat: '🐱',
+  cloudbear: '🐻',
+  bunny: '🐰'
+};
 
 const STATUS_LABELS: Record<PlaceItem['status'], string> = {
-  planning: '🗺 Planning', booked: '✅ Booked', visited: '🏅 Visited'
+  planning: '🗺 Planning',
+  booked: '✅ Booked',
+  visited: '🏅 Visited'
 };
 
 export const MoreScreen = ({
-  users, avatars, familyPoints, activeUser, setupCompleted, userPins,
-  places, events, tasks, onChangePin, onSetUserPin, onCustomizeAvatar,
-  onAvatarAction, onAddPlace, onUpdatePlace, onExportData, onResetData
+  users,
+  activeUser,
+  activeUserId,
+  avatarGame,
+  setupCompleted,
+  userPins,
+  places,
+  events,
+  tasks,
+  onCareAction,
+  onChangePin,
+  onSetUserPin,
+  onAddPlace,
+  onUpdatePlace,
+  onExportData,
+  onResetData,
+  onLock
 }: Props) => {
   const [section, setSection] = useState<MoreSection>('reminders');
 
@@ -54,10 +76,12 @@ export const MoreScreen = ({
   const [confirmPin, setConfirmPin] = useState('');
   const [pinStatus, setPinStatus] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
 
   const [selectedUserId, setSelectedUserId] = useState<UserId>(users[0]?.id ?? 'johannes');
   const [newUserPin, setNewUserPin] = useState('');
   const [userPinStatus, setUserPinStatus] = useState('');
+  const [userPinBusy, setUserPinBusy] = useState(false);
 
   const [placeName, setPlaceName] = useState('');
   const [placeLocation, setPlaceLocation] = useState('');
@@ -118,7 +142,7 @@ export const MoreScreen = ({
 
   return (
     <section className="stack-lg">
-      <ScreenIntro badge="More" title="Family tools" subtitle="Manage avatars, places, people, alerts and settings." />
+      <ScreenIntro badge="More" title="Family tools" subtitle="Manage companions, places, people, alerts and settings." />
 
       <div className="more-tab-row">
         {SECTION_TABS.map(({ key, icon, label }) => (
@@ -163,67 +187,24 @@ export const MoreScreen = ({
       )}
 
       {section === 'avatars' && (
-        <FoundationBlock title="🐾 Avatar squad" description="Interact with and customise each family avatar.">
-          <div className="avatar-squad-grid">
-            {users.map((user) => {
-              const avatar = avatars[user.id];
-              return (
-                <article className="avatar-squad-card" key={user.id}>
-                  <div className="avatar-squad-head">
-                    <div className="avatar-squad-identity">
-                      <span className="avatar-squad-emoji">{BODY_EMOJI[avatar.look.body]}</span>
-                      <p className="avatar-squad-name">{user.name}</p>
-                    </div>
-                    <span className="avatar-squad-mood">{MOOD_EMOJI[avatar.mood]} {avatar.mood}</span>
-                  </div>
-                  <p className="muted">{avatar.points} pts · {avatar.familyContribution} family pts</p>
-                  <div className="avatar-look-grid">
-                    <label className="task-field">
-                      <span>Character</span>
-                      <select
-                        value={avatar.look.body}
-                        onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, body: event.target.value as AvatarLook['body'] })}
-                      >
-                        <option value="fox">🦊 Fox</option>
-                        <option value="cat">🐱 Cat</option>
-                        <option value="bear">🐻 Bear</option>
-                        <option value="bunny">🐰 Bunny</option>
-                      </select>
-                    </label>
-                    <label className="task-field">
-                      <span>Outfit</span>
-                      <select
-                        value={avatar.look.outfit}
-                        onChange={(event) => onCustomizeAvatar(user.id, { ...avatar.look, outfit: event.target.value as AvatarLook['outfit'] })}
-                      >
-                        <option value="cozy">🛋 Cozy</option>
-                        <option value="sporty">🏃 Sporty</option>
-                        <option value="party">🎉 Party</option>
-                        <option value="explorer">🧭 Explorer</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="avatar-action-row">
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'feed')}>🍎 Feed</button>
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'dance')}>💃 Dance</button>
-                    <button className="chip-action" type="button" onClick={() => onAvatarAction(user.id, 'adventure')}>🗺 Explore</button>
-                  </div>
-                </article>
-              );
-            })}
+        <FoundationBlock title="🐾 Companion home" description="Look after your household companions and family challenges in one place.">
+          <div className="chip-list">
+            <span className="route-pill">Family stars: {avatarGame.familyRewardTrack.familyStars}</span>
+            <span className="route-pill">Family coins: {avatarGame.familyRewardTrack.familyCoins}</span>
+            <span className="route-pill">Unlocked themes: {avatarGame.familyRewardTrack.unlockedRoomThemes.length}</span>
           </div>
-          <p className="more-kicker">Family total: <strong>{familyPoints} points</strong> 🌟</p>
+          <AvatarHomeSection users={users} activeUserId={activeUserId} avatarGame={avatarGame} onCareAction={onCareAction} />
         </FoundationBlock>
       )}
 
       {section === 'places' && (
         <FoundationBlock title="📍 Places to visit" description="Track places your family wants to go.">
-          {places.length === 0 && (
+          {places.length === 0 ? (
             <div className="tasks-empty stack">
               <p className="tasks-empty-emoji">🗺</p>
-              <p className="muted">No places saved yet. Add somewhere you would love to visit!</p>
+              <p className="muted">No places saved yet. Add somewhere you would love to visit.</p>
             </div>
-          )}
+          ) : null}
           <div className="places-list">
             {places.map((place) => (
               <article className="place-card" key={place.id}>
@@ -242,7 +223,7 @@ export const MoreScreen = ({
                   </select>
                 </div>
                 <span className={`place-status-badge status-${place.status}`}>{STATUS_LABELS[place.status]}</span>
-                {place.notes && <p className="muted">{place.notes}</p>}
+                {place.notes ? <p className="muted">{place.notes}</p> : null}
               </article>
             ))}
           </div>
@@ -279,7 +260,7 @@ export const MoreScreen = ({
               onChange={(event) => setPlaceNotes(event.target.value)}
               rows={2}
             />
-            {placeAdded && <p className="status-banner is-success">{placeAdded}</p>}
+            {placeAdded ? <p className="status-banner is-success">{placeAdded}</p> : null}
             <button
               className="btn btn-primary"
               data-testid="btn-add-place"
@@ -298,8 +279,8 @@ export const MoreScreen = ({
                 setPlaceCost('');
                 setPlaceNotes('');
                 setPlaceStatus('planning');
-                setPlaceAdded('Place saved!');
-                setTimeout(() => setPlaceAdded(''), 2000);
+                setPlaceAdded('Place saved.');
+                window.setTimeout(() => setPlaceAdded(''), 2000);
               }}
             >
               Add place
@@ -312,13 +293,13 @@ export const MoreScreen = ({
         <FoundationBlock title="👥 Family members" description="View and manage profile status for each family member.">
           <div className="users-grid">
             {users.map((user) => {
-              const isSetupComplete = Boolean(setupCompleted[user.id]);
-              const av = avatars[user.id];
+              const isSetupDone = Boolean(setupCompleted[user.id]);
+              const companion = avatarGame.companionsByUserId[user.id];
               return (
                 <article className="user-card" key={user.id}>
                   <div className="user-head-row">
                     <div className="user-identity">
-                      <span className="user-avatar-emoji">{BODY_EMOJI[av.look.body]}</span>
+                      <span className="user-avatar-emoji">{speciesEmoji[companion.species] ?? '🐾'}</span>
                       <h4>{user.name}</h4>
                     </div>
                     <span className={`status-dot ${user.active ? 'is-active' : 'is-inactive'}`}>
@@ -326,10 +307,11 @@ export const MoreScreen = ({
                     </span>
                   </div>
                   <div className="chip-list">
-                    <span className="route-pill">{isSetupComplete ? '✓ Setup done' : '⏳ Setup pending'}</span>
+                    <span className="route-pill">{isSetupDone ? '✓ Setup done' : '⏳ Setup pending'}</span>
                     <span className="route-pill">{userPins[user.id] ? '🔐 PIN set' : '⚠️ No PIN'}</span>
+                    <span className="route-pill">Lv {companion.level}</span>
                   </div>
-                  {!user.active && <p className="future-activation-note">This profile will be available when activated.</p>}
+                  {!user.active ? <p className="future-activation-note">This profile will be available when activated.</p> : null}
                 </article>
               );
             })}
@@ -342,6 +324,7 @@ export const MoreScreen = ({
               value={selectedUserId}
               data-testid="select-user-for-pin"
               onChange={(event) => setSelectedUserId(event.target.value as UserId)}
+              disabled={userPinBusy}
             >
               {users.map((user) => (
                 <option key={user.id} value={user.id}>{user.name}</option>
@@ -356,21 +339,24 @@ export const MoreScreen = ({
               placeholder="New 4-digit PIN"
               data-testid="input-new-user-pin"
               onChange={(event) => setNewUserPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+              disabled={userPinBusy}
             />
-            {userPinStatus && <p className="status-banner is-success">{userPinStatus}</p>}
+            {userPinStatus ? <p className="status-banner is-success">{userPinStatus}</p> : null}
             <button
               className="btn btn-primary"
               data-testid="btn-save-user-pin"
               type="button"
-              disabled={newUserPin.length !== 4}
-              onClick={() => {
-                onSetUserPin(selectedUserId, newUserPin);
-                setUserPinStatus('PIN saved');
+              disabled={newUserPin.length !== 4 || userPinBusy}
+              onClick={async () => {
+                setUserPinBusy(true);
+                await onSetUserPin(selectedUserId, newUserPin);
+                setUserPinStatus('PIN saved.');
                 setNewUserPin('');
-                setTimeout(() => setUserPinStatus(''), 2500);
+                setUserPinBusy(false);
+                window.setTimeout(() => setUserPinStatus(''), 2500);
               }}
             >
-              Save PIN
+              {userPinBusy ? 'Saving…' : 'Save PIN'}
             </button>
           </div>
         </FoundationBlock>
@@ -388,6 +374,7 @@ export const MoreScreen = ({
               value={currentPin}
               placeholder="Current PIN"
               onChange={(event) => setCurrentPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+              disabled={pinBusy}
             />
             <input
               className="pin-input"
@@ -397,6 +384,7 @@ export const MoreScreen = ({
               value={nextPin}
               placeholder="New PIN"
               onChange={(event) => setNextPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+              disabled={pinBusy}
             />
             <input
               className="pin-input"
@@ -406,22 +394,43 @@ export const MoreScreen = ({
               value={confirmPin}
               placeholder="Confirm new PIN"
               onChange={(event) => setConfirmPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+              disabled={pinBusy}
             />
-            {pinStatus && <p className={`status-banner ${pinError ? 'is-error' : 'is-success'}`}>{pinStatus}</p>}
+            {pinStatus ? <p className={`status-banner ${pinError ? 'is-error' : 'is-success'}`}>{pinStatus}</p> : null}
             <button
               className="btn btn-primary"
               type="button"
-              disabled={currentPin.length !== 4 || nextPin.length !== 4 || confirmPin.length !== 4}
-              onClick={() => {
-                if (nextPin !== confirmPin) { setPinError(true); setPinStatus('New PINs do not match.'); return; }
-                const changed = onChangePin(currentPin, nextPin);
-                if (!changed) { setPinError(true); setPinStatus('Current PIN is incorrect.'); return; }
+              disabled={currentPin.length !== 4 || nextPin.length !== 4 || confirmPin.length !== 4 || pinBusy}
+              onClick={async () => {
+                if (nextPin !== confirmPin) {
+                  setPinError(true);
+                  setPinStatus('New PINs do not match.');
+                  return;
+                }
+                setPinBusy(true);
+                const changed = await onChangePin(currentPin, nextPin);
+                if (!changed) {
+                  setPinError(true);
+                  setPinStatus('Current PIN is incorrect.');
+                  setPinBusy(false);
+                  return;
+                }
                 setPinError(false);
                 setPinStatus('PIN updated successfully.');
-                setCurrentPin(''); setNextPin(''); setConfirmPin('');
+                setCurrentPin('');
+                setNextPin('');
+                setConfirmPin('');
+                setPinBusy(false);
               }}
             >
-              Update PIN
+              {pinBusy ? 'Updating…' : 'Update PIN'}
+            </button>
+
+            <div className="settings-divider" />
+
+            <h4>Session</h4>
+            <button className="btn btn-ghost" type="button" onClick={onLock}>
+              Lock Family Hub
             </button>
 
             <div className="settings-divider" />
@@ -455,7 +464,11 @@ export const MoreScreen = ({
                   <button
                     className="btn btn-primary"
                     type="button"
-                    onClick={() => { onResetData(); setConfirmReset(false); setSettingsStatus('App data reset.'); }}
+                    onClick={() => {
+                      onResetData();
+                      setConfirmReset(false);
+                      setSettingsStatus('App data reset.');
+                    }}
                   >
                     Yes, reset
                   </button>
@@ -463,16 +476,16 @@ export const MoreScreen = ({
               </div>
             )}
 
-            {settingsStatus && <p className="status-banner is-success">{settingsStatus}</p>}
+            {settingsStatus ? <p className="status-banner is-success">{settingsStatus}</p> : null}
           </div>
         </FoundationBlock>
       )}
 
-      {activeUser && (
+      {activeUser ? (
         <p className="more-kicker">
           Signed in as <strong>{activeUser.name}</strong>
         </p>
-      )}
+      ) : null}
     </section>
   );
 };
