@@ -10,8 +10,9 @@
 
 ### Mode B: Secure backend (`VITE_CALENDAR_MODE=server`)
 - Run the Node API server for OAuth callback handling, provider sync, and ICS subscriptions.
-- Refresh tokens are encrypted at rest with AES-GCM (`TOKEN_ENC_KEY`).
+- Refresh tokens are encrypted at rest with AES-GCM (`TOKEN_ENC_KEY`) and the server now requires that key to be explicitly set.
 - Supports Google, Microsoft, and ICS subscriptions.
+- ICS subscriptions are limited to verified public `http(s)` URLs and OAuth callbacks only redirect back to `CLIENT_ORIGIN`.
 
 ## Scripts
 - `npm run dev:client` - Vite client on port `5000`.
@@ -24,11 +25,13 @@
 - Google: fill client id, secret, and redirect URI.
 - Microsoft: fill the app registration values.
 - ICS: paste a subscription URL in Calendar after the server is running.
+- Synced external calendars are persisted into Family Hub state so they appear on Home, Calendar, and alerts after refresh.
 
 ## Money Manager data model update
 - `state.money` uses `{ bills, transactions, budgets, settings }`.
 - Money amounts are stored as integer cents (`amountCents`, `limitCents`) for safer calculations.
 - Existing saved data is migrated automatically from legacy `payments` + `actualTransactions` and float `amount` fields.
+- The Money overview now includes a cashflow planner with opening balance, bills still due, projected closing balance, and starter budget suggestions.
 
 ## Avatar Companion + Family Challenge system
 - Avatar progression lives in `state.avatarGame` with versioned migration from legacy avatar points.

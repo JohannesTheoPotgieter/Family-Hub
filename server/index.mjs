@@ -1,13 +1,16 @@
 import { createServer } from 'node:http';
 import { randomUUID, createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT ?? 8787);
 const clientOrigin = process.env.CLIENT_ORIGIN ?? 'http://localhost:5000';
-const encKey = Buffer.from((process.env.TOKEN_ENC_KEY ?? ''.padEnd(32, 'x'))).subarray(0, 32);
+const rawEncKey = (process.env.TOKEN_ENC_KEY ?? '').trim();
+const encKey = Buffer.byteLength(rawEncKey) >= 32 ? Buffer.from(rawEncKey).subarray(0, 32) : null;
 const dataFile = resolve(__dirname, '.family-hub-server.json');
 const pendingStates = new Map();
 const icsCache = new Map();
@@ -31,8 +34,18 @@ const providerLabel = {
   google: 'Google',
   microsoft: 'Outlook'
 };
+const defaultReturnTo = {
+  google: `${clientOrigin}/?tab=Calendar&provider=google&connected=1`,
+  microsoft: `${clientOrigin}/?tab=Calendar&provider=microsoft&connected=1`
+};
 
 const createHttpError = (status, message) => Object.assign(new Error(message), { status });
+const requireEncKey = () => {
+  if (!encKey) {
+    throw createHttpError(500, 'TOKEN_ENC_KEY must be set to at least 32 characters before connecting Google or Outlook.');
+  }
+  return encKey;
+};
 
 const loadPersistedState = () => {
   if (!existsSync(dataFile)) {
@@ -52,8 +65,9 @@ const savePersistedState = () => {
 };
 
 const encrypt = (raw) => {
+  const key = requireEncKey();
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', encKey, iv);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
   const encrypted = Buffer.concat([cipher.update(raw, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, encrypted]).toString('base64');
@@ -61,11 +75,12 @@ const encrypt = (raw) => {
 
 const decrypt = (value) => {
   if (!value) return null;
+  const key = requireEncKey();
   const raw = Buffer.from(value, 'base64');
   const iv = raw.subarray(0, 12);
   const tag = raw.subarray(12, 28);
   const encrypted = raw.subarray(28);
-  const decipher = createDecipheriv('aes-256-gcm', encKey, iv);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 };
@@ -100,6 +115,61 @@ const redirect = (res, location) => {
 };
 
 const normalizeDateTime = (value) => new Date(value).toISOString();
+const isPrivateIpAddress = (address) => {
+  if (!address) return true;
+  if (address === '::1' || address === '0:0:0:0:0:0:0:1') return true;
+  if (address.startsWith('fe80:') || address.startsWith('fc') || address.startsWith('fd')) return true;
+  if (!isIP(address)) return false;
+  if (address.startsWith('10.') || address.startsWith('127.') || address.startsWith('192.168.')) return true;
+  if (address.startsWith('169.254.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(address)) return true;
+  return false;
+};
+
+const sanitizeReturnTo = (provider, requestedReturnTo) => {
+  const fallback = defaultReturnTo[provider];
+  try {
+    const allowedOrigin = new URL(clientOrigin).origin;
+    const candidate = new URL(requestedReturnTo || fallback, clientOrigin);
+    return candidate.origin === allowedOrigin ? candidate.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const validateIcsSubscriptionUrl = async (rawUrl) => {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw createHttpError(400, 'Add a valid ICS URL that starts with https:// or http://.');
+  }
+
+  if (!['https:', 'http:'].includes(parsed.protocol)) {
+    throw createHttpError(400, 'ICS subscriptions must use http:// or https:// links.');
+  }
+  if (parsed.username || parsed.password) {
+    throw createHttpError(400, 'ICS URLs with embedded credentials are not allowed.');
+  }
+  if (parsed.hostname === 'localhost' || parsed.hostname.endsWith('.local')) {
+    throw createHttpError(400, 'Local network ICS URLs are not allowed.');
+  }
+  if (isPrivateIpAddress(parsed.hostname)) {
+    throw createHttpError(400, 'Private network ICS URLs are not allowed.');
+  }
+
+  try {
+    const resolved = await lookup(parsed.hostname, { all: true });
+    if (resolved.some((entry) => isPrivateIpAddress(entry.address))) {
+      throw createHttpError(400, 'Private network ICS URLs are not allowed.');
+    }
+  } catch (error) {
+    if (error?.status) throw error;
+    throw createHttpError(400, 'That ICS URL could not be verified.');
+  }
+
+  return parsed.toString();
+};
 
 const localNoonFromDateOnly = (dateOnly) => {
   const [year, month, day] = dateOnly.split('-').map(Number);
@@ -234,7 +304,7 @@ const parseIcsEvents = (content, calendarId) => {
 
 const requireProviderConfig = (provider) => {
   const config = providerConfig[provider];
-  if (!config.clientId || !config.clientSecret || !config.redirectUri) {
+  if (!config.clientId || !config.clientSecret || !config.redirectUri || !encKey) {
     throw createHttpError(400, `${providerLabel[provider]} is not configured on the server yet.`);
   }
   return config;
@@ -404,7 +474,8 @@ const fetchIcsEvents = async (subscription) => {
   const cached = icsCache.get(subscription.id);
   if (cached && Date.now() - cached.at < 10 * 60_000) return cached.events;
   const response = await fetch(subscription.url, {
-    headers: { 'User-Agent': 'Family Hub Calendar Sync' }
+    headers: { 'User-Agent': 'Family Hub Calendar Sync' },
+    redirect: 'error'
   });
   if (!response.ok) throw createHttpError(response.status, 'Could not download the ICS calendar.');
   const text = await response.text();
@@ -433,7 +504,7 @@ createServer(async (req, res) => {
       if (provider !== 'google' && provider !== 'microsoft') throw createHttpError(400, 'Unknown calendar provider.');
       const config = providerConfig[provider];
       sendJson(res, 200, {
-        configured: Boolean(config.clientId && config.clientSecret && config.redirectUri),
+        configured: Boolean(config.clientId && config.clientSecret && config.redirectUri && encKey),
         connected: Boolean(getStoredProviderAccount(provider))
       });
       return;
@@ -444,7 +515,7 @@ createServer(async (req, res) => {
       const stateId = randomUUID();
       pendingStates.set(stateId, {
         provider: 'google',
-        returnTo: url.searchParams.get('returnTo') || `${clientOrigin}/?tab=Calendar&provider=google&connected=1`
+        returnTo: sanitizeReturnTo('google', url.searchParams.get('returnTo'))
       });
       const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
       authUrl.searchParams.set('client_id', config.clientId);
@@ -463,7 +534,7 @@ createServer(async (req, res) => {
       const stateId = randomUUID();
       pendingStates.set(stateId, {
         provider: 'microsoft',
-        returnTo: url.searchParams.get('returnTo') || `${clientOrigin}/?tab=Calendar&provider=microsoft&connected=1`
+        returnTo: sanitizeReturnTo('microsoft', url.searchParams.get('returnTo'))
       });
       const authUrl = new URL('https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
       authUrl.searchParams.set('client_id', config.clientId);
@@ -512,7 +583,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/ics/subscribe' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const name = String(body?.name ?? '').trim();
-      const subscriptionUrl = String(body?.url ?? '').trim();
+      const subscriptionUrl = await validateIcsSubscriptionUrl(String(body?.url ?? '').trim());
       if (!name || !subscriptionUrl) throw createHttpError(400, 'name and url are required.');
       const existing = persistedState.icsSubscriptions.find((item) => item.url === subscriptionUrl);
       if (existing) {
