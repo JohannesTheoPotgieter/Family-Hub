@@ -11,6 +11,7 @@ import { MonthSwitcher } from './money/MonthSwitcher';
 import {
   DEFAULT_MONEY_CATEGORIES,
   formatCurrencyZAR,
+  getCashflowPlan,
   formatDueDateFriendly,
   getBudgetStatus,
   getDueSoonBills,
@@ -75,6 +76,12 @@ const statementColumnLabels: Array<{ role: StatementColumnRole; label: string; o
 
 const sourceLabel = (source: MoneyTransaction['source']) => source === 'bill' ? 'Linked bill' : source === 'statement' ? 'Statement import' : 'Manual';
 const freshTxDraft = (): { title: string; amount: string; dateIso: string; kind: 'inflow' | 'outflow'; category: string; notes: string } => ({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow', category: 'Other', notes: '' });
+const getPreviousMonth = (monthIsoYYYYMM: string) => {
+  const [year, month] = monthIsoYYYYMM.split('-').map(Number);
+  const previous = new Date(year, (month ?? 1) - 2, 1);
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`;
+};
+const roundBudgetSuggestion = (amountCents: number) => Math.max(0, Math.ceil(amountCents / 5_000) * 5_000);
 
 export const MoneyScreen = ({
   money,
@@ -124,6 +131,8 @@ export const MoneyScreen = ({
   const budgetStatus = getBudgetStatus(money, month);
   const topCategory = getTopSpendingCategory(money, month);
   const recentActivity = getRecentMoneyActivity(money);
+  const cashflowPlan = useMemo(() => getCashflowPlan(money, month), [money, month]);
+  const nextBillToPay = dueSoonBills[0] ?? overdueBills[0] ?? null;
 
   const spendCategories = useMemo(
     () => Array.from(new Set([...DEFAULT_MONEY_CATEGORIES, 'Other', ...money.bills.map((bill) => bill.category), ...money.transactions.filter((tx) => tx.kind === 'outflow').map((tx) => tx.category)])),
@@ -133,6 +142,29 @@ export const MoneyScreen = ({
     () => Array.from(new Set([...spendCategories, 'Income', 'Starting balance', ...money.transactions.map((tx) => tx.category)])),
     [money.transactions, spendCategories]
   );
+  const currentMonthBudgets = useMemo(() => money.budgets.filter((budget) => budget.monthIsoYYYYMM === month), [money.budgets, month]);
+  const starterBudgetSuggestions = useMemo(() => {
+    const previousMonth = getPreviousMonth(month);
+    const previousMonthTransactions = getMonthTransactions(money, previousMonth);
+
+    return spendCategories
+      .filter((category) => category !== 'Income' && category !== 'Starting balance')
+      .filter((category) => !currentMonthBudgets.some((budget) => budget.category === category))
+      .map((category) => {
+        const baseline = Math.max(
+          monthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === category).reduce((sum, tx) => sum + tx.amountCents, 0),
+          previousMonthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === category).reduce((sum, tx) => sum + tx.amountCents, 0)
+        );
+
+        return {
+          category,
+          limitCents: baseline > 0 ? roundBudgetSuggestion(Math.round(baseline * 1.1)) : 0
+        };
+      })
+      .filter((item) => item.limitCents > 0)
+      .sort((a, b) => b.limitCents - a.limitCents)
+      .slice(0, 6);
+  }, [currentMonthBudgets, money, month, monthTransactions, spendCategories]);
 
   const visibleBills = monthBills.filter((bill) => {
     if (billStatusFilter === 'all') return true;
@@ -277,6 +309,7 @@ export const MoneyScreen = ({
       {tab === 'overview' ? (
         <>
           <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan.">
+            <MoneySectionHeader title="Monthly snapshot" subtitle="Use the planner below to see what is still coming." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
             <div className="money-kpi-grid">
               <MoneyStatCard label="Money in" value={<AmountText amountCents={income} kind="positive" />} />
               <MoneyStatCard label="Money out" value={<AmountText amountCents={spending} kind="negative" />} />
@@ -292,8 +325,33 @@ export const MoneyScreen = ({
               <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }}>Add bill</button>
               <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(freshTxDraft()); setTxDraftSource('manual'); }}>Add transaction</button>
               <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
-              <button className="btn btn-ghost" onClick={() => { const due = dueSoonBills[0] ?? overdueBills[0]; if (due) onMarkBillPaid(due.id, 'manual-proof'); }}>Mark paid</button>
+              <button className="btn btn-ghost" disabled={!nextBillToPay} onClick={() => { if (nextBillToPay) onMarkBillPaid(nextBillToPay.id, 'manual-proof'); }}>Mark next bill paid</button>
             </div>
+          </FoundationBlock>
+          <FoundationBlock title="Cashflow planner" description="See what balance you likely land on after recorded transactions and unpaid bills.">
+            <div className="money-kpi-grid">
+              <MoneyStatCard label="Opening balance" value={<AmountText amountCents={cashflowPlan.openingBalanceCents} kind={cashflowPlan.openingBalanceCents >= 0 ? 'positive' : 'negative'} />} />
+              <MoneyStatCard label="Recorded income" value={<AmountText amountCents={cashflowPlan.recordedIncomeCents} kind="positive" />} />
+              <MoneyStatCard label="Bills still due" value={<AmountText amountCents={cashflowPlan.scheduledBillOutflowCents} kind="negative" />} />
+              <MoneyStatCard label="Projected closing" value={<AmountText amountCents={cashflowPlan.projectedClosingBalanceCents} kind={cashflowPlan.projectedClosingBalanceCents >= 0 ? 'positive' : 'negative'} />} />
+            </div>
+            {cashflowPlan.entries.length ? (
+              <div className="stack-sm">
+                {cashflowPlan.entries.slice(0, 6).map((entry) => (
+                  <article key={entry.id} className="money-transaction-item">
+                    <div>
+                      <p className="money-activity-title">{entry.title}</p>
+                      <p className="muted">{formatDueDateFriendly(entry.dateIso)} · {entry.category}</p>
+                    </div>
+                    <div className="money-activity-meta">
+                      <AmountText amountCents={Math.abs(entry.amountCents)} kind={entry.amountCents >= 0 ? 'positive' : 'negative'} />
+                      <span className={`item-tag ${entry.status === 'scheduled' ? 'is-warn' : 'is-soft'}`}>{entry.status === 'scheduled' ? 'Planned' : 'Recorded'}</span>
+                      <span className="route-pill">Running {formatCurrencyZAR(entry.runningBalanceCents)}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : <EmptyStateCard title="No cashflow items yet" description="Add income, bills, or statement imports to generate a month-by-month forecast." />}
           </FoundationBlock>
           <FoundationBlock title="What needs attention" description={`Overdue: ${overdueBills.length} · Due soon: ${dueSoonBills.length} · Over budget categories: ${budgetStatus.overBudgetCount}`}>
             {recentActivity.length ? (
@@ -444,8 +502,19 @@ export const MoneyScreen = ({
               setBudgetDraft((prev) => ({ ...prev, amount: '' }));
             }}>Save budget</button>
           </article>
+          {starterBudgetSuggestions.length ? (
+            <article className="money-editor stack-sm">
+              <p className="muted">Need a faster start? Build a starter budget from the categories you already spend in.</p>
+              <div className="money-payment-meta">
+                {starterBudgetSuggestions.slice(0, 3).map((item) => <span key={item.category} className="route-pill">{item.category} · {formatCurrencyZAR(item.limitCents)}</span>)}
+              </div>
+              <button className="btn btn-ghost" onClick={() => starterBudgetSuggestions.forEach((item) => onAddBudget({ monthIsoYYYYMM: month, category: item.category, limitCents: item.limitCents }))}>
+                Create starter budgets
+              </button>
+            </article>
+          ) : null}
           <div className="budget-category-list">
-            {money.budgets.filter((budget) => budget.monthIsoYYYYMM === month).length ? money.budgets.filter((budget) => budget.monthIsoYYYYMM === month).map((budget) => (
+            {currentMonthBudgets.length ? currentMonthBudgets.map((budget) => (
               <BudgetProgressCard key={budget.id} category={budget.category} limitCents={budget.limitCents} spentCents={monthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === budget.category).reduce((sum, tx) => sum + tx.amountCents, 0)} onEdit={() => setBudgetDraft({ category: budget.category, amount: String(budget.limitCents / 100) })} onDelete={() => onDeleteBudget(budget.id)} />
             )) : <EmptyStateCard title="No budgets yet" description="Set a budget for groceries, transport, and more." />}
           </div>

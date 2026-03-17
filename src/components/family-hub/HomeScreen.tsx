@@ -39,6 +39,13 @@ const careLabels: Record<CareAction, string> = {
   story: 'Story time'
 };
 
+const calendarSourceLabel: Record<string, string> = {
+  internal: 'Family Hub',
+  google: 'Google',
+  microsoft: 'Outlook',
+  ics: 'ICS'
+};
+
 const getGreeting = () => {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -60,10 +67,25 @@ const getDueSoonCount = (state: FamilyHubState) => {
 const getOpenTasksCount = (state: FamilyHubState) => state.tasks.items.filter((task) => !task.completed).length;
 
 const getUpcomingEvents = (state: FamilyHubState) => {
-  const todayIso = getTodayIso();
-  return state.calendar.events
-    .filter((event) => event.date >= todayIso)
-    .sort((a, b) => a.date.localeCompare(b.date))
+  const todayStart = new Date(`${getTodayIso()}T00:00:00`);
+  const internal = state.calendar.events.map((event) => ({
+    id: `internal-${event.id}`,
+    title: event.title,
+    iso: `${event.date}T12:00:00.000Z`,
+    kind: event.kind ?? 'event',
+    sourceLabel: calendarSourceLabel.internal
+  }));
+  const external = state.calendar.externalEvents.map((event) => ({
+    id: `${event.provider}-${event.id}`,
+    title: event.title,
+    iso: event.start.iso,
+    kind: event.start.allDay ? 'event' : 'appointment',
+    sourceLabel: calendarSourceLabel[event.provider] ?? 'Calendar'
+  }));
+
+  return [...internal, ...external]
+    .filter((event) => new Date(event.iso) >= todayStart)
+    .sort((a, b) => a.iso.localeCompare(b.iso))
     .slice(0, 3);
 };
 
@@ -128,7 +150,7 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
                 <div>
                   <p className="home-event-title">{event.title}</p>
                   <p className="home-event-date muted">
-                    {new Intl.DateTimeFormat('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${event.date}T12:00:00`))}
+                    {new Intl.DateTimeFormat('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(event.iso))} · {event.sourceLabel}
                   </p>
                 </div>
               </div>

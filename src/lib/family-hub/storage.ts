@@ -2,6 +2,7 @@ import { USERS, type UserId } from './constants';
 import { getTodayIso } from './date';
 import type { AvatarGameState, AvatarCompanion } from '../../domain/avatarTypes';
 import { applyStatDecay } from '../../domain/avatarRewards';
+import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar';
 import type { PinStore } from './pin';
 
 export type CalendarEvent = {
@@ -9,6 +10,13 @@ export type CalendarEvent = {
   title: string;
   date: string;
   kind?: 'event' | 'appointment';
+};
+
+export type CalendarState = {
+  events: CalendarEvent[];
+  externalEvents: NormalizedEvent[];
+  calendars: NormalizedCalendar[];
+  lastSyncedAtIsoByProvider: Partial<Record<Provider, string>>;
 };
 
 export type TaskItem = {
@@ -142,19 +150,92 @@ export type FamilyHubState = {
   places: PlaceItem[];
   reminders: { items: ReminderItem[] };
   settings: AppSettings;
-  calendar: { events: CalendarEvent[] };
+  calendar: CalendarState;
   tasks: { items: TaskItem[] };
   money: MoneyState;
 };
 
 const STORAGE_KEY = 'family-hub-state';
 const SETUP_IMPORT_NOTE = 'Imported from setup wizard';
+const CALENDAR_PROVIDERS: Provider[] = ['google', 'microsoft', 'ics', 'caldav'];
 
 const toCents = (value: unknown) => (typeof value === 'number' ? Math.round(value * 100) : 0);
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 const getMonthEndIso = (monthIsoYYYYMM: string) => {
   const [year, month] = monthIsoYYYYMM.split('-').map(Number);
   return new Date(year, month, 0).toISOString().slice(0, 10);
+};
+const isCalendarProvider = (value: unknown): value is Provider => typeof value === 'string' && CALENDAR_PROVIDERS.includes(value as Provider);
+const isIsoDateTime = (value: unknown) => typeof value === 'string' && !Number.isNaN(new Date(value).getTime());
+
+const sanitizeNormalizedCalendar = (calendar: any): NormalizedCalendar | null => {
+  if (!calendar || typeof calendar.id !== 'string' || typeof calendar.name !== 'string' || !isCalendarProvider(calendar.provider)) {
+    return null;
+  }
+
+  return {
+    id: calendar.id,
+    name: calendar.name,
+    provider: calendar.provider,
+    primary: Boolean(calendar.primary),
+    color: typeof calendar.color === 'string' ? calendar.color : undefined,
+    readOnly: Boolean(calendar.readOnly),
+    accountLabel: typeof calendar.accountLabel === 'string' ? calendar.accountLabel : undefined
+  };
+};
+
+const sanitizeNormalizedEvent = (event: any): NormalizedEvent | null => {
+  if (
+    !event ||
+    typeof event.id !== 'string' ||
+    typeof event.calendarId !== 'string' ||
+    typeof event.title !== 'string' ||
+    !isCalendarProvider(event.provider) ||
+    !isIsoDateTime(event.start?.iso) ||
+    !isIsoDateTime(event.end?.iso)
+  ) {
+    return null;
+  }
+
+  return {
+    id: event.id,
+    provider: event.provider,
+    calendarId: event.calendarId,
+    title: event.title,
+    description: typeof event.description === 'string' ? event.description : undefined,
+    location: typeof event.location === 'string' ? event.location : undefined,
+    start: { iso: event.start.iso, allDay: Boolean(event.start?.allDay) },
+    end: { iso: event.end.iso, allDay: Boolean(event.end?.allDay) },
+    organizer: typeof event.organizer === 'string' ? event.organizer : undefined,
+    url: typeof event.url === 'string' ? event.url : undefined,
+    updatedAtIso: isIsoDateTime(event.updatedAtIso) ? event.updatedAtIso : undefined,
+    source: event.source === 'internal' ? 'internal' : 'external'
+  };
+};
+
+const sanitizeCalendarState = (rawCalendar: any): CalendarState => {
+  const events = (rawCalendar?.events ?? [])
+    .filter((event: CalendarEvent) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')
+    .map((event: CalendarEvent) => ({
+      ...event,
+      kind: event.kind === 'appointment' ? 'appointment' : 'event'
+    }));
+
+  const externalEvents = (rawCalendar?.externalEvents ?? [])
+    .map((event: any) => sanitizeNormalizedEvent(event))
+    .filter((event: NormalizedEvent | null): event is NormalizedEvent => Boolean(event));
+
+  const calendars = (rawCalendar?.calendars ?? [])
+    .map((calendar: any) => sanitizeNormalizedCalendar(calendar))
+    .filter((calendar: NormalizedCalendar | null): calendar is NormalizedCalendar => Boolean(calendar));
+
+  const lastSyncedAtIsoByProvider = Object.fromEntries(
+    Object.entries(rawCalendar?.lastSyncedAtIsoByProvider ?? {}).filter(
+      ([provider, value]) => isCalendarProvider(provider) && isIsoDateTime(value)
+    )
+  ) as CalendarState['lastSyncedAtIsoByProvider'];
+
+  return { events, externalEvents, calendars, lastSyncedAtIsoByProvider };
 };
 
 export const seedMoneyFromSetupProfiles = (
@@ -462,7 +543,7 @@ export const createInitialState = (): FamilyHubState => ({
   places: [],
   reminders: { items: [] },
   settings: { pinHintsEnabled: false },
-  calendar: { events: [] },
+  calendar: { events: [], externalEvents: [], calendars: [], lastSyncedAtIsoByProvider: {} },
   tasks: { items: [] },
   money: {
     bills: [],
@@ -521,14 +602,7 @@ export const loadState = (): FamilyHubState => {
       settings: {
         pinHintsEnabled: Boolean(parsed.settings?.pinHintsEnabled)
       },
-      calendar: {
-        events: (parsed.calendar?.events ?? [])
-          .filter((event) => typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string')
-          .map((event) => ({
-            ...event,
-            kind: event.kind === 'appointment' ? 'appointment' : 'event'
-          }))
-      },
+      calendar: sanitizeCalendarState(parsed.calendar),
       tasks: {
         items: parsedTasks
           .map((task) => ({

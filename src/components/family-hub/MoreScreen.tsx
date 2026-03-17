@@ -3,6 +3,7 @@ import type { User, UserId } from '../../lib/family-hub/constants';
 import type { CalendarEvent, PlaceItem, TaskItem } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
 import type { AvatarGameState } from '../../domain/avatarTypes';
+import type { NormalizedEvent } from '../../domain/calendar';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { AvatarHomeSection } from './AvatarHomeSection';
 
@@ -18,10 +19,10 @@ type Props = {
   userPins: PinStore;
   places: PlaceItem[];
   events: CalendarEvent[];
+  externalEvents: NormalizedEvent[];
   tasks: TaskItem[];
   onCareAction: (userId: UserId, action: CareAction) => void;
   onChangePin: (currentPin: string, nextPin: string) => Promise<boolean>;
-  onSetUserPin: (userId: UserId, nextPin: string) => Promise<void>;
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
@@ -51,6 +52,12 @@ const STATUS_LABELS: Record<PlaceItem['status'], string> = {
   visited: '🏅 Visited'
 };
 
+const CALENDAR_SOURCE_LABELS: Record<string, string> = {
+  google: 'Google calendar',
+  microsoft: 'Outlook calendar',
+  ics: 'ICS calendar'
+};
+
 export const MoreScreen = ({
   users,
   activeUser,
@@ -60,10 +67,10 @@ export const MoreScreen = ({
   userPins,
   places,
   events,
+  externalEvents,
   tasks,
   onCareAction,
   onChangePin,
-  onSetUserPin,
   onAddPlace,
   onUpdatePlace,
   onExportData,
@@ -79,11 +86,6 @@ export const MoreScreen = ({
   const [pinStatus, setPinStatus] = useState('');
   const [pinError, setPinError] = useState(false);
   const [pinBusy, setPinBusy] = useState(false);
-
-  const [selectedUserId, setSelectedUserId] = useState<UserId>(users[0]?.id ?? 'johannes');
-  const [newUserPin, setNewUserPin] = useState('');
-  const [userPinStatus, setUserPinStatus] = useState('');
-  const [userPinBusy, setUserPinBusy] = useState(false);
 
   const [placeName, setPlaceName] = useState('');
   const [placeLocation, setPlaceLocation] = useState('');
@@ -114,6 +116,13 @@ export const MoreScreen = ({
         type: event.kind === 'appointment' ? 'Appointment' : 'Event',
         urgent: false
       })),
+      ...externalEvents.map((event) => ({
+        id: `${event.provider}-${event.id}`,
+        title: event.title,
+        date: event.start.iso.slice(0, 10),
+        type: CALENDAR_SOURCE_LABELS[event.provider] ?? 'Calendar',
+        urgent: false
+      })),
       ...tasks
         .filter((task) => Boolean(task.dueDate) && !task.completed)
         .map((task) => ({
@@ -136,7 +145,7 @@ export const MoreScreen = ({
     });
 
     return { today: todayItems, week: weekItems };
-  }, [events, tasks]);
+  }, [events, externalEvents, tasks]);
 
   const formatReminderDate = (iso: string) =>
     new Intl.DateTimeFormat('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -292,7 +301,7 @@ export const MoreScreen = ({
       )}
 
       {section === 'users' && (
-        <FoundationBlock title="👥 Family members" description="View and manage profile status for each family member.">
+        <FoundationBlock title="👥 Family members" description="View profile status in a safer read-only summary. PIN changes stay in each person’s own Settings screen.">
           <div className="users-grid">
             {users.map((user) => {
               const isSetupDone = Boolean(setupCompleted[user.id]);
@@ -317,49 +326,6 @@ export const MoreScreen = ({
                 </article>
               );
             })}
-          </div>
-
-          <div className="place-form glass-panel stack-sm">
-            <h4>Set or reset a PIN</h4>
-            <p className="muted">Select a family member and set their 4-digit PIN.</p>
-            <select
-              value={selectedUserId}
-              data-testid="select-user-for-pin"
-              onChange={(event) => setSelectedUserId(event.target.value as UserId)}
-              disabled={userPinBusy}
-            >
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>{user.name}</option>
-              ))}
-            </select>
-            <input
-              className="pin-input"
-              value={newUserPin}
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="New 4-digit PIN"
-              data-testid="input-new-user-pin"
-              onChange={(event) => setNewUserPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
-              disabled={userPinBusy}
-            />
-            {userPinStatus ? <p className="status-banner is-success">{userPinStatus}</p> : null}
-            <button
-              className="btn btn-primary"
-              data-testid="btn-save-user-pin"
-              type="button"
-              disabled={newUserPin.length !== 4 || userPinBusy}
-              onClick={async () => {
-                setUserPinBusy(true);
-                await onSetUserPin(selectedUserId, newUserPin);
-                setUserPinStatus('PIN saved.');
-                setNewUserPin('');
-                setUserPinBusy(false);
-                window.setTimeout(() => setUserPinStatus(''), 2500);
-              }}
-            >
-              {userPinBusy ? 'Saving…' : 'Save PIN'}
-            </button>
           </div>
         </FoundationBlock>
       )}

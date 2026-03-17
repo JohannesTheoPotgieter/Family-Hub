@@ -3,6 +3,27 @@ import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage';
 
 export const DEFAULT_MONEY_CATEGORIES = ['Groceries', 'Utilities', 'Transport', 'School', 'Entertainment', 'Health', 'Other'];
 
+export type CashflowEntry = {
+  id: string;
+  title: string;
+  dateIso: string;
+  amountCents: number;
+  kind: 'inflow' | 'outflow';
+  category: string;
+  source: 'transaction' | 'bill';
+  status: 'recorded' | 'scheduled';
+  runningBalanceCents: number;
+};
+
+export type CashflowPlan = {
+  openingBalanceCents: number;
+  projectedClosingBalanceCents: number;
+  recordedIncomeCents: number;
+  recordedOutflowCents: number;
+  scheduledBillOutflowCents: number;
+  entries: CashflowEntry[];
+};
+
 export const formatCurrencyZAR = (amountCents: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 2 }).format((Number.isFinite(amountCents) ? amountCents : 0) / 100);
 
@@ -57,6 +78,69 @@ export const getBudgetStatus = (state: MoneyState, monthIsoYYYYMM: string) => {
     totalSpentCents: totalSpent,
     remainingCents: totalLimit - totalSpent,
     overBudgetCount: monthBudgets.filter((budget) => (spentByCategory[budget.category] ?? 0) > budget.limitCents).length
+  };
+};
+
+export const getOpeningBalanceCents = (state: MoneyState, monthIsoYYYYMM: string) => {
+  const monthStartIso = `${monthIsoYYYYMM}-01`;
+  return state.transactions.reduce((sum, tx) => {
+    if (tx.dateIso >= monthStartIso) return sum;
+    return sum + (tx.kind === 'inflow' ? tx.amountCents : -tx.amountCents);
+  }, 0);
+};
+
+export const getCashflowPlan = (state: MoneyState, monthIsoYYYYMM: string): CashflowPlan => {
+  const openingBalanceCents = getOpeningBalanceCents(state, monthIsoYYYYMM);
+  const monthTransactions = getMonthTransactions(state, monthIsoYYYYMM);
+  const monthBills = getMonthBills(state, monthIsoYYYYMM);
+
+  const transactionEntries = monthTransactions.map((tx) => ({
+    id: `tx-${tx.id}`,
+    title: tx.title,
+    dateIso: tx.dateIso,
+    amountCents: tx.kind === 'inflow' ? tx.amountCents : -tx.amountCents,
+    kind: tx.kind,
+    category: tx.category,
+    source: 'transaction' as const,
+    status: 'recorded' as const
+  }));
+
+  const billEntries = monthBills
+    .filter((bill) => !bill.linkedTransactionId)
+    .map((bill) => ({
+      id: `bill-${bill.id}`,
+      title: bill.title,
+      dateIso: bill.paidDateIso ?? bill.dueDateIso,
+      amountCents: -bill.amountCents,
+      kind: 'outflow' as const,
+      category: bill.category,
+      source: 'bill' as const,
+      status: bill.paid ? 'recorded' as const : 'scheduled' as const
+    }));
+
+  const sortedEntries = [...transactionEntries, ...billEntries].sort((a, b) => {
+    if (a.dateIso !== b.dateIso) return a.dateIso.localeCompare(b.dateIso);
+    if (a.status !== b.status) return a.status === 'recorded' ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  let runningBalanceCents = openingBalanceCents;
+  const entries = sortedEntries.map((entry) => {
+    runningBalanceCents += entry.amountCents;
+    return { ...entry, runningBalanceCents };
+  });
+
+  return {
+    openingBalanceCents,
+    projectedClosingBalanceCents: runningBalanceCents,
+    recordedIncomeCents: transactionEntries.filter((entry) => entry.kind === 'inflow').reduce((sum, entry) => sum + entry.amountCents, 0),
+    recordedOutflowCents: [...transactionEntries, ...billEntries.filter((entry) => entry.status === 'recorded')]
+      .filter((entry) => entry.kind === 'outflow')
+      .reduce((sum, entry) => sum + Math.abs(entry.amountCents), 0),
+    scheduledBillOutflowCents: billEntries
+      .filter((entry) => entry.status === 'scheduled')
+      .reduce((sum, entry) => sum + Math.abs(entry.amountCents), 0),
+    entries
   };
 };
 

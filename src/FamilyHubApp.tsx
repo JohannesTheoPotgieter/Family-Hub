@@ -15,6 +15,8 @@ import { ToastProvider } from './ui/useToasts';
 import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
 import type { AvatarActivityEvent } from './domain/avatarTypes';
 import { resetCalendarConnections } from './integrations/calendar';
+import type { NormalizedCalendar, NormalizedEvent, Provider } from './domain/calendar';
+import { toDedupeKey } from './domain/calendar';
 
 const tabIcons: Record<Tab, string> = {
   Home: '🏡',
@@ -42,6 +44,16 @@ const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
 const getInitialTab = (): Tab => {
   const raw = new URLSearchParams(window.location.search).get('tab');
   return raw && TABS.includes(raw as Tab) ? (raw as Tab) : 'Home';
+};
+
+const dedupeExternalEvents = (events: NormalizedEvent[]) => {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    const key = toDedupeKey(event);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 const AppInner = () => {
@@ -168,6 +180,37 @@ const AppInner = () => {
     setState(ensureChallenges(createInitialState()));
   };
 
+  const applyCalendarSync = (provider: Provider, calendars: NormalizedCalendar[], events: NormalizedEvent[]) => {
+    setState((current) => ({
+      ...current,
+      calendar: {
+        ...current.calendar,
+        calendars: [...current.calendar.calendars.filter((item) => item.provider !== provider), ...calendars],
+        externalEvents: dedupeExternalEvents([...current.calendar.externalEvents.filter((item) => item.provider !== provider), ...events]),
+        lastSyncedAtIsoByProvider: {
+          ...current.calendar.lastSyncedAtIsoByProvider,
+          [provider]: new Date().toISOString()
+        }
+      }
+    }));
+  };
+
+  const clearCalendarProviderData = (provider: Provider) => {
+    setState((current) => {
+      const nextLastSynced = { ...current.calendar.lastSyncedAtIsoByProvider };
+      delete nextLastSynced[provider];
+      return {
+        ...current,
+        calendar: {
+          ...current.calendar,
+          calendars: current.calendar.calendars.filter((item) => item.provider !== provider),
+          externalEvents: current.calendar.externalEvents.filter((item) => item.provider !== provider),
+          lastSyncedAtIsoByProvider: nextLastSynced
+        }
+      };
+    });
+  };
+
   if (state.setupUserId) {
     const user = state.users.find((item) => item.id === state.setupUserId);
     if (!user) return null;
@@ -226,15 +269,20 @@ const AppInner = () => {
           {activeTab === 'Home' && <HomeScreen state={state} onCareAction={onCareAction} onLock={lockApp} />}
           {activeTab === 'Calendar' && (
             <CalendarScreen
-              events={state.calendar.events}
+              internalEvents={state.calendar.events}
+              externalEvents={state.calendar.externalEvents}
+              calendars={state.calendar.calendars}
+              lastSyncedAtIsoByProvider={state.calendar.lastSyncedAtIsoByProvider}
               onAddEvent={(event) =>
                 setState((current) =>
                   rewardActivity(
-                    { ...current, calendar: { events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } },
+                    { ...current, calendar: { ...current.calendar, events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } },
                     { type: 'APP_CALENDAR_EVENT_ADDED', userId: current.activeUserId!, actionId: `event-${event.title}-${event.date}`, createdAtIso: new Date().toISOString() }
                   )
                 )
               }
+              onSyncProvider={applyCalendarSync}
+              onClearProviderData={clearCalendarProviderData}
             />
           )}
           {activeTab === 'Tasks' && (
@@ -316,6 +364,7 @@ const AppInner = () => {
               userPins={state.userPins}
               places={state.places}
               events={state.calendar.events}
+              externalEvents={state.calendar.externalEvents}
               tasks={state.tasks.items}
               onCareAction={onCareAction}
               onChangePin={async (currentPin, nextPin) => {
@@ -326,10 +375,6 @@ const AppInner = () => {
                 const encodedPin = await encodePin(activeUserId, nextPin);
                 setState((current) => ({ ...current, userPins: { ...current.userPins, [activeUserId]: encodedPin } }));
                 return true;
-              }}
-              onSetUserPin={async (userId, nextPin) => {
-                const encodedPin = await encodePin(userId, nextPin);
-                setState((current) => ({ ...current, userPins: { ...current.userPins, [userId]: encodedPin } }));
               }}
               onAddPlace={(place) => setState((current) => ({ ...current, places: [{ id: `place-${Date.now()}`, ...place }, ...current.places] }))}
               onUpdatePlace={(id, patch) => setState((current) => ({ ...current, places: current.places.map((place) => (place.id === id ? { ...place, ...patch } : place)) }))}

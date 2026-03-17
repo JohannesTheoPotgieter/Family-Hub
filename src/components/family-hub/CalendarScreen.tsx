@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CalendarEvent } from '../../lib/family-hub/storage';
 import { getCalendarMode, getCalendarProviderClients } from '../../integrations/calendar';
-import type { Provider, NormalizedEvent } from '../../domain/calendar';
+import type { Provider, NormalizedCalendar, NormalizedEvent } from '../../domain/calendar';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Chip } from '../../ui/Chip';
@@ -10,14 +10,19 @@ import { Confetti } from '../../ui/Confetti';
 import { useToasts } from '../../ui/useToasts';
 
 type CalendarScreenProps = {
-  events: CalendarEvent[];
+  internalEvents: CalendarEvent[];
+  externalEvents: NormalizedEvent[];
+  calendars: NormalizedCalendar[];
+  lastSyncedAtIsoByProvider: Partial<Record<Provider, string>>;
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
+  onSyncProvider: (provider: Provider, calendars: NormalizedCalendar[], events: NormalizedEvent[]) => void;
+  onClearProviderData: (provider: Provider) => void;
 };
 
 type Filter = 'all' | 'internal' | 'google' | 'microsoft' | 'ics';
 
 const formatDayKey = (date: Date) => date.toISOString().slice(0, 10);
-const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', opts).format(date);
+const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-ZA', opts).format(date);
 const startWeek = (date: Date) => {
   const next = new Date(date);
   const day = next.getDay();
@@ -40,7 +45,18 @@ const providerLabel: Record<Filter, string> = {
   ics: 'ICS'
 };
 
-export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
+const formatLastSynced = (value?: string) =>
+  value ? new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : 'Not synced yet';
+
+export const CalendarScreen = ({
+  internalEvents,
+  externalEvents,
+  calendars,
+  lastSyncedAtIsoByProvider,
+  onAddEvent,
+  onSyncProvider,
+  onClearProviderData
+}: CalendarScreenProps) => {
   const mode = getCalendarMode();
   const providers = useMemo(() => getCalendarProviderClients(), []);
   const [day, setDay] = useState(new Date());
@@ -48,7 +64,6 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(formatDayKey(new Date()));
   const [selectedFilter, setFilter] = useState<Filter>('all');
-  const [externalEvents, setExternalEvents] = useState<NormalizedEvent[]>([]);
   const [celebrate, setCelebrate] = useState(false);
   const [syncingProvider, setSyncingProvider] = useState<Provider | null>(null);
   const [lastSyncedProvider, setLastSyncedProvider] = useState<Provider | null>(null);
@@ -61,19 +76,32 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
   const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startWeek(day), i)), [day]);
 
   const merged = useMemo(() => {
-    const internal = events.map((event) => ({
+    const internal = internalEvents.map((event) => ({
       id: event.id,
       provider: 'internal' as const,
       title: event.title,
-      iso: `${event.date}T12:00:00.000Z`
+      iso: `${event.date}T12:00:00.000Z`,
+      allDay: false
     }));
-    const external = externalEvents.map((event) => ({ id: event.id, provider: event.provider, title: event.title, iso: event.start.iso }));
+    const external = externalEvents.map((event) => ({ id: event.id, provider: event.provider, title: event.title, iso: event.start.iso, allDay: event.start.allDay }));
     return [...internal, ...external];
-  }, [events, externalEvents]);
+  }, [internalEvents, externalEvents]);
 
   const availableFilters = useMemo(
     () => ['all', 'internal', ...providers.map((provider) => provider.provider)] as Filter[],
     [providers]
+  );
+
+  const providerSummaries = useMemo(
+    () =>
+      providers.map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        calendarCount: calendars.filter((calendar) => calendar.provider === provider.provider).length,
+        eventCount: externalEvents.filter((event) => event.provider === provider.provider).length,
+        lastSyncedAtIso: lastSyncedAtIsoByProvider[provider.provider]
+      })),
+    [calendars, externalEvents, lastSyncedAtIsoByProvider, providers]
   );
 
   const selectedDayEvents = merged
@@ -89,7 +117,7 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
       const calendars = await client.listCalendars();
       if (!calendars.length) {
         push(`No ${client.label} calendars found yet.`);
-        setExternalEvents((current) => current.filter((item) => item.provider !== providerId));
+        onSyncProvider(providerId, [], []);
         setLastSyncedProvider(providerId);
         return;
       }
@@ -97,10 +125,10 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
       const timeMinIso = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7).toISOString();
       const timeMaxIso = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate()).toISOString();
       const chunks = await Promise.all(
-        calendars.slice(0, 3).map((calendar) => client.listEvents({ calendarId: calendar.id, timeMinIso, timeMaxIso }))
+        calendars.map((calendar) => client.listEvents({ calendarId: calendar.id, timeMinIso, timeMaxIso }))
       );
       const loaded = chunks.flat();
-      setExternalEvents((current) => [...current.filter((item) => item.provider !== providerId), ...loaded]);
+      onSyncProvider(providerId, calendars, loaded);
       setLastSyncedProvider(providerId);
       push(`${client.label} synced.`);
       if (loaded.length) push(`Loaded ${loaded.length} events.`);
@@ -111,6 +139,30 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
     } finally {
       setSyncingProvider(null);
     }
+  };
+
+  const syncAllProviders = async () => {
+    const connectedProviders = providerSummaries.filter((provider) => provider.calendarCount > 0 || provider.eventCount > 0);
+    if (!connectedProviders.length) {
+      push('Connect a calendar first.');
+      return;
+    }
+    for (const provider of connectedProviders) {
+      await syncProvider(provider.provider);
+    }
+  };
+
+  const clearProvider = async (providerId: Provider) => {
+    const client = providers.find((item) => item.provider === providerId);
+    if (!client) return;
+    try {
+      await client.disconnect();
+    } catch {
+      // Keep UX forgiving; we still clear local state below.
+    }
+    onClearProviderData(providerId);
+    if (lastSyncedProvider === providerId) setLastSyncedProvider(null);
+    push(`${client.label} connection data cleared from Family Hub.`);
   };
 
   const connectProvider = async (providerId: Provider) => {
@@ -191,10 +243,29 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
               Connect {provider.label}
             </Chip>
           ))}
+          <Chip onClick={() => void syncAllProviders()}>
+            Sync all
+          </Chip>
           <Chip onClick={() => void (lastSyncedProvider ? syncProvider(lastSyncedProvider) : push('Connect a calendar first.'))}>
             {syncingProvider ? 'Syncing…' : 'Refresh'}
           </Chip>
         </div>
+      </Card>
+
+      <Card className="stack-sm">
+        <h3>Connected sources</h3>
+        {providerSummaries.some((item) => item.calendarCount > 0 || item.eventCount > 0) ? providerSummaries.map((summary) => (
+          <article key={summary.provider} className="event-card">
+            <p>{summary.label}</p>
+            <small>
+              {summary.calendarCount} calendar{summary.calendarCount === 1 ? '' : 's'} · {summary.eventCount} event{summary.eventCount === 1 ? '' : 's'} · {formatLastSynced(summary.lastSyncedAtIso)}
+            </small>
+            <div className="chip-list">
+              <Chip onClick={() => void syncProvider(summary.provider)}>Sync {summary.label}</Chip>
+              {(summary.calendarCount > 0 || summary.eventCount > 0) ? <Chip onClick={() => void clearProvider(summary.provider)}>Clear</Chip> : null}
+            </div>
+          </article>
+        )) : <p className="muted">Connect Google, Outlook, or an ICS feed and the events will stay visible across Home, Calendar, and alerts.</p>}
       </Card>
 
       <Card className="week-strip">
@@ -224,7 +295,7 @@ export const CalendarScreen = ({ events, onAddEvent }: CalendarScreenProps) => {
         {selectedDayEvents.length ? selectedDayEvents.map((event) => (
           <article key={`${event.provider}-${event.id}`} className={`event-card provider-${event.provider}`}>
             <p>{event.title}</p>
-            <small>{fmt(new Date(event.iso), { hour: 'numeric', minute: '2-digit' })} · {providerLabel[event.provider as Filter] ?? 'Internal'}</small>
+            <small>{event.allDay ? 'All day' : fmt(new Date(event.iso), { hour: 'numeric', minute: '2-digit' })} · {providerLabel[event.provider as Filter] ?? 'Internal'}</small>
           </article>
         )) : (
           <div className="stack-sm">

@@ -19,9 +19,10 @@ type DraftTask = {
   dueDate: string;
   shared: boolean;
   notes: string;
+  ownerId: UserId;
 };
 
-const emptyDraft: DraftTask = { title: '', dueDate: '', shared: false, notes: '' };
+const createEmptyDraft = (ownerId: UserId): DraftTask => ({ title: '', dueDate: '', shared: false, notes: '', ownerId });
 
 const startOfDay = (date: Date) => {
   const d = new Date(date);
@@ -65,7 +66,7 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
   const [filter, setFilter] = useState<FilterKey>('all');
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<DraftTask>(emptyDraft);
+  const [draft, setDraft] = useState<DraftTask>(() => createEmptyDraft(activeUserId));
 
   const groups = useMemo(() => [
     { key: 'today' as const, label: 'Today', hint: 'Do these first' },
@@ -89,13 +90,13 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
 
   const openAdd = () => {
     setEditingTaskId(null);
-    setDraft(emptyDraft);
+    setDraft(createEmptyDraft(activeUserId));
     setComposerOpen(true);
   };
 
   const openEdit = (task: TaskItem) => {
     setEditingTaskId(task.id);
-    setDraft({ title: task.title, dueDate: task.dueDate ?? '', shared: task.shared, notes: task.notes });
+    setDraft({ title: task.title, dueDate: task.dueDate ?? '', shared: task.shared, notes: task.notes, ownerId: task.ownerId });
     setComposerOpen(true);
   };
 
@@ -106,7 +107,7 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
       dueDate: draft.dueDate || null,
       shared: draft.shared,
       notes: draft.notes.trim(),
-      ownerId: activeUserId
+      ownerId: draft.ownerId
     };
     if (editingTaskId) {
       onUpdateTask(editingTaskId, payload);
@@ -115,7 +116,7 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
     }
     setComposerOpen(false);
     setEditingTaskId(null);
-    setDraft(emptyDraft);
+    setDraft(createEmptyDraft(activeUserId));
   };
 
   return (
