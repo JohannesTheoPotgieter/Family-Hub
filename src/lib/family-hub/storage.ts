@@ -1,9 +1,9 @@
-import { USERS, type UserId } from './constants';
-import { getTodayIso } from './date';
-import type { AvatarGameState, AvatarCompanion } from '../../domain/avatarTypes';
-import { applyStatDecay } from '../../domain/avatarRewards';
-import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar';
-import type { PinStore } from './pin';
+import { USERS, type UserId } from './constants.ts';
+import { getTodayIso } from './date.ts';
+import type { AvatarGameState, AvatarCompanion } from '../../domain/avatarTypes.ts';
+import { applyStatDecay } from '../../domain/avatarRewards.ts';
+import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar.ts';
+import type { PinStore } from './pin.ts';
 
 export type CalendarEvent = {
   id: string;

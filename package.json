@@ -9,7 +9,7 @@
     "dev:server": "node server/index.mjs",
     "dev:all": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "build": "tsc -b && vite build",
-    "test": "node --test src/test/*.test.mjs",
+    "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test src/test/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

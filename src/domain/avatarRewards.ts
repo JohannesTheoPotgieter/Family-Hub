@@ -7,7 +7,7 @@ import type {
   FamilyChallenge,
   FamilyChallengeProgress,
   FamilyRewardTrack
-} from './avatarTypes';
+} from './avatarTypes.ts';
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const XP_PER_LEVEL = 100;

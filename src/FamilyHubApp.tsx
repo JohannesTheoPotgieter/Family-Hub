@@ -10,6 +10,7 @@ import { TABS, type Tab, type UserId } from './lib/family-hub/constants';
 import { markBillPaidWithOptionalTransaction } from './lib/family-hub/money';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
 import { clearSetupArtifactsForUser, clearState, createInitialState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
+import { getTabsForUser, hasPermission } from './lib/family-hub/permissions';
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
 import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
@@ -66,6 +67,13 @@ const AppInner = () => {
     () => state.users.find((user) => user.id === state.activeUserId) ?? null,
     [state.users, state.activeUserId]
   );
+  const visibleTabs = useMemo(() => getTabsForUser(activeUser), [activeUser]);
+
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab(visibleTabs[0] ?? 'Home');
+    }
+  }, [activeTab, visibleTabs]);
 
   const rewardActivity = (current: FamilyHubState, event: AvatarActivityEvent) => {
     const currentCompanion = current.avatarGame.companionsByUserId[event.userId];
@@ -359,6 +367,9 @@ const AppInner = () => {
               users={state.users}
               activeUser={activeUser}
               activeUserId={state.activeUserId}
+              canManageSensitiveData={hasPermission(activeUser, 'data_export')}
+              canResetApp={hasPermission(activeUser, 'data_reset')}
+              canRestartSetup={hasPermission(activeUser, 'setup_restart')}
               avatarGame={state.avatarGame}
               setupCompleted={state.setupCompleted}
               userPins={state.userPins}
@@ -387,7 +398,7 @@ const AppInner = () => {
         </section>
 
         <nav className="bottom-nav glass-card" aria-label="Primary">
-          {TABS.map((tab) => (
+          {TABS.filter((tab) => visibleTabs.includes(tab)).map((tab) => (
             <button
               key={tab}
               type="button"
