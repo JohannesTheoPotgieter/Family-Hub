@@ -1,4 +1,4 @@
-import type { UserId } from '../lib/family-hub/constants';
+import type { UserId } from '../lib/family-hub/constants.ts';
 
 export type AvatarMoodState = 'happy' | 'sleepy' | 'playful' | 'proud' | 'hungry' | 'sad' | 'curious' | 'calm' | 'sparkly';
 export type AvatarGrowthStage = 'baby' | 'child' | 'teen' | 'grown';

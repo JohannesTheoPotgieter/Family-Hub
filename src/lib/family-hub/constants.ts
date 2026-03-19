@@ -4,13 +4,14 @@ export type User = {
   id: UserId;
   name: string;
   active: boolean;
+  role: 'parent' | 'adult' | 'child';
 };
 
 export const USERS: User[] = [
-  { id: 'johannes', name: 'Johannes', active: true },
-  { id: 'nicole', name: 'Nicole', active: true },
-  { id: 'ella', name: 'Ella', active: false },
-  { id: 'oliver', name: 'Oliver', active: false }
+  { id: 'johannes', name: 'Johannes', active: true, role: 'parent' },
+  { id: 'nicole', name: 'Nicole', active: true, role: 'adult' },
+  { id: 'ella', name: 'Ella', active: true, role: 'child' },
+  { id: 'oliver', name: 'Oliver', active: true, role: 'child' }
 ];
 
 export const TABS = ['Home', 'Calendar', 'Tasks', 'Money', 'More'] as const;

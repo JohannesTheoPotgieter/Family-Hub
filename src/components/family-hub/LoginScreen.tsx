@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
+import { getRoleLabel } from '../../lib/family-hub/permissions';
 
 type Props = {
   users: User[];
@@ -21,7 +22,6 @@ const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] a
 
 export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup, onRestartSetup }: Props) => {
   const activeUsers = users.filter((user) => user.active);
-  const inactiveUsers = users.filter((user) => !user.active);
   const [selectedUser, setSelectedUser] = useState<UserId>(activeUsers[0]?.id ?? 'johannes');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -95,19 +95,17 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
           ))}
         </div>
 
-        {inactiveUsers.length > 0 && (
-          <div className="future-profiles">
-            <p className="future-label">Coming soon</p>
-            <div className="future-grid">
-              {inactiveUsers.map((user) => (
-                <div key={user.id} className="future-chip">
-                  <span>👤</span>
-                  <span>{user.name}</span>
-                </div>
-              ))}
-            </div>
+        <div className="future-profiles">
+          <p className="future-label">Household access</p>
+          <div className="future-grid">
+            {activeUsers.map((user) => (
+              <div key={user.id} className="future-chip">
+                <span>👤</span>
+                <span>{user.name} · {getRoleLabel(user)}</span>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
 
         {needsSetup ? (
           <button

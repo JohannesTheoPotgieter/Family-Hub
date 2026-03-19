@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { UserId } from '../../lib/family-hub/constants';
 import type { FamilyHubState } from '../../lib/family-hub/storage';
 import { getTodayIso } from '../../lib/family-hub/date';
+import { buildHomeInsights } from '../../lib/family-hub/homeInsights';
 
 type CareAction = 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story';
 
@@ -104,6 +105,7 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
   const activeUser = state.users.find((user) => user.id === state.activeUserId) ?? null;
   const activeCompanion = state.activeUserId ? state.avatarGame.companionsByUserId[state.activeUserId] : null;
   const familyTrack = state.avatarGame.familyRewardTrack;
+  const insights = buildHomeInsights(state, activeUser);
 
   return (
     <section className="home-screen stack-lg">
@@ -136,6 +138,20 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
           <p className="metric-label">Overdue</p>
           <p className="metric-value">{overdueCount}</p>
         </article>
+      </section>
+
+      <section className="glass-panel stack-sm" aria-label="Daily plan insights">
+        <div className="section-head">
+          <h3>Three ways to keep today smooth</h3>
+        </div>
+        <div className="foundation-grid">
+          {insights.map((insight) => (
+            <article key={insight.title} className={`metric-card metric-card--${insight.tone}`}>
+              <p className="metric-label">{insight.title}</p>
+              <p className="muted">{insight.detail}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       {upcomingEvents.length > 0 && (
