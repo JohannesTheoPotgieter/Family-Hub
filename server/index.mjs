@@ -115,7 +115,7 @@ const redirect = (res, location) => {
 };
 
 const normalizeDateTime = (value) => new Date(value).toISOString();
-const isPrivateIpAddress = (address) => {
+export const isPrivateIpAddress = (address) => {
   if (!address) return true;
   if (address === '::1' || address === '0:0:0:0:0:0:0:1') return true;
   if (address.startsWith('fe80:') || address.startsWith('fc') || address.startsWith('fd')) return true;
@@ -126,7 +126,7 @@ const isPrivateIpAddress = (address) => {
   return false;
 };
 
-const sanitizeReturnTo = (provider, requestedReturnTo) => {
+export const sanitizeReturnTo = (provider, requestedReturnTo) => {
   const fallback = defaultReturnTo[provider];
   try {
     const allowedOrigin = new URL(clientOrigin).origin;
@@ -137,7 +137,7 @@ const sanitizeReturnTo = (provider, requestedReturnTo) => {
   }
 };
 
-const validateIcsSubscriptionUrl = async (rawUrl) => {
+export const validateIcsSubscriptionUrl = async (rawUrl) => {
   let parsed;
   try {
     parsed = new URL(rawUrl);
@@ -484,7 +484,7 @@ const fetchIcsEvents = async (subscription) => {
   return events;
 };
 
-createServer(async (req, res) => {
+export const server = createServer(async (req, res) => {
   try {
     if (!req.url) throw createHttpError(400, 'Missing request URL.');
     if (req.method === 'OPTIONS') {
@@ -619,6 +619,10 @@ createServer(async (req, res) => {
   } catch (error) {
     sendError(res, error);
   }
-}).listen(port, () => {
-  console.log(`Family Hub server listening on ${port}`);
 });
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  server.listen(port, () => {
+    console.log(`Family Hub server listening on ${port}`);
+  });
+}

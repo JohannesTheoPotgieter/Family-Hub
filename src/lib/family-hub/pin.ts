@@ -1,4 +1,4 @@
-import type { UserId } from './constants';
+import type { UserId } from './constants.ts';
 
 export type PinStore = Partial<Record<UserId, string>>;
 

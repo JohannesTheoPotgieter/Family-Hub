@@ -231,6 +231,18 @@ h4 { font-size: 0.92rem; color: #1b335f; }
   box-shadow: inset 0 0 0 1px rgba(56,95,180,0.14);
 }
 
+.metric-card--calm {
+  border: 1px solid rgba(90, 139, 224, 0.2);
+}
+
+.metric-card--warn {
+  border: 1px solid rgba(224, 164, 90, 0.34);
+}
+
+.metric-card--celebrate {
+  border: 1px solid rgba(87, 179, 126, 0.28);
+}
+
 /* ─────────────────────────────────────────
    Login screen
 ───────────────────────────────────────── */

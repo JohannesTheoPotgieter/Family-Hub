@@ -6,6 +6,7 @@ import type { AvatarGameState } from '../../domain/avatarTypes';
 import type { NormalizedEvent } from '../../domain/calendar';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { AvatarHomeSection } from './AvatarHomeSection';
+import { getRoleLabel } from '../../lib/family-hub/permissions';
 
 type CareAction = 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story';
 type MoreSection = 'avatars' | 'places' | 'users' | 'settings' | 'reminders';
@@ -14,6 +15,9 @@ type Props = {
   users: User[];
   activeUser: User | null;
   activeUserId: UserId | null;
+  canManageSensitiveData: boolean;
+  canResetApp: boolean;
+  canRestartSetup: boolean;
   avatarGame: AvatarGameState;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
@@ -62,6 +66,9 @@ export const MoreScreen = ({
   users,
   activeUser,
   activeUserId,
+  canManageSensitiveData,
+  canResetApp,
+  canRestartSetup,
   avatarGame,
   setupCompleted,
   userPins,
@@ -153,7 +160,7 @@ export const MoreScreen = ({
 
   return (
     <section className="stack-lg">
-      <ScreenIntro badge="More" title="Family tools" subtitle="Manage companions, places, people, alerts and settings." />
+      <ScreenIntro badge="More" title="Family tools" subtitle="Manage companions, places, people, alerts and settings with safer role-based access." />
 
       <div className="more-tab-row">
         {SECTION_TABS.map(({ key, icon, label }) => (
@@ -314,7 +321,7 @@ export const MoreScreen = ({
                       <h4>{user.name}</h4>
                     </div>
                     <span className={`status-dot ${user.active ? 'is-active' : 'is-inactive'}`}>
-                      {user.active ? 'Active' : 'Future'}
+                      {getRoleLabel(user)}
                     </span>
                   </div>
                   <div className="chip-list">
@@ -322,7 +329,9 @@ export const MoreScreen = ({
                     <span className="route-pill">{userPins[user.id] ? '🔐 PIN set' : '⚠️ No PIN'}</span>
                     <span className="route-pill">Lv {companion.level}</span>
                   </div>
-                  {!user.active ? <p className="future-activation-note">This profile will be available when activated.</p> : null}
+                  <p className="future-activation-note">
+                    {user.role === 'child' ? 'Kid mode keeps Money hidden and sensitive settings limited.' : 'Can help manage shared home routines.'}
+                  </p>
                 </article>
               );
             })}
@@ -331,8 +340,11 @@ export const MoreScreen = ({
       )}
 
       {section === 'settings' && (
-        <FoundationBlock title="⚙️ Settings" description="Data management and PIN security.">
+        <FoundationBlock title="⚙️ Settings" description="Data management and PIN security with clearer family safety guardrails.">
           <div className="stack-sm">
+            <p className="route-pill">
+              Signed in permissions: {activeUser ? getRoleLabel(activeUser) : 'Guest'} · {canManageSensitiveData ? 'Sensitive tools enabled' : 'Sensitive tools limited'}
+            </p>
             <h4>Change your PIN</h4>
             <input
               className="pin-input"
@@ -401,36 +413,40 @@ export const MoreScreen = ({
               Lock Family Hub
             </button>
 
-            {activeUserId ? (
+            {activeUserId && canRestartSetup ? (
               <button className="btn btn-ghost" type="button" onClick={() => onRestartSetup(activeUserId)}>
                 Redo startup setup
               </button>
-            ) : null}
+            ) : activeUserId ? <p className="muted">Only adult household members can restart setup.</p> : null}
 
             <div className="settings-divider" />
 
             <h4>Data</h4>
-            <button
-              className="btn btn-ghost"
-              type="button"
-              onClick={async () => {
-                const serialized = onExportData();
-                try {
-                  await navigator.clipboard.writeText(serialized);
-                  setSettingsStatus('Data copied to clipboard.');
-                } catch {
-                  setSettingsStatus('Copy failed. Use browser devtools to access localStorage.');
-                }
-              }}
-            >
-              Export local data
-            </button>
+            {canManageSensitiveData ? (
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={async () => {
+                  const serialized = onExportData();
+                  try {
+                    await navigator.clipboard.writeText(serialized);
+                    setSettingsStatus('Private household data copied to clipboard.');
+                  } catch {
+                    setSettingsStatus('Copy failed. Use browser devtools to access localStorage.');
+                  }
+                }}
+              >
+                Export local data
+              </button>
+            ) : (
+              <p className="muted">Exports are limited to adult household members.</p>
+            )}
 
-            {!confirmReset ? (
+            {!confirmReset && canResetApp ? (
               <button className="btn btn-ghost btn-danger-ghost" type="button" onClick={() => setConfirmReset(true)}>
                 Reset all app data
               </button>
-            ) : (
+            ) : canResetApp ? (
               <div className="stack-sm">
                 <p className="error-banner">This will erase all your data. Are you sure?</p>
                 <div className="task-composer-actions">
@@ -448,6 +464,8 @@ export const MoreScreen = ({
                   </button>
                 </div>
               </div>
+            ) : (
+              <p className="muted">Full reset is reserved for the household parent profile.</p>
             )}
 
             {settingsStatus ? <p className="status-banner is-success">{settingsStatus}</p> : null}

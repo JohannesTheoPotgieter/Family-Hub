@@ -1,5 +1,5 @@
-import { getTodayIso } from './date';
-import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage';
+import { getTodayIso } from './date.ts';
+import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage.ts';
 
 export const DEFAULT_MONEY_CATEGORIES = ['Groceries', 'Utilities', 'Transport', 'School', 'Entertainment', 'Health', 'Other'];
 
