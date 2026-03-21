@@ -1,7 +1,7 @@
-import type { FamilyHubState } from './storage.ts';
-import type { User } from './constants.ts';
-import { hasPermission } from './permissions.ts';
-import { getTodayIso } from './date.ts';
+import type { FamilyHubState } from './storage';
+import type { User } from './constants';
+import { hasPermission } from './permissions';
+import { getTodayIso } from './date';
 
 export type HomeInsight = {
   title: string;
@@ -17,14 +17,9 @@ export const buildHomeInsights = (state: FamilyHubState, activeUser: User | null
   const upcomingEvents = [...state.calendar.events, ...state.calendar.externalEvents].length;
 
   const insights: HomeInsight[] = [];
-  const modeIntro = state.settings.familyMode === 'gentle'
-    ? 'Gentle day'
-    : state.settings.familyMode === 'focused'
-      ? 'Focused day'
-      : 'Balanced day';
 
   insights.push({
-    title: childOwnedTasks.length > 0 ? 'Your next step' : modeIntro,
+    title: childOwnedTasks.length > 0 ? 'Your next step' : 'Steady home rhythm',
     detail: childOwnedTasks.length > 0 ? `${childOwnedTasks.length} task${childOwnedTasks.length === 1 ? '' : 's'} are waiting for you.` : 'You are caught up on your personal task list.',
     tone: childOwnedTasks.length > 0 ? 'warn' : 'celebrate'
   });

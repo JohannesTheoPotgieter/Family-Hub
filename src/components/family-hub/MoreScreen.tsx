@@ -18,7 +18,6 @@ type Props = {
   canManageSensitiveData: boolean;
   canResetApp: boolean;
   canRestartSetup: boolean;
-  settings: AppSettings;
   avatarGame: AvatarGameState;
   setupCompleted: Record<UserId, boolean>;
   userPins: PinStore;
@@ -71,7 +70,6 @@ export const MoreScreen = ({
   canManageSensitiveData,
   canResetApp,
   canRestartSetup,
-  settings,
   avatarGame,
   setupCompleted,
   userPins,
@@ -349,44 +347,6 @@ export const MoreScreen = ({
             <p className="route-pill">
               Signed in permissions: {activeUser ? getRoleLabel(activeUser) : 'Guest'} · {canManageSensitiveData ? 'Sensitive tools enabled' : 'Sensitive tools limited'}
             </p>
-            {canManageSensitiveData ? (
-              <>
-                <h4>Household safety mode</h4>
-                <p className="muted">Tune the app for your family&apos;s energy and privacy needs.</p>
-                <div className="chip-list">
-                  {(['gentle', 'balanced', 'focused'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      className={`chip ${settings.familyMode === mode ? 'is-active' : ''}`}
-                      type="button"
-                      onClick={() => onUpdateSettings({ familyMode: mode })}
-                    >
-                      {mode === 'gentle' ? 'Gentle' : mode === 'balanced' ? 'Balanced' : 'Focused'}
-                    </button>
-                  ))}
-                </div>
-                <label className="task-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.hideMoneyForKids}
-                    onChange={(event) => onUpdateSettings({ hideMoneyForKids: event.target.checked })}
-                  />
-                  <span>Hide the Money tab for kid profiles</span>
-                </label>
-                <label className="task-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.requireParentForReset}
-                    onChange={(event) => onUpdateSettings({ requireParentForReset: event.target.checked })}
-                  />
-                  <span>Require the parent profile for full reset</span>
-                </label>
-              </>
-            ) : (
-              <p className="muted">Household safety controls can be changed by adult members only.</p>
-            )}
-
-            <div className="settings-divider" />
             <h4>Change your PIN</h4>
             <input
               className="pin-input"

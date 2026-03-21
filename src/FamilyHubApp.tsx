@@ -67,7 +67,7 @@ const AppInner = () => {
     () => state.users.find((user) => user.id === state.activeUserId) ?? null,
     [state.users, state.activeUserId]
   );
-  const visibleTabs = useMemo(() => getTabsForUser(activeUser, state.settings), [activeUser, state.settings]);
+  const visibleTabs = useMemo(() => getTabsForUser(activeUser), [activeUser]);
 
   useEffect(() => {
     if (!visibleTabs.includes(activeTab)) {
@@ -367,10 +367,9 @@ const AppInner = () => {
               users={state.users}
               activeUser={activeUser}
               activeUserId={state.activeUserId}
-              canManageSensitiveData={hasPermission(activeUser, 'data_export', state.settings)}
-              canResetApp={hasPermission(activeUser, 'data_reset', state.settings)}
-              canRestartSetup={hasPermission(activeUser, 'setup_restart', state.settings)}
-              settings={state.settings}
+              canManageSensitiveData={hasPermission(activeUser, 'data_export')}
+              canResetApp={hasPermission(activeUser, 'data_reset')}
+              canRestartSetup={hasPermission(activeUser, 'setup_restart')}
               avatarGame={state.avatarGame}
               setupCompleted={state.setupCompleted}
               userPins={state.userPins}
