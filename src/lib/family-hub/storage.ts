@@ -129,6 +129,9 @@ export type ReminderItem = {
 
 export type AppSettings = {
   pinHintsEnabled: boolean;
+  familyMode: 'gentle' | 'balanced' | 'focused';
+  hideMoneyForKids: boolean;
+  requireParentForReset: boolean;
 };
 
 export type UserSetup = {
@@ -542,7 +545,7 @@ export const createInitialState = (): FamilyHubState => ({
   avatarGame: createInitialAvatarGame(),
   places: [],
   reminders: { items: [] },
-  settings: { pinHintsEnabled: false },
+  settings: { pinHintsEnabled: false, familyMode: 'balanced', hideMoneyForKids: true, requireParentForReset: true },
   calendar: { events: [], externalEvents: [], calendars: [], lastSyncedAtIsoByProvider: {} },
   tasks: { items: [] },
   money: {
@@ -600,7 +603,10 @@ export const loadState = (): FamilyHubState => {
         )
       },
       settings: {
-        pinHintsEnabled: Boolean(parsed.settings?.pinHintsEnabled)
+        pinHintsEnabled: Boolean(parsed.settings?.pinHintsEnabled),
+        familyMode: parsed.settings?.familyMode === 'gentle' || parsed.settings?.familyMode === 'focused' ? parsed.settings.familyMode : 'balanced',
+        hideMoneyForKids: parsed.settings?.hideMoneyForKids !== false,
+        requireParentForReset: parsed.settings?.requireParentForReset !== false
       },
       calendar: sanitizeCalendarState(parsed.calendar),
       tasks: {

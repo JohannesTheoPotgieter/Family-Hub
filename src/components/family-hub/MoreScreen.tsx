@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { User, UserId } from '../../lib/family-hub/constants';
-import type { CalendarEvent, PlaceItem, TaskItem } from '../../lib/family-hub/storage';
+import type { AppSettings, CalendarEvent, PlaceItem, TaskItem } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
 import type { AvatarGameState } from '../../domain/avatarTypes';
 import type { NormalizedEvent } from '../../domain/calendar';
@@ -31,6 +31,7 @@ type Props = {
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
   onResetData: () => void;
+  onUpdateSettings: (update: Partial<AppSettings>) => void;
   onLock: () => void;
   onRestartSetup: (userId: UserId) => void;
 };
@@ -82,6 +83,7 @@ export const MoreScreen = ({
   onUpdatePlace,
   onExportData,
   onResetData,
+  onUpdateSettings,
   onLock,
   onRestartSetup
 }: Props) => {

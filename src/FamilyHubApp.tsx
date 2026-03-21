@@ -391,6 +391,7 @@ const AppInner = () => {
               onUpdatePlace={(id, patch) => setState((current) => ({ ...current, places: current.places.map((place) => (place.id === id ? { ...place, ...patch } : place)) }))}
               onExportData={() => JSON.stringify({ ...state, activeUserId: null, setupUserId: null }, null, 2)}
               onResetData={resetAppData}
+              onUpdateSettings={(update) => setState((current) => ({ ...current, settings: { ...current.settings, ...update } }))}
               onLock={lockApp}
               onRestartSetup={restartSetup}
             />
