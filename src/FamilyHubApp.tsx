@@ -9,9 +9,18 @@ import { useFamilyHubController } from './lib/family-hub/useFamilyHubController'
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
 
+const tabTitles: Record<string, { label: string; subtitle: string }> = {
+  Home: { label: 'Home', subtitle: 'Your family command center for today.' },
+  Calendar: { label: 'Calendar', subtitle: 'Plans, appointments, and shared schedules.' },
+  Tasks: { label: 'Tasks', subtitle: 'Simple chores and to-dos for the household.' },
+  Money: { label: 'Money', subtitle: 'Bills, budget, and day-to-day spending clarity.' },
+  More: { label: 'Family', subtitle: 'People, settings, places, and family tools.' }
+};
+
 const AppInner = () => {
   const controller = useFamilyHubController();
   const { state, activeTab, activeUser, visibleTabs, tabIcons, tabs, permissionBundle } = controller;
+  const activeTabMeta = tabTitles[activeTab] ?? { label: activeTab, subtitle: '' };
 
   if (state.setupUserId) {
     const user = state.users.find((item) => item.id === state.setupUserId);
@@ -40,11 +49,12 @@ const AppInner = () => {
         <header className="app-topbar glass-card">
           <div>
             <p className="eyebrow">Family Hub</p>
-            <h1>{activeTab}</h1>
-            <p className="muted">{activeUser?.name} · {permissionBundle.roleKey?.replace('_', ' ')}</p>
+            <h1>{activeTabMeta.label}</h1>
+            <p className="muted">{activeTabMeta.subtitle}</p>
+            <p className="topbar-meta">{activeUser?.name} · {permissionBundle.roleKey?.replace('_', ' ')}</p>
           </div>
           <div className="app-topbar-actions">
-            {activeTab !== 'More' ? <button type="button" className="btn btn-ghost" onClick={() => controller.setActiveTab('More')}>Quick tools</button> : null}
+            {activeTab !== 'More' ? <button type="button" className="btn btn-ghost" onClick={() => controller.setActiveTab('More')}>Family tools</button> : null}
             <button type="button" className="btn btn-ghost" onClick={controller.lockApp}>Lock</button>
           </div>
         </header>
@@ -135,7 +145,7 @@ const AppInner = () => {
               aria-current={activeTab === tab ? 'page' : undefined}
             >
               <span className="nav-item-icon">{tabIcons[tab]}</span>
-              <span>{tab}</span>
+              <span>{tabTitles[tab]?.label ?? tab}</span>
             </button>
           ))}
         </nav>

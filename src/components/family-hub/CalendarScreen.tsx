@@ -116,6 +116,12 @@ export const CalendarScreen = ({
     .filter((event) => selectedFilter === 'all' || event.provider === selectedFilter)
     .sort((a, b) => a.iso.localeCompare(b.iso));
 
+  const agendaSummary = useMemo(() => ({
+    total: merged.length,
+    today: merged.filter((event) => formatDayKey(new Date(event.iso)) === formatDayKey(new Date())).length,
+    connectedSources: providerSummaries.filter((item) => item.calendarCount > 0 || item.eventCount > 0).length
+  }), [merged, providerSummaries]);
+
   const syncProvider = async (providerId: Provider) => {
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
@@ -265,16 +271,35 @@ export const CalendarScreen = ({
     <section className="stack-lg">
       <Confetti active={celebrate} />
       <Card className="stack-sm calendar-hero">
-        <p className="eyebrow">Family Planner</p>
-        <h2>Pick a day, plan together, and keep every calendar in one place.</h2>
+        <div className="calendar-hero-top">
+          <div>
+            <p className="eyebrow">Family Planner</p>
+            <h2>One clear calendar for school runs, appointments, and family time.</h2>
+          </div>
+          <span className="route-pill">{agendaSummary.connectedSources} connected source{agendaSummary.connectedSources === 1 ? '' : 's'}</span>
+        </div>
         <p className="muted">
           {mode === 'server'
             ? 'Server mode lets you connect live calendar providers and ICS subscriptions.'
-: 'Local mode opens secure sign-in when available, and only falls back to a temporary browser-only token if needed.'}
+            : 'Local mode opens secure sign-in when available, and only falls back to a temporary browser-only token if needed.'}
         </p>
+        <div className="calendar-summary-grid">
+          <article className="calendar-summary-card">
+            <span className="metric-label">Events today</span>
+            <strong>{agendaSummary.today}</strong>
+          </article>
+          <article className="calendar-summary-card">
+            <span className="metric-label">Upcoming loaded</span>
+            <strong>{agendaSummary.total}</strong>
+          </article>
+          <article className="calendar-summary-card">
+            <span className="metric-label">Selected day</span>
+            <strong>{selectedDayEvents.length}</strong>
+          </article>
+        </div>
         {statusError ? <div className="error-banner">{statusError}</div> : null}
         {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
-        <div className="chip-list">
+        <div className="chip-list calendar-action-row">
           {providers.map((provider) => (
             <Chip key={provider.provider} onClick={() => void connectProvider(provider.provider)} aria-label={`Connect ${provider.label}`}>
               Connect {provider.label}
@@ -290,16 +315,22 @@ export const CalendarScreen = ({
       </Card>
 
       <Card className="stack-sm">
-        <h3>Connected sources</h3>
+        <div className="section-head section-head--tight">
+          <div>
+            <p className="eyebrow">Connections</p>
+            <h3>Connected sources</h3>
+          </div>
+          <span className="section-tip">Live and manual calendars</span>
+        </div>
         {providerSummaries.some((item) => item.calendarCount > 0 || item.eventCount > 0) ? providerSummaries.map((summary) => (
-          <article key={summary.provider} className="event-card">
-            <p>{summary.label}</p>
-            <small>
-              {summary.calendarCount} calendar{summary.calendarCount === 1 ? '' : 's'} · {summary.eventCount} event{summary.eventCount === 1 ? '' : 's'} · {formatLastSynced(summary.lastSyncedAtIso)}
-            </small>
-            {statusError ? <div className="error-banner">{statusError}</div> : null}
-        {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
-        <div className="chip-list">
+          <article key={summary.provider} className="event-card calendar-source-card">
+            <div>
+              <p>{summary.label}</p>
+              <small>
+                {summary.calendarCount} calendar{summary.calendarCount === 1 ? '' : 's'} · {summary.eventCount} event{summary.eventCount === 1 ? '' : 's'} · {formatLastSynced(summary.lastSyncedAtIso)}
+              </small>
+            </div>
+            <div className="chip-list">
               <Chip onClick={() => void syncProvider(summary.provider)}>Sync {summary.label}</Chip>
               {(summary.calendarCount > 0 || summary.eventCount > 0) ? <Chip onClick={() => void clearProvider(summary.provider)}>Clear</Chip> : null}
             </div>
@@ -307,7 +338,7 @@ export const CalendarScreen = ({
         )) : <p className="muted">Connect Google, Outlook, or an ICS feed and the events will stay visible across Home, Calendar, and alerts.</p>}
       </Card>
 
-      <Card className="week-strip">
+      <Card className="week-strip stack-sm"><div className="section-head section-head--tight"><div><p className="eyebrow">This week</p><h3>Pick a day</h3></div><span className="section-tip">Tap to focus</span></div>
         {week.map((weekDay) => {
           const key = formatDayKey(weekDay);
           const hasEvents = merged.some((item) => formatDayKey(new Date(item.iso)) === key);
@@ -321,7 +352,7 @@ export const CalendarScreen = ({
         })}
       </Card>
 
-      <div className="chip-list">
+      <div className="chip-list calendar-filter-row">
         {availableFilters.map((filter) => (
           <Chip key={filter} className={selectedFilter === filter ? 'is-active' : ''} onClick={() => setFilter(filter)}>
             {providerLabel[filter]}
@@ -330,7 +361,13 @@ export const CalendarScreen = ({
       </div>
 
       <Card className="stack-sm">
-        <h3>Agenda · {fmt(day, { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+        <div className="section-head section-head--tight">
+          <div>
+            <p className="eyebrow">Agenda</p>
+            <h3>{fmt(day, { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+          </div>
+          <span className="section-tip">{selectedFilter === 'all' ? 'All calendars' : providerLabel[selectedFilter]}</span>
+        </div>
         {selectedDayEvents.length ? selectedDayEvents.map((event) => (
           <article key={`${event.provider}-${event.id}`} className={`event-card provider-${event.provider}`}>
             <p>{event.title}</p>

@@ -2402,3 +2402,206 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
 .calendar-connect-intro { padding: 12px; border-radius: 14px; background: rgba(245,248,255,0.88); border: 1px solid rgba(112,141,201,0.2); }
 .calendar-connect-option { padding: 6px 0; }
 .calendar-link-button { align-self: flex-start; padding-left: 0; padding-right: 0; }
+
+/* UX refresh */
+.topbar-meta {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: #58709d;
+  text-transform: capitalize;
+}
+
+.section-head--tight {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.today-hero {
+  padding: 20px;
+  overflow: hidden;
+}
+
+.today-hero--urgent {
+  background: linear-gradient(160deg, rgba(255, 249, 249, 0.96), rgba(245, 244, 255, 0.84));
+}
+
+.today-hero--busy {
+  background: linear-gradient(160deg, rgba(255, 252, 245, 0.98), rgba(241, 247, 255, 0.82));
+}
+
+.today-hero-content,
+.today-family-summary,
+.dashboard-priority-grid,
+.dashboard-snapshot-grid,
+.money-brief-grid,
+.tasks-summary-grid,
+.calendar-summary-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.today-hero-badge-row,
+.tasks-toolbar-top,
+.calendar-hero-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.today-pill,
+.tasks-summary-card,
+.calendar-summary-card,
+.priority-card,
+.dashboard-card {
+  border: 1px solid rgba(118, 147, 205, 0.18);
+  box-shadow: 0 12px 26px rgba(24, 48, 97, 0.08);
+}
+
+.today-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  font-weight: 700;
+  color: #29497f;
+}
+
+.today-family-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.today-family-summary > div,
+.money-brief-grid > div,
+.tasks-summary-card,
+.calendar-summary-card {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.72);
+}
+
+.today-family-summary strong,
+.money-brief-grid strong,
+.tasks-summary-card strong,
+.calendar-summary-card strong {
+  display: block;
+  font-size: 1.1rem;
+  color: #193568;
+}
+
+.today-family-summary span,
+.money-brief-grid span,
+.tasks-summary-card span,
+.calendar-summary-card span {
+  color: #5a7198;
+  font-size: 0.78rem;
+}
+
+.dashboard-priority-grid,
+.dashboard-snapshot-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.priority-card,
+.dashboard-card {
+  padding: 16px;
+}
+
+.priority-card--danger {
+  border-color: rgba(196, 92, 120, 0.28);
+}
+
+.mini-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mini-list-item,
+.task-title-row,
+.calendar-source-card,
+.money-overview-highlight {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mini-list-item {
+  align-items: flex-start;
+  padding: 12px 0;
+  border-top: 1px solid rgba(112, 137, 190, 0.14);
+}
+
+.mini-list-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.mini-list-title {
+  font-weight: 700;
+  color: #1a315d;
+}
+
+.route-pill--danger {
+  color: #973955;
+  background: rgba(255, 235, 239, 0.88);
+}
+
+.money-brief-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasks-summary-grid,
+.calendar-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tasks-summary-card,
+.calendar-summary-card {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.tasks-toolbar {
+  gap: 14px;
+}
+
+.task-item {
+  align-items: flex-start;
+}
+
+.calendar-action-row,
+.calendar-filter-row {
+  flex-wrap: wrap;
+}
+
+.calendar-source-card {
+  align-items: flex-start;
+}
+
+.money-overview-highlight {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .dashboard-priority-grid,
+  .dashboard-snapshot-grid,
+  .tasks-summary-grid,
+  .calendar-summary-grid,
+  .money-brief-grid,
+  .today-family-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .mini-list-item,
+  .task-title-row,
+  .calendar-source-card,
+  .money-overview-highlight {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

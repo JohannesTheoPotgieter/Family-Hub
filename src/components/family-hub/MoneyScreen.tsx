@@ -337,23 +337,33 @@ export const MoneyScreen = ({
 
   return (
     <section className="stack-md">
-      <ScreenIntro title="Money Manager" subtitle="Track bills, money in and money out, and monthly budgets in one clear place." badge="Money" />
+      <ScreenIntro title="Money Manager" subtitle="See what is coming in, what is going out, and what needs attention without needing accounting jargon." badge="Money" />
       {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Detailed bills, transactions, budgets, and edits stay hidden.</div> : null}
       <MoneyFilterBar options={visibleTabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
       {tab === 'overview' ? (
         <>
-          <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan.">
+          <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan, upcoming bills, and safe-to-spend balance.">
             <MoneySectionHeader title="Monthly snapshot" subtitle="Use the planner below to see what is still coming." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
             <div className="money-kpi-grid">
               <MoneyStatCard label="Money in" value={<AmountText amountCents={income} kind="positive" />} />
               <MoneyStatCard label="Money out" value={<AmountText amountCents={spending} kind="negative" />} />
-              <MoneyStatCard label="Left this month" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} />
+              <MoneyStatCard label="Available this month" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} />
             </div>
             <div className="money-kpi-grid">
               <MoneyStatCard label="Due this week" value={<strong>{dueSoonBills.length}</strong>} />
               <MoneyStatCard label="Paid this month" value={<strong>{paidBills.length}</strong>} />
               <MoneyStatCard label="Top spending category" value={<strong>{topCategory ? `${topCategory[0]} · ${formatCurrencyZAR(topCategory[1])}` : '—'}</strong>} />
               <MoneyStatCard label="Left to budget" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
+            </div>
+            <div className="money-overview-highlight">
+              <div className="status-banner is-success">
+                {overdueBills.length > 0
+                  ? `${overdueBills.length} bill${overdueBills.length === 1 ? '' : 's'} need attention now.`
+                  : dueSoonBills.length > 0
+                    ? `${dueSoonBills.length} bill${dueSoonBills.length === 1 ? '' : 's'} due this week.`
+                    : 'No urgent bills right now.'}
+              </div>
+              <div className="status-banner">Safe to spend right now: {formatCurrencyZAR(safeToSpend)}</div>
             </div>
             <div className="money-payment-meta">
               <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Add bill</button>
