@@ -2655,3 +2655,132 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
     width: min(calc(100% - 16px), 520px);
   }
 }
+
+/* Money refresh */
+.money-health-banner,
+.money-plain-insight-card,
+.money-goal-card {
+  background: linear-gradient(160deg, rgba(255,255,255,0.86), rgba(239,246,255,0.7));
+  border: 1px solid rgba(118,145,200,0.22);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.money-health-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.money-health-figure {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  text-align: right;
+}
+
+.money-health-figure strong {
+  font-size: clamp(1.35rem, 4vw, 1.9rem);
+  line-height: 1.05;
+}
+
+.money-kpi-grid--overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.money-kpi-grid--compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.money-two-column-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.money-toolbar,
+.money-search-row,
+.money-action-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.money-toolbar {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.money-toolbar--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.money-search-row > * {
+  flex: 1 1 220px;
+}
+
+.money-action-row > .btn {
+  flex: 1 1 170px;
+}
+
+.money-payment-card.is-overdue {
+  border-color: rgba(202, 98, 116, 0.3);
+  background: linear-gradient(160deg, rgba(255,246,247,0.96), rgba(255,255,255,0.78));
+}
+
+.money-payment-card.is-due-soon {
+  border-color: rgba(214, 168, 89, 0.28);
+  background: linear-gradient(160deg, rgba(255,250,240,0.92), rgba(255,255,255,0.78));
+}
+
+.money-payment-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.money-payment-meta--actions {
+  justify-content: flex-end;
+}
+
+.money-transaction-main {
+  display: grid;
+  gap: 8px;
+}
+
+.money-goal-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .money-health-banner,
+  .money-two-column-grid,
+  .money-kpi-grid--overview,
+  .money-kpi-grid--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .money-health-banner,
+  .money-payment-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .money-health-figure {
+    text-align: left;
+    min-width: 0;
+  }
+
+  .money-search-row,
+  .money-action-row,
+  .money-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
