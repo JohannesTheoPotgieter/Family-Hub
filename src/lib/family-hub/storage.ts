@@ -19,6 +19,8 @@ export type CalendarState = {
   lastSyncedAtIsoByProvider: Partial<Record<Provider, string>>;
 };
 
+export type TaskCompletionRecord = { completedAtIso: string; userId?: UserId };
+
 export type TaskItem = {
   id: string;
   title: string;
@@ -27,6 +29,11 @@ export type TaskItem = {
   shared: boolean;
   notes: string;
   ownerId: UserId;
+  recurrence?: 'none' | 'daily' | 'weekly';
+  archived?: boolean;
+  completionCount?: number;
+  lastCompletedAtIso?: string;
+  completionHistory?: TaskCompletionRecord[];
 };
 
 export type Bill = {
@@ -41,6 +48,9 @@ export type Bill = {
   notes?: string;
   autoCreateTransaction?: boolean;
   linkedTransactionId?: string;
+  recurrence?: 'none' | 'monthly';
+  recurrenceDay?: number;
+  generatedFromBillId?: string;
 };
 
 export type MoneyTransaction = {
@@ -64,10 +74,13 @@ export type Budget = {
   limitCents: number;
 };
 
+export type SavingsGoal = { id: string; title: string; targetCents: number; savedCents: number };
+
 export type MoneyState = {
   bills: Bill[];
   transactions: MoneyTransaction[];
   budgets: Budget[];
+  savingsGoals: SavingsGoal[];
   settings: {
     currency: 'ZAR';
     monthlyStartDay?: number;
@@ -140,6 +153,8 @@ export type UserSetup = {
   monthlyIncome: number;
 };
 
+export type AuditEntry = { id: string; type: string; detail: string; createdAtIso: string };
+
 export type FamilyHubState = {
   users: typeof USERS;
   userPins: PinStore;
@@ -152,6 +167,7 @@ export type FamilyHubState = {
   avatarGame: AvatarGameState;
   places: PlaceItem[];
   reminders: { items: ReminderItem[] };
+  auditLog: AuditEntry[];
   settings: AppSettings;
   calendar: CalendarState;
   tasks: { items: TaskItem[] };
@@ -325,6 +341,7 @@ export const seedMoneyFromSetupProfiles = (
     bills,
     transactions,
     budgets,
+    savingsGoals: money.savingsGoals ?? [],
     settings: {
       ...money.settings,
       monthlyStartDay: money.settings.monthlyStartDay ?? 1
@@ -340,7 +357,7 @@ export const clearSetupArtifactsForUser = (money: MoneyState, userId: UserId): M
 });
 
 const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }) : MoneyState => {
-  const bills = Array.isArray(rawMoney.bills)
+  const bills: Bill[] = Array.isArray(rawMoney.bills)
     ? rawMoney.bills
     : (rawMoney.payments ?? []).map((payment) => ({
         id: typeof payment.id === 'string' ? payment.id : `bill-${Date.now()}-${Math.random()}`,
@@ -356,7 +373,7 @@ const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actual
         linkedTransactionId: typeof payment.linkedTransactionId === 'string' ? payment.linkedTransactionId : undefined
       }));
 
-  const transactions = Array.isArray(rawMoney.transactions)
+  const transactions: MoneyTransaction[] = Array.isArray(rawMoney.transactions)
     ? rawMoney.transactions
     : (rawMoney.actualTransactions ?? []).map((tx) => ({
         id: typeof tx.id === 'string' ? tx.id : `tx-${Date.now()}-${Math.random()}`,
@@ -375,11 +392,15 @@ const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actual
   const budgets = Array.isArray(rawMoney.budgets)
     ? rawMoney.budgets.filter((budget): budget is Budget => Boolean(budget?.id && budget?.monthIsoYYYYMM && budget?.category))
     : [];
+  const savingsGoals = Array.isArray((rawMoney as any).savingsGoals)
+    ? (rawMoney as any).savingsGoals.filter((goal: any) => goal?.id && goal?.title).map((goal: any) => ({ id: goal.id, title: goal.title, targetCents: typeof goal.targetCents === 'number' ? goal.targetCents : 0, savedCents: typeof goal.savedCents === 'number' ? goal.savedCents : 0 }))
+    : [];
 
   return {
-    bills,
+    bills: bills.map((bill) => ({ ...bill, recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none', recurrenceDay: typeof bill.recurrenceDay === 'number' ? bill.recurrenceDay : Number(bill.dueDateIso.slice(8, 10)), generatedFromBillId: typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined })),
     transactions,
     budgets,
+    savingsGoals,
     settings: {
       currency: 'ZAR',
       monthlyStartDay: typeof rawMoney.settings?.monthlyStartDay === 'number' ? rawMoney.settings.monthlyStartDay : undefined
@@ -545,6 +566,7 @@ export const createInitialState = (): FamilyHubState => ({
   avatarGame: createInitialAvatarGame(),
   places: [],
   reminders: { items: [] },
+  auditLog: [],
   settings: { pinHintsEnabled: false, familyMode: 'balanced', hideMoneyForKids: true, requireParentForReset: true },
   calendar: { events: [], externalEvents: [], calendars: [], lastSyncedAtIsoByProvider: {} },
   tasks: { items: [] },
@@ -552,6 +574,10 @@ export const createInitialState = (): FamilyHubState => ({
     bills: [],
     transactions: [],
     budgets: [],
+    savingsGoals: [
+      { id: 'goal-emergency', title: 'Emergency cushion', targetCents: 1500000, savedCents: 0 },
+      { id: 'goal-family-fun', title: 'Family fun day', targetCents: 350000, savedCents: 0 }
+    ],
     settings: { currency: 'ZAR' }
   }
 });
@@ -602,6 +628,7 @@ export const loadState = (): FamilyHubState => {
           (item) => typeof item.id === 'string' && typeof item.title === 'string' && typeof item.date === 'string'
         )
       },
+      auditLog: Array.isArray((parsed as any).auditLog) ? (parsed as any).auditLog.filter((item: any) => item?.id && item?.type && item?.createdAtIso).slice(0, 60) : [],
       settings: {
         pinHintsEnabled: Boolean(parsed.settings?.pinHintsEnabled),
         familyMode: parsed.settings?.familyMode === 'gentle' || parsed.settings?.familyMode === 'focused' ? parsed.settings.familyMode : 'balanced',
@@ -616,7 +643,12 @@ export const loadState = (): FamilyHubState => {
             dueDate: task.dueDate ?? null,
             shared: task.shared ?? false,
             notes: task.notes ?? '',
-            ownerId: task.ownerId ?? 'johannes'
+            ownerId: task.ownerId ?? 'johannes',
+            recurrence: (task.recurrence === 'daily' || task.recurrence === 'weekly' ? task.recurrence : 'none') as 'none' | 'daily' | 'weekly',
+            archived: Boolean(task.archived),
+            completionCount: typeof task.completionCount === 'number' ? task.completionCount : task.completed ? 1 : 0,
+            lastCompletedAtIso: typeof task.lastCompletedAtIso === 'string' ? task.lastCompletedAtIso : undefined,
+            completionHistory: Array.isArray(task.completionHistory) ? task.completionHistory.filter((entry: any) => typeof entry?.completedAtIso === 'string').slice(0, 12) : []
           }))
           .filter((task) => typeof task.id === 'string' && typeof task.title === 'string' && typeof task.completed === 'boolean')
       },

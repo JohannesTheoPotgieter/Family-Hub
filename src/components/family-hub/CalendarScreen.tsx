@@ -17,6 +17,8 @@ type CalendarScreenProps = {
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
   onSyncProvider: (provider: Provider, calendars: NormalizedCalendar[], events: NormalizedEvent[]) => void;
   onClearProviderData: (provider: Provider) => void;
+  canConnectCalendar?: boolean;
+  canEditCalendar?: boolean;
 };
 
 type Filter = 'all' | 'internal' | 'google' | 'microsoft' | 'ics';
@@ -55,7 +57,9 @@ export const CalendarScreen = ({
   lastSyncedAtIsoByProvider,
   onAddEvent,
   onSyncProvider,
-  onClearProviderData
+  onClearProviderData,
+  canConnectCalendar = true,
+  canEditCalendar = true
 }: CalendarScreenProps) => {
   const mode = getCalendarMode();
   const providers = useMemo(() => getCalendarProviderClients(), []);
@@ -117,6 +121,7 @@ export const CalendarScreen = ({
     setSyncingProvider(providerId);
     setBusyMessage(`Syncing ${providerId === 'microsoft' ? 'Outlook' : providerId.toUpperCase()}…`);
     setStatusError('');
+    if (!canConnectCalendar && (providerId === 'google' || providerId === 'microsoft' || providerId === 'ics')) { push('Only adult profiles can connect calendars.'); return; }
     try {
       const calendars = await client.listCalendars();
       if (!calendars.length) {
@@ -151,7 +156,7 @@ export const CalendarScreen = ({
   const syncAllProviders = async () => {
     const connectedProviders = providerSummaries.filter((provider) => provider.calendarCount > 0 || provider.eventCount > 0);
     if (!connectedProviders.length) {
-      push('Connect a calendar first.');
+      push(canConnectCalendar ? 'Connect a calendar first.' : 'This profile cannot connect calendars.');
       return;
     }
     for (const provider of connectedProviders) {
@@ -177,12 +182,14 @@ export const CalendarScreen = ({
     if (!client) return;
 
     if (mode === 'local' && (providerId === 'google' || providerId === 'microsoft')) {
+      if (!canConnectCalendar) { push('Only adult profiles can connect calendars.'); return; }
       setAccessToken('');
       setConnectModalProvider(providerId);
       return;
     }
 
     if (providerId === 'ics') {
+      if (!canConnectCalendar) { push('Only adult profiles can connect calendars.'); return; }
       setIcsName('');
       setIcsUrl('');
       setConnectModalProvider(providerId);

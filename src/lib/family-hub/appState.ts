@@ -1,10 +1,25 @@
-import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from '../../domain/avatarRewards';
-import type { AvatarActivityEvent } from '../../domain/avatarTypes';
-import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar';
-import { toDedupeKey } from '../../domain/calendar';
-import type { Tab, UserId } from './constants';
-import { markBillPaidWithOptionalTransaction, saveBudget, deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, type BudgetSaveResult } from './money';
-import { clearSetupArtifactsForUser, createInitialState, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem } from './storage';
+import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from '../../domain/avatarRewards.ts';
+import type { AvatarActivityEvent } from '../../domain/avatarTypes.ts';
+import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar.ts';
+import { toDedupeKey } from '../../domain/calendar.ts';
+import type { Tab, UserId } from './constants.ts';
+import { deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, markBillPaidWithOptionalTransaction, saveBudget, type BudgetSaveResult } from './money.ts';
+import { clearSetupArtifactsForUser, createInitialState, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem } from './storage.ts';
+
+const addDays = (dateIso: string, days: number) => {
+  const date = new Date(`${dateIso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const nextMonthlyDueDate = (dateIso: string, preferredDay?: number) => {
+  const [year, month, day] = dateIso.split('-').map(Number);
+  const next = new Date(year, month, 1);
+  const targetDay = preferredDay ?? day ?? 1;
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(targetDay, lastDay));
+  return next.toISOString().slice(0, 10);
+};
 
 export const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
   if (state.avatarGame.familyChallenges.length) return state;
@@ -158,29 +173,42 @@ export const addInternalCalendarEvent = (current: FamilyHubState, event: Omit<{ 
     { type: 'APP_CALENDAR_EVENT_ADDED', userId: current.activeUserId!, actionId: `event-${event.title}-${event.date}`, createdAtIso: new Date().toISOString() }
   );
 
-export const addTask = (current: FamilyHubState, task: Omit<TaskItem, 'id' | 'completed'>) => ({
+export const addTask = (current: FamilyHubState, task: Omit<TaskItem, 'id' | 'completed'>): FamilyHubState => ({
   ...current,
-  tasks: { items: [{ id: `task-${Date.now()}`, completed: false, ...task }, ...current.tasks.items] }
+  tasks: { items: [{ id: `task-${Date.now()}`, completed: false, completionCount: 0, completionHistory: [], recurrence: 'none' as const, archived: false, ...task }, ...current.tasks.items] }
 });
 
-export const updateTask = (current: FamilyHubState, id: string, update: Omit<TaskItem, 'id' | 'completed'>) => ({
+export const updateTask = (current: FamilyHubState, id: string, update: Omit<TaskItem, 'id' | 'completed'>): FamilyHubState => ({
   ...current,
   tasks: { items: current.tasks.items.map((task) => (task.id === id ? { ...task, ...update } : task)) }
 });
 
 export const toggleTask = (current: FamilyHubState, id: string) => {
   const task = current.tasks.items.find((item) => item.id === id);
-  const next = { ...current, tasks: { items: current.tasks.items.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)) } };
-  if (!task || task.completed) return next;
-  return rewardActivity(next, { type: task.shared ? 'APP_SHARED_TASK_COMPLETED' : 'APP_TASK_COMPLETED', userId: current.activeUserId!, actionId: `task-${id}`, createdAtIso: new Date().toISOString() });
+  if (!task) return current;
+  const nowIso = new Date().toISOString();
+  const toggledComplete = !task.completed;
+  const nextTask = toggledComplete
+    ? {
+        ...task,
+        completed: task.recurrence && task.recurrence !== 'none' ? false : true,
+        dueDate: task.recurrence === 'daily' && task.dueDate ? addDays(task.dueDate, 1) : task.recurrence === 'weekly' && task.dueDate ? addDays(task.dueDate, 7) : task.dueDate,
+        completionCount: (task.completionCount ?? 0) + 1,
+        lastCompletedAtIso: nowIso,
+        completionHistory: [{ completedAtIso: nowIso, userId: current.activeUserId ?? undefined }, ...(task.completionHistory ?? [])].slice(0, 12)
+      }
+    : { ...task, completed: false };
+  const next = { ...current, tasks: { items: current.tasks.items.map((item) => (item.id === id ? nextTask : item)) } };
+  if (!toggledComplete) return next;
+  return rewardActivity(next, { type: task.shared ? 'APP_SHARED_TASK_COMPLETED' : 'APP_TASK_COMPLETED', userId: current.activeUserId!, actionId: `task-${id}-${nextTask.completionCount}`, createdAtIso: nowIso });
 };
 
-export const addBill = (current: FamilyHubState, bill: Omit<Bill, 'id' | 'paid' | 'paidDateIso' | 'proofFileName' | 'linkedTransactionId'>) => ({
+export const addBill = (current: FamilyHubState, bill: Omit<Bill, 'id' | 'paid' | 'paidDateIso' | 'proofFileName' | 'linkedTransactionId'>): FamilyHubState => ({
   ...current,
-  money: { ...current.money, bills: [{ id: `bill-${Date.now()}`, paid: false, ...bill }, ...current.money.bills] }
+  money: { ...current.money, bills: [{ id: `bill-${Date.now()}`, paid: false, recurrence: 'none' as const, recurrenceDay: Number(bill.dueDateIso.slice(8, 10)), ...bill }, ...current.money.bills] }
 });
 
-export const updateBill = (current: FamilyHubState, id: string, update: Partial<Bill>) => ({
+export const updateBill = (current: FamilyHubState, id: string, update: Partial<Bill>): FamilyHubState => ({
   ...current,
   money: { ...current.money, bills: current.money.bills.map((bill) => (bill.id === id ? { ...bill, ...update } : bill)) }
 });
@@ -193,7 +221,32 @@ export const duplicateBill = (current: FamilyHubState, id: string) => {
 
 export const markBillPaid = (current: FamilyHubState, id: string, proofFileName: string) => {
   const bill = current.money.bills.find((item) => item.id === id);
-  const next = { ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) };
+  let next = { ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) };
+  if (bill?.recurrence === 'monthly') {
+    const nextDueDateIso = nextMonthlyDueDate(bill.dueDateIso, bill.recurrenceDay);
+    const duplicateExists = next.money.bills.some((item) => item.generatedFromBillId === bill.id && item.dueDateIso === nextDueDateIso);
+    if (!duplicateExists) {
+      next = {
+        ...next,
+        money: {
+          ...next.money,
+          bills: [
+            {
+              ...bill,
+              id: `bill-${Date.now()}-next`,
+              dueDateIso: nextDueDateIso,
+              paid: false,
+              paidDateIso: undefined,
+              proofFileName: undefined,
+              linkedTransactionId: undefined,
+              generatedFromBillId: bill.id
+            },
+            ...next.money.bills
+          ]
+        }
+      };
+    }
+  }
   if (!bill) return next;
   const dueSoon = bill.dueDateIso >= new Date().toISOString().slice(0, 10);
   return rewardActivity(next, { type: dueSoon ? 'APP_PAYMENT_PAID_ON_TIME' : 'APP_PAYMENT_MARKED_PAID', userId: current.activeUserId!, actionId: `bill-${id}-paid`, createdAtIso: new Date().toISOString() });
@@ -204,7 +257,7 @@ export const addTransaction = (current: FamilyHubState, transaction: Omit<MoneyT
 export const importTransactions = (current: FamilyHubState, transactions: Array<Omit<MoneyTransaction, 'id'>>) => ({ ...current, money: { ...current.money, transactions: [...transactions.map((transaction, index) => ({ id: `tx-${Date.now()}-${index}-${crypto.randomUUID()}`, ...transaction })), ...current.money.transactions] } });
 export const updateTransaction = (current: FamilyHubState, id: string, transaction: Omit<MoneyTransaction, 'id'>) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } });
 export const deleteTransaction = (current: FamilyHubState, id: string) => ({ ...current, money: deleteTransactionAndUnlinkBills(current.money, id) });
-export const saveMoneyBudget = (current: FamilyHubState, budget: Omit<import('./storage').Budget, 'id'>): { state: FamilyHubState; result: BudgetSaveResult } => {
+export const saveMoneyBudget = (current: FamilyHubState, budget: Omit<import('./storage.ts').Budget, 'id'>): { state: FamilyHubState; result: BudgetSaveResult } => {
   const result = saveBudget(current.money, budget);
   return { state: { ...current, money: result.state }, result };
 };

@@ -1,10 +1,14 @@
 export type UserId = 'johannes' | 'nicole' | 'ella' | 'oliver';
 
+export type LegacyRole = 'parent' | 'adult' | 'child';
+export type FamilyRole = 'parent_admin' | 'adult_editor' | 'child_limited';
+
 export type User = {
   id: UserId;
   name: string;
   active: boolean;
-  role: 'parent' | 'adult' | 'child';
+  role: LegacyRole;
+  roleV2?: FamilyRole;
 };
 
 export const USERS: User[] = [
