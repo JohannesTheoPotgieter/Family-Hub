@@ -92,6 +92,13 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
     [filteredTasks, groups]
   );
 
+  const stats = useMemo(() => ({
+    today: filteredTasks.filter((task) => belongsToGroup(task, 'today')).length,
+    upcoming: filteredTasks.filter((task) => belongsToGroup(task, 'upcoming')).length,
+    shared: filteredTasks.filter((task) => task.shared && !task.completed).length,
+    done: filteredTasks.filter((task) => task.completed).length
+  }), [filteredTasks]);
+
   const openAdd = () => {
     setEditingTaskId(null);
     setDraft(createEmptyDraft(activeUserId));
@@ -129,9 +136,36 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
 
   return (
     <section className="tasks-screen stack-lg">
-      <ScreenIntro badge="Tasks" title="Family to-dos" subtitle="Keep everyone in sync with shared and personal tasks." />
+      <ScreenIntro badge="Tasks" title="Family to-dos" subtitle="Fast, friendly task lists for what needs attention now, later, and together." />
 
       <section className="glass-panel tasks-toolbar" aria-label="Task filters and actions">
+        <div className="tasks-toolbar-top">
+          <div>
+            <p className="eyebrow">Task snapshot</p>
+            <h3>Stay on top of home routines</h3>
+          </div>
+          <button className="btn btn-primary tasks-add-btn" data-testid="btn-add-task" onClick={openAdd} type="button" disabled={!canEditTasks}>
+            + Add task
+          </button>
+        </div>
+        <div className="tasks-summary-grid">
+          <article className="tasks-summary-card">
+            <span className="metric-label">Due now</span>
+            <strong>{stats.today}</strong>
+          </article>
+          <article className="tasks-summary-card">
+            <span className="metric-label">Upcoming</span>
+            <strong>{stats.upcoming}</strong>
+          </article>
+          <article className="tasks-summary-card">
+            <span className="metric-label">Shared</span>
+            <strong>{stats.shared}</strong>
+          </article>
+          <article className="tasks-summary-card">
+            <span className="metric-label">Done</span>
+            <strong>{stats.done}</strong>
+          </article>
+        </div>
         <div className="tasks-filter-row" role="tablist" aria-label="Task filters">
           {(['mine', 'shared', 'all'] as const).map((f) => (
             <button
@@ -145,14 +179,12 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
             </button>
           ))}
         </div>
-        <button className="btn btn-primary tasks-add-btn" data-testid="btn-add-task" onClick={openAdd} type="button" disabled={!canEditTasks}>
-          + Add task
-        </button>
       </section>
 
       {composerOpen && (
         <section className="glass-panel task-composer stack" aria-label={editingTaskId ? 'Edit task' : 'Add task'}>
-          <h3>{editingTaskId ? '✏️ Edit task' : '✨ New task'}</h3>
+          <h3>{editingTaskId ? 'Edit task' : 'New task'}</h3>
+          <p className="muted">Keep it lightweight: a title, an owner, and only the details the family really needs.</p>
           <input
             aria-label="Task title"
             placeholder="What needs to happen?"
@@ -238,11 +270,9 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
       {filteredTasks.length === 0 ? (
         <section className="glass-panel tasks-empty stack" aria-label="Empty tasks">
           <p className="tasks-empty-emoji" aria-hidden="true">🫧</p>
-
-          <h3>All clear</h3>
-          <p className="muted">No tasks here yet. Start small — one task at a time.</p>
+          <h3>Nothing here yet</h3>
+          <p className="muted">This is where your household keeps track of chores, errands, and shared responsibilities.</p>
           <button className="btn btn-primary" data-testid="btn-add-first-task" type="button" onClick={openAdd}>
-
             Add first task
           </button>
         </section>
@@ -251,45 +281,54 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
           {groupedTasks.map((group) => (
             <section key={group.key} className="glass-panel task-group stack-sm" aria-label={group.label}>
               <header className="section-head">
-                <h3>{GROUP_ICONS[group.key]} {group.label}</h3>
+                <div>
+                  <h3>{GROUP_ICONS[group.key]} {group.label}</h3>
+                  <p className="muted">{group.hint}</p>
+                </div>
                 <span className="section-tip">{group.items.length} {group.items.length === 1 ? 'task' : 'tasks'}</span>
               </header>
-              {group.items.map((task) => (
-                <article
-                  key={task.id}
-                  className={`task-item ${task.completed ? 'is-done' : ''}`}
-                  data-testid={`task-item-${task.id}`}
-                >
-                  <button
-                    type="button"
-                    className={`task-check ${task.completed ? 'is-done' : ''}`}
-                    onClick={() => onToggleTask(task.id)}
-                    aria-label={task.completed ? `Mark "${task.title}" incomplete` : `Complete "${task.title}"`}
+              {group.items.map((task) => {
+                const owner = users.find((user) => user.id === task.ownerId);
+                return (
+                  <article
+                    key={task.id}
+                    className={`task-item ${task.completed ? 'is-done' : ''}`}
+                    data-testid={`task-item-${task.id}`}
                   >
-                    {task.completed ? '✓' : ''}
-                  </button>
-                  <div className="task-main">
-                    <p className="task-title">{task.title}</p>
-                    <div className="task-meta">
-                      <span className="route-pill">{labelForTask(task)}</span>
-                      {task.shared && <span className="route-pill">👥 Shared</span>}
-                      {task.recurrence && task.recurrence !== 'none' && <span className="route-pill">🔁 {task.recurrence}</span>}
-                      {(task.completionCount ?? 0) > 0 && <span className="route-pill">🏅 {task.completionCount} done</span>}
-                    </div>
-                    {task.notes ? <p className="muted">{task.notes}</p> : null}
-                  </div>
-                  {!task.completed && (
                     <button
-                      className="btn btn-ghost task-edit-btn"
-                      data-testid={`btn-edit-task-${task.id}`}
                       type="button"
-                      onClick={() => openEdit(task)}
+                      className={`task-check ${task.completed ? 'is-done' : ''}`}
+                      onClick={() => onToggleTask(task.id)}
+                      aria-label={task.completed ? `Mark "${task.title}" incomplete` : `Complete "${task.title}"`}
                     >
-                      Edit
+                      {task.completed ? '✓' : ''}
                     </button>
-                  )}
-                </article>
-              ))}
+                    <div className="task-main">
+                      <div className="task-title-row">
+                        <p className="task-title">{task.title}</p>
+                        {owner ? <span className="route-pill">{owner.name}</span> : null}
+                      </div>
+                      <div className="task-meta">
+                        <span className="route-pill">{labelForTask(task)}</span>
+                        {task.shared && <span className="route-pill">👥 Shared</span>}
+                        {task.recurrence && task.recurrence !== 'none' && <span className="route-pill">🔁 {task.recurrence}</span>}
+                        {(task.completionCount ?? 0) > 0 && <span className="route-pill">🏅 {task.completionCount} done</span>}
+                      </div>
+                      {task.notes ? <p className="muted">{task.notes}</p> : null}
+                    </div>
+                    {!task.completed && (
+                      <button
+                        className="btn btn-ghost task-edit-btn"
+                        data-testid={`btn-edit-task-${task.id}`}
+                        type="button"
+                        onClick={() => openEdit(task)}
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
             </section>
           ))}
         </div>

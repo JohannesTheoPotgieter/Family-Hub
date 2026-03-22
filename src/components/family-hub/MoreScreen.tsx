@@ -42,7 +42,7 @@ const SECTION_TABS: { key: MoreSection; icon: string; label: string }[] = [
   { key: 'reminders', icon: '🔔', label: 'Alerts' },
   { key: 'avatars', icon: '🐾', label: 'Companions' },
   { key: 'places', icon: '📍', label: 'Places' },
-  { key: 'users', icon: '👥', label: 'People' },
+  { key: 'users', icon: '👥', label: 'Family' },
   { key: 'settings', icon: '⚙️', label: 'Settings' }
 ];
 
@@ -177,7 +177,7 @@ export const MoreScreen = ({
 
   return (
     <section className="stack-lg">
-      <ScreenIntro badge="More" title="Family tools" subtitle="Manage companions, places, people, alerts and settings with safer role-based access." />
+      <ScreenIntro badge="Family" title="Family space" subtitle="See your household at a glance, manage people and places, and handle settings with clear safety guardrails." />
 
       <div className="more-tab-row">
         {SECTION_TABS.map(({ key, icon, label }) => (
