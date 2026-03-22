@@ -75,6 +75,7 @@ export const CalendarScreen = ({
   const [lastSyncedProvider, setLastSyncedProvider] = useState<Provider | null>(null);
   const [connectModalProvider, setConnectModalProvider] = useState<Provider | null>(null);
   const [accessToken, setAccessToken] = useState('');
+  const [connectModalMode, setConnectModalMode] = useState<'oauth' | 'manual'>('oauth');
   const [icsName, setIcsName] = useState('');
   const [icsUrl, setIcsUrl] = useState('');
   const { push } = useToasts();
@@ -186,12 +187,6 @@ export const CalendarScreen = ({
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
 
-    if (mode === 'local' && (providerId === 'google' || providerId === 'microsoft')) {
-      if (!canConnectCalendar) { push('Only adult profiles can connect calendars.'); return; }
-      setAccessToken('');
-      setConnectModalProvider(providerId);
-      return;
-    }
 
     if (providerId === 'ics') {
       if (!canConnectCalendar) { push('Only adult profiles can connect calendars.'); return; }
@@ -204,15 +199,20 @@ export const CalendarScreen = ({
     try {
       setStatusError('');
       setBusyMessage(`Connecting ${client.label}…`);
-      if (mode === 'server') {
-        push(`Redirecting to ${client.label} sign-in…`);
-      }
+      push(`Opening ${client.label} sign-in…`);
       await client.connect();
       if (mode === 'local') {
         await syncProvider(providerId);
       }
     } catch (error) {
       const message = (error as Error).message;
+      if (mode === 'local' && (providerId === 'google' || providerId === 'microsoft') && message === 'oauth_unavailable') {
+        setAccessToken('');
+        setConnectModalMode('oauth');
+        setConnectModalProvider(providerId);
+        setBusyMessage('');
+        return;
+      }
       setStatusError(message);
       push(message);
     } finally {
@@ -226,6 +226,10 @@ export const CalendarScreen = ({
     if (!client) return;
     try {
       setStatusError('');
+      if (connectModalProvider !== 'ics' && connectModalMode === 'oauth') {
+        await connectProvider(connectModalProvider);
+        return;
+      }
       setBusyMessage(connectModalProvider === 'ics' ? 'Adding ICS subscription…' : `Connecting ${client.label}…`);
       if (connectModalProvider === 'ics') {
         await client.connect({ name: icsName, url: icsUrl });
@@ -266,7 +270,7 @@ export const CalendarScreen = ({
         <p className="muted">
           {mode === 'server'
             ? 'Server mode lets you connect live calendar providers and ICS subscriptions.'
-            : 'Local mode works with pasted access tokens and keeps them in this browser session only.'}
+: 'Local mode opens secure sign-in when available, and only falls back to a temporary browser-only token if needed.'}
         </p>
         {statusError ? <div className="error-banner">{statusError}</div> : null}
         {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
@@ -372,19 +376,38 @@ export const CalendarScreen = ({
             <input value={icsUrl} placeholder="https://example.com/family.ics" onChange={(event) => setIcsUrl(event.target.value)} />
           </>
         ) : (
-          <>
-            <p className="muted">Paste a temporary read-only access token for this browser session.</p>
-            <textarea
-              value={accessToken}
-              placeholder="Access token"
-              rows={4}
-              onChange={(event) => setAccessToken(event.target.value)}
-            />
-          </>
+          <div className="stack-sm calendar-connect-sheet">
+            <div className="calendar-connect-intro">
+              <strong>The easiest way is secure sign-in.</strong>
+              <p className="muted">Family Hub can open the normal {providerLabel[connectModalProvider as Filter] ?? 'calendar'} sign-in flow when the optional calendar server is set up.</p>
+            </div>
+            {connectModalMode === 'oauth' ? (
+              <div className="stack-sm calendar-connect-option">
+                <Button onClick={() => void connectProvider(connectModalProvider as Provider)}>Continue with secure sign-in</Button>
+                <button className="btn btn-ghost calendar-link-button" type="button" onClick={() => setConnectModalMode('manual')}>
+                  Use a token instead
+                </button>
+                <p className="muted">If secure sign-in is not configured on this device yet, you can still use a temporary read-only token as a fallback.</p>
+              </div>
+            ) : (
+              <div className="stack-sm calendar-connect-option">
+                <p className="muted">Fallback option: paste a temporary read-only access token for this browser session.</p>
+                <textarea
+                  value={accessToken}
+                  placeholder="Paste access token"
+                  rows={4}
+                  onChange={(event) => setAccessToken(event.target.value)}
+                />
+                <button className="btn btn-ghost calendar-link-button" type="button" onClick={() => setConnectModalMode('oauth')}>
+                  Back to easy sign-in
+                </button>
+              </div>
+            )}
+          </div>
         )}
         <div className="task-composer-actions">
           <Button variant="ghost" onClick={() => setConnectModalProvider(null)}>Cancel</Button>
-          <Button onClick={() => void submitConnectModal()}>Connect</Button>
+          <Button onClick={() => void submitConnectModal()}>{connectModalProvider === 'ics' ? 'Connect' : connectModalMode === 'manual' ? 'Use token' : 'Done'}</Button>
         </div>
       </Modal>
     </section>
