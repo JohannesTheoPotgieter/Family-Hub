@@ -2397,3 +2397,8 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
     padding-bottom: 12px;
   }
 }
+
+.calendar-connect-sheet { gap: 12px; }
+.calendar-connect-intro { padding: 12px; border-radius: 14px; background: rgba(245,248,255,0.88); border: 1px solid rgba(112,141,201,0.2); }
+.calendar-connect-option { padding: 6px 0; }
+.calendar-link-button { align-self: flex-start; padding-left: 0; padding-right: 0; }

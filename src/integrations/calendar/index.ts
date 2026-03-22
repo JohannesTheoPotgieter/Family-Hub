@@ -10,6 +10,7 @@ const serverProviderLabel: Record<'google' | 'microsoft', string> = {
 };
 
 const buildApiUrl = (path: string) => `${apiBase}${path}`;
+const canReachServer = () => Boolean(apiBase);
 
 const readToken = (key: string) => memTokens.get(key) ?? sessionStorage.getItem(`fh-token:${key}`);
 const saveToken = (key: string, token: string) => {
@@ -46,9 +47,10 @@ const buildReturnToUrl = (provider: 'google' | 'microsoft') => {
 };
 
 const ensureServerProviderReady = async (provider: 'google' | 'microsoft') => {
+  if (!canReachServer()) throw new Error('oauth_unavailable');
   const status = await readJson<{ configured: boolean }>(buildApiUrl(`/api/provider-status?provider=${provider}`));
   if (!status.configured) {
-    throw new Error(`${serverProviderLabel[provider]} is not configured on the server yet.`);
+    throw new Error(`${serverProviderLabel[provider]} sign-in is not configured on the server yet.`);
   }
 };
 
@@ -57,7 +59,7 @@ const googleClient: CalendarProviderClient = {
   label: 'Google',
   isAvailable: () => true,
   async connect(input) {
-    if (mode === 'server') {
+    if (mode === 'server' || !input?.accessToken?.trim()) {
       await ensureServerProviderReady('google');
       window.location.href = buildApiUrl(`/api/auth/google/start?returnTo=${encodeURIComponent(buildReturnToUrl('google'))}`);
       return;
@@ -103,7 +105,7 @@ const microsoftClient: CalendarProviderClient = {
   label: 'Outlook',
   isAvailable: () => true,
   async connect(input) {
-    if (mode === 'server') {
+    if (mode === 'server' || !input?.accessToken?.trim()) {
       await ensureServerProviderReady('microsoft');
       window.location.href = buildApiUrl(`/api/auth/microsoft/start?returnTo=${encodeURIComponent(buildReturnToUrl('microsoft'))}`);
       return;
