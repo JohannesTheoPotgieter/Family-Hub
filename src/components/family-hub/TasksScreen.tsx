@@ -10,6 +10,8 @@ type TasksScreenProps = {
   onAddTask: (task: Omit<TaskItem, 'id' | 'completed'>) => void;
   onUpdateTask: (id: string, update: Omit<TaskItem, 'id' | 'completed'>) => void;
   onToggleTask: (id: string) => void;
+  canAssignTasks?: boolean;
+  canEditTasks?: boolean;
 };
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done';
@@ -21,9 +23,10 @@ type DraftTask = {
   shared: boolean;
   notes: string;
   ownerId: UserId;
+  recurrence: 'none' | 'daily' | 'weekly';
 };
 
-const createEmptyDraft = (ownerId: UserId): DraftTask => ({ title: '', dueDate: '', shared: false, notes: '', ownerId });
+const createEmptyDraft = (ownerId: UserId): DraftTask => ({ title: '', dueDate: '', shared: false, notes: '', ownerId, recurrence: 'none' });
 
 const startOfDay = (date: Date) => {
   const d = new Date(date);
@@ -63,7 +66,7 @@ const GROUP_ICONS: Record<GroupKey, string> = {
   today: '🔥', upcoming: '📅', waiting: '⏳', done: '✅'
 };
 
-export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onUpdateTask, onToggleTask }: TasksScreenProps) => {
+export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onUpdateTask, onToggleTask, canAssignTasks = true, canEditTasks = true }: TasksScreenProps) => {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -97,7 +100,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
 
   const openEdit = (task: TaskItem) => {
     setEditingTaskId(task.id);
-    setDraft({ title: task.title, dueDate: task.dueDate ?? '', shared: task.shared, notes: task.notes, ownerId: task.ownerId });
+    setDraft({ title: task.title, dueDate: task.dueDate ?? '', shared: task.shared, notes: task.notes, ownerId: task.ownerId, recurrence: task.recurrence ?? 'none' });
     setComposerOpen(true);
   };
 
@@ -108,7 +111,11 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
       dueDate: draft.dueDate || null,
       shared: draft.shared,
       notes: draft.notes.trim(),
-      ownerId: draft.ownerId
+      ownerId: draft.ownerId,
+      recurrence: draft.recurrence as 'none' | 'daily' | 'weekly',
+      archived: false,
+      completionCount: 0,
+      completionHistory: []
     };
     if (editingTaskId) {
       onUpdateTask(editingTaskId, payload);
@@ -138,7 +145,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
             </button>
           ))}
         </div>
-        <button className="btn btn-primary tasks-add-btn" data-testid="btn-add-task" onClick={openAdd} type="button">
+        <button className="btn btn-primary tasks-add-btn" data-testid="btn-add-task" onClick={openAdd} type="button" disabled={!canEditTasks}>
           + Add task
         </button>
       </section>
@@ -180,9 +187,18 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
             <select
               value={draft.ownerId}
               data-testid="select-task-owner"
+              disabled={!canAssignTasks}
               onChange={(event) => setDraft((c) => ({ ...c, ownerId: event.target.value as UserId }))}
             >
               {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+          </label>
+          <label className="task-field">
+            <span>Repeats</span>
+            <select value={draft.recurrence} onChange={(event) => setDraft((c) => ({ ...c, recurrence: event.target.value as DraftTask['recurrence'] }))}>
+              <option value="none">One time</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
             </select>
           </label>
           <textarea
@@ -209,7 +225,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
             <button
               className="btn btn-primary"
               type="button"
-              disabled={!draft.title.trim()}
+              disabled={!draft.title.trim() || !canEditTasks}
               data-testid="btn-submit-task"
               onClick={submitTask}
             >
@@ -257,6 +273,8 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
                     <div className="task-meta">
                       <span className="route-pill">{labelForTask(task)}</span>
                       {task.shared && <span className="route-pill">👥 Shared</span>}
+                      {task.recurrence && task.recurrence !== 'none' && <span className="route-pill">🔁 {task.recurrence}</span>}
+                      {(task.completionCount ?? 0) > 0 && <span className="route-pill">🏅 {task.completionCount} done</span>}
                     </div>
                     {task.notes ? <p className="muted">{task.notes}</p> : null}
                   </div>

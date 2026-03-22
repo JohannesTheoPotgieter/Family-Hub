@@ -25,12 +25,14 @@ type Props = {
   events: CalendarEvent[];
   externalEvents: NormalizedEvent[];
   tasks: TaskItem[];
+  auditLog: Array<{ id: string; type: string; detail: string; createdAtIso: string }>;
   onCareAction: (userId: UserId, action: CareAction) => void;
   onChangePin: (currentPin: string, nextPin: string) => Promise<boolean>;
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
   onUpdatePlace: (id: string, patch: Partial<Omit<PlaceItem, 'id'>>) => void;
   onExportData: () => string;
-  onResetData: () => void;
+  onImportData: (raw: string) => void;
+  onResetData: (mode?: 'soft' | 'hard' | 'money' | 'tasks' | 'calendar') => Promise<void> | void;
   onUpdateSettings: (update: Partial<AppSettings>) => void;
   onLock: () => void;
   onRestartSetup: (userId: UserId) => void;
@@ -77,11 +79,13 @@ export const MoreScreen = ({
   events,
   externalEvents,
   tasks,
+  auditLog,
   onCareAction,
   onChangePin,
   onAddPlace,
   onUpdatePlace,
   onExportData,
+  onImportData,
   onResetData,
   onUpdateSettings,
   onLock,
@@ -105,6 +109,7 @@ export const MoreScreen = ({
 
   const [settingsStatus, setSettingsStatus] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
 
   const reminderGroups = useMemo(() => {
     const today = new Date();
@@ -155,6 +160,16 @@ export const MoreScreen = ({
 
     return { today: todayItems, week: weekItems };
   }, [events, externalEvents, tasks]);
+
+  const handleImportFile = async (file: File | null) => {
+    if (!file) return;
+    try {
+      onImportData(await file.text());
+      setImportStatus('Backup imported. The household state was refreshed safely.');
+    } catch {
+      setImportStatus('That backup could not be imported.');
+    }
+  };
 
   const formatReminderDate = (iso: string) =>
     new Intl.DateTimeFormat('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -425,50 +440,88 @@ export const MoreScreen = ({
 
             <h4>Data</h4>
             {canManageSensitiveData ? (
-              <button
-                className="btn btn-ghost"
-                type="button"
-                onClick={async () => {
-                  const serialized = onExportData();
-                  try {
-                    await navigator.clipboard.writeText(serialized);
-                    setSettingsStatus('Private household data copied to clipboard.');
-                  } catch {
-                    setSettingsStatus('Copy failed. Use browser devtools to access localStorage.');
-                  }
-                }}
-              >
-                Export local data
-              </button>
+              <div className="stack-sm">
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  onClick={async () => {
+                    const serialized = onExportData();
+                    try {
+                      await navigator.clipboard.writeText(serialized);
+                      setSettingsStatus('Private household data copied to clipboard.');
+                    } catch {
+                      const blob = new Blob([serialized], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const anchor = document.createElement('a');
+                      anchor.href = url;
+                      anchor.download = 'family-hub-backup.json';
+                      anchor.click();
+                      URL.revokeObjectURL(url);
+                      setSettingsStatus('Backup downloaded as a file.');
+                    }
+                  }}
+                >
+                  Export backup
+                </button>
+                <label className="btn btn-ghost">
+                  Import backup
+                  <input type="file" accept="application/json" hidden onChange={(event) => void handleImportFile(event.target.files?.[0] ?? null)} />
+                </label>
+                {importStatus ? <p className="status-banner is-success">{importStatus}</p> : null}
+              </div>
             ) : (
               <p className="muted">Exports are limited to adult household members.</p>
             )}
 
             {!confirmReset && canResetApp ? (
-              <button className="btn btn-ghost btn-danger-ghost" type="button" onClick={() => setConfirmReset(true)}>
-                Reset all app data
-              </button>
+              <div className="stack-sm">
+                <button className="btn btn-ghost" type="button" onClick={() => void onResetData('soft')}>
+                  Soft reset session
+                </button>
+                <button className="btn btn-ghost" type="button" onClick={() => void onResetData('calendar')}>
+                  Reset calendar only
+                </button>
+                <button className="btn btn-ghost" type="button" onClick={() => void onResetData('money')}>
+                  Reset money only
+                </button>
+                <button className="btn btn-ghost btn-danger-ghost" type="button" onClick={() => setConfirmReset(true)}>
+                  Hard reset all app data
+                </button>
+              </div>
             ) : canResetApp ? (
               <div className="stack-sm">
-                <p className="error-banner">This will erase all your data. Are you sure?</p>
+                <p className="error-banner">Hard reset clears this household from the device and server-backed calendar connections. Are you sure?</p>
                 <div className="task-composer-actions">
                   <button className="btn btn-ghost" type="button" onClick={() => setConfirmReset(false)}>Cancel</button>
                   <button
                     className="btn btn-primary"
                     type="button"
                     onClick={() => {
-                      onResetData();
+                      void onResetData('hard');
                       setConfirmReset(false);
-                      setSettingsStatus('App data reset.');
+                      setSettingsStatus('Hard reset completed.');
                     }}
                   >
-                    Yes, reset
+                    Yes, hard reset
                   </button>
                 </div>
               </div>
             ) : (
               <p className="muted">Full reset is reserved for the household parent profile.</p>
             )}
+
+            {auditLog.length ? (
+              <div className="stack-sm">
+                <h4>Safety log</h4>
+                {auditLog.slice(0, 5).map((entry) => (
+                  <div key={entry.id} className="reminder-card">
+                    <span>{entry.type}</span>
+                    <strong>{entry.detail}</strong>
+                    <small>{new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(entry.createdAtIso))}</small>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {settingsStatus ? <p className="status-banner is-success">{settingsStatus}</p> : null}
           </div>

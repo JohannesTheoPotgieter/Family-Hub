@@ -17,6 +17,8 @@ import {
   getDueSoonBills,
   getMonthBills,
   getMonthIncomeTotal,
+  getSafeToSpend,
+  getSavingsProgress,
   getMonthSpendingTotal,
   getMonthTransactions,
   getNetBalance,
@@ -54,6 +56,8 @@ type Props = {
   onDeleteBill: (id: string) => void;
   onDeleteTransaction: (id: string) => void;
   onDeleteBudget: (id: string) => void;
+  moneyVisibility?: 'full' | 'summary' | 'hidden';
+  canEditMoney?: boolean;
 };
 
 type MoneyTab = 'overview' | 'bills' | 'transactions' | 'budget';
@@ -98,7 +102,9 @@ export const MoneyScreen = ({
   onUpdateBudget,
   onDeleteBill,
   onDeleteTransaction,
-  onDeleteBudget
+  onDeleteBudget,
+  moneyVisibility = 'full',
+  canEditMoney = true
 }: Props) => {
   const { push } = useToasts();
   const [tab, setTab] = useState<MoneyTab>('overview');
@@ -138,6 +144,8 @@ export const MoneyScreen = ({
   const recentActivity = getRecentMoneyActivity(money);
   const cashflowPlan = useMemo(() => getCashflowPlan(money, month), [money, month]);
   const nextBillToPay = dueSoonBills[0] ?? overdueBills[0] ?? null;
+  const safeToSpend = getSafeToSpend(money, month);
+  const savingsGoals = getSavingsProgress(money);
 
   const spendCategories = useMemo(
     () => Array.from(new Set([...DEFAULT_MONEY_CATEGORIES, 'Other', ...money.bills.map((bill) => bill.category), ...money.transactions.filter((tx) => tx.kind === 'outflow').map((tx) => tx.category)])),
@@ -411,13 +419,13 @@ export const MoneyScreen = ({
                     <span className="route-pill">Linked: {bill.linkedTransactionId ? 'Yes' : 'No'}</span>
                     {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')}>Mark paid</button> : null}
                     <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)}>Duplicate</button>
-                    <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false }); setBillComposerOpen(true); }}>Edit</button>
+                    <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false, recurrence: bill.recurrence ?? 'none' }); setBillComposerOpen(true); }}>Edit</button>
                     <button className="money-inline-btn" onClick={() => onDeleteBill(bill.id)}>Delete</button>
                   </div>
                 </article>
               ))}
             </div>
-          ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)}>Add bill</button>} />}
+          ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)} disabled={!canEditMoney}>Add bill</button>} />}
         </FoundationBlock>
       ) : null}
       {tab === 'transactions' ? (
@@ -485,7 +493,7 @@ export const MoneyScreen = ({
                 </article>
               ))}
             </div>
-          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one or import a statement to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)}>Add transaction</button>} />}
+          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one or import a statement to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)} disabled={!canEditMoney}>Add transaction</button>} />}
         </FoundationBlock>
       ) : null}
       {tab === 'budget' ? (

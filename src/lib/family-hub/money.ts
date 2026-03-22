@@ -144,6 +144,28 @@ export const getCashflowPlan = (state: MoneyState, monthIsoYYYYMM: string): Cash
   };
 };
 
+
+export const getSafeToSpend = (state: MoneyState, monthIsoYYYYMM: string) => {
+  const cashflow = getCashflowPlan(state, monthIsoYYYYMM);
+  return Math.max(0, cashflow.openingBalanceCents + cashflow.recordedIncomeCents - cashflow.recordedOutflowCents - cashflow.scheduledBillOutflowCents);
+};
+
+export const getSavingsProgress = (state: MoneyState) =>
+  (state.savingsGoals ?? []).map((goal) => ({
+    ...goal,
+    remainingCents: Math.max(0, goal.targetCents - goal.savedCents),
+    progress: goal.targetCents > 0 ? Math.min(1, goal.savedCents / goal.targetCents) : 0
+  }));
+
+export const getRecurringBillTemplates = (state: MoneyState) => state.bills.filter((bill) => bill.recurrence === 'monthly');
+
+export const getMoneyHealthSummary = (state: MoneyState, monthIsoYYYYMM: string) => ({
+  safeToSpendCents: getSafeToSpend(state, monthIsoYYYYMM),
+  overdueCount: getOverdueBills(getMonthBills(state, monthIsoYYYYMM)).length,
+  dueSoonCount: getDueSoonBills(getMonthBills(state, monthIsoYYYYMM)).length,
+  savingsGoalCount: (state.savingsGoals ?? []).length
+});
+
 export const getTopSpendingCategory = (state: MoneyState, monthIsoYYYYMM: string) => {
   const grouped = getMonthTransactions(state, monthIsoYYYYMM).reduce<Record<string, number>>((acc, tx) => {
     if (tx.kind === 'outflow') acc[tx.category] = (acc[tx.category] ?? 0) + tx.amountCents;
@@ -221,19 +243,20 @@ export type BudgetSaveResult = {
 };
 
 export const findBudgetForMonthCategory = (state: MoneyState, monthIsoYYYYMM: string, category: string) =>
-  state.budgets.find((budget) => budget.monthIsoYYYYMM === monthIsoYYYYMM && budget.category === category);
+  state.budgets.find((budget) => budget.monthIsoYYYYMM === monthIsoYYYYMM && budget.category.toLowerCase() === category.toLowerCase());
 
 export const saveBudget = (state: MoneyState, budget: Omit<Budget, 'id'>): BudgetSaveResult => {
-  const existing = findBudgetForMonthCategory(state, budget.monthIsoYYYYMM, budget.category);
+  const normalizedBudget = { ...budget, category: budget.category.trim() };
+  const existing = findBudgetForMonthCategory(state, normalizedBudget.monthIsoYYYYMM, normalizedBudget.category);
   if (existing) {
     return {
-      state: { ...state, budgets: state.budgets.map((item) => item.id === existing.id ? { ...item, limitCents: budget.limitCents } : item) },
+      state: { ...state, budgets: state.budgets.map((item) => item.id === existing.id ? { ...item, limitCents: normalizedBudget.limitCents, category: normalizedBudget.category } : item) },
       action: 'updated',
       budgetId: existing.id
     };
   }
 
-  const created = { id: `budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...budget };
+  const created = { id: `budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...normalizedBudget };
   return {
     state: { ...state, budgets: [created, ...state.budgets] },
     action: 'created',
