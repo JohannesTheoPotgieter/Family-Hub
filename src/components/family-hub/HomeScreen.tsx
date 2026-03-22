@@ -126,6 +126,7 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
   const net = getNetBalance(state.money, monthKey);
   const safeToSpend = getSafeToSpend(state.money, monthKey);
   const priorityTone = getPriorityTone(overdueBills, openTasks);
+  const isFirstDay = openTasks.length === 0 && state.money.bills.length === 0 && state.money.transactions.length === 0 && state.calendar.events.length === 0 && state.calendar.externalEvents.length === 0;
 
   const priorityCards = [
     {
@@ -153,6 +154,30 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
     }
   ];
 
+  const primaryAction = overdueBills.length > 0
+    ? {
+        eyebrow: 'Fix first',
+        title: `Pay ${overdueBills[0]?.title ?? 'overdue bill'}`,
+        detail: overdueBills.length === 1 ? 'There is one overdue bill needing attention right now.' : `${overdueBills.length} overdue bills need attention right now.`
+      }
+    : todayTasks[0]
+      ? {
+          eyebrow: 'Do next',
+          title: todayTasks[0].title,
+          detail: `${todayTasks[0].ownerId === activeUser?.id ? 'Your next task is ready.' : 'A family task is due next.'} Stay on top of the day with one quick win.`
+        }
+      : upcomingEvents[0]
+        ? {
+            eyebrow: 'Coming up',
+            title: upcomingEvents[0].title,
+            detail: 'Your next calendar item is lined up so everyone stays in sync.'
+          }
+        : {
+            eyebrow: 'A calm day',
+            title: 'Nothing urgent right now',
+            detail: 'Add a plan, task, or bill when you want the dashboard to guide the day.'
+          };
+
   return (
     <section className="home-screen stack-lg">
       <header className={`glass-panel today-hero today-hero--${priorityTone}`}>
@@ -171,9 +196,9 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
         </div>
         <div className="today-hero-content">
           <div>
-            <p className="eyebrow">Home command center</p>
+            <p className="eyebrow">{primaryAction.eyebrow}</p>
             <h2>{getGreeting()}{activeUser ? `, ${activeUser.name}` : ''}</h2>
-            <p className="muted">A warm snapshot of what matters today, what is next, and where the household may need help.</p>
+            <p className="muted">{primaryAction.detail}</p>
           </div>
           <div className="today-family-summary">
             <div>
@@ -190,15 +215,19 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
             </div>
           </div>
         </div>
+        <div className="primary-focus-card">
+          <p className="metric-label">Main thing to handle</p>
+          <h3>{primaryAction.title}</h3>
+        </div>
       </header>
 
       <section className="dashboard-section stack-sm" aria-label="Today priorities">
         <div className="section-head section-head--tight">
           <div>
             <p className="eyebrow">Today’s priorities</p>
-            <h3>Keep the day running smoothly</h3>
+            <h3>Start here, then move on</h3>
           </div>
-          <span className="section-tip">Clarity first</span>
+          <span className="section-tip">Top 3 only</span>
         </div>
         <div className="dashboard-priority-grid">
           {priorityCards.map((item) => (
@@ -209,6 +238,37 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
           ))}
         </div>
       </section>
+
+      {isFirstDay ? (
+        <section className="glass-panel stack-sm" aria-label="Getting started">
+          <div className="section-head section-head--tight">
+            <div>
+              <p className="eyebrow">Start here</p>
+              <h3>Set up your first family rhythm</h3>
+            </div>
+          </div>
+          <div className="mini-list">
+            <div className="mini-list-item">
+              <div>
+                <p className="mini-list-title">Add one family event</p>
+                <p className="muted">Start with something simple like school pickup, movie night, or an appointment.</p>
+              </div>
+            </div>
+            <div className="mini-list-item">
+              <div>
+                <p className="mini-list-title">Add one shared task</p>
+                <p className="muted">A quick chore helps the dashboard become useful immediately.</p>
+              </div>
+            </div>
+            <div className="mini-list-item">
+              <div>
+                <p className="mini-list-title">Add one bill or transaction</p>
+                <p className="muted">Even one money item makes the planner and summaries much clearer.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="dashboard-snapshot-grid" aria-label="Household snapshots">
         <article className="glass-panel dashboard-card stack-sm" data-testid="metric-open-tasks">
@@ -271,23 +331,6 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
         </article>
       </section>
 
-      <section className="glass-panel stack-sm" aria-label="Daily plan insights">
-        <div className="section-head section-head--tight">
-          <div>
-            <p className="eyebrow">Helpful nudges</p>
-            <h3>Three ways to keep today smooth</h3>
-          </div>
-        </div>
-        <div className="foundation-grid">
-          {insights.map((insight) => (
-            <article key={insight.title} className={`metric-card metric-card--${insight.tone}`}>
-              <p className="metric-label">{insight.title}</p>
-              <p className="muted">{insight.detail}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="dashboard-snapshot-grid" aria-label="Upcoming plans and family summary">
         <article className="glass-panel home-events-panel stack-sm">
           <div className="section-head section-head--tight">
@@ -342,10 +385,30 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
             })}
           </div>
 
+          {state.activeUserId && activeCompanion ? <p className="muted">{activeCompanion.name} is level {activeCompanion.level} with {activeCompanion.coins} coins and {activeCompanion.stars} stars.</p> : null}
+        </section>
+      </section>
+
+      <section className="glass-panel stack-sm" aria-label="Daily plan insights">
+        <div className="section-head section-head--tight">
+          <div>
+            <p className="eyebrow">Helpful nudges</p>
+            <h3>Three small reminders</h3>
+          </div>
+          {state.activeUserId && activeCompanion ? <span className="section-tip">Companion check-in</span> : null}
+        </div>
+        <div className="foundation-grid">
+          {insights.slice(0, 2).map((insight) => (
+            <article key={insight.title} className={`metric-card metric-card--${insight.tone}`}>
+              <p className="metric-label">{insight.title}</p>
+              <p className="muted">{insight.detail}</p>
+            </article>
+          ))}
           {state.activeUserId && activeCompanion ? (
-            <>
+            <article className="metric-card metric-card--celebrate stack-sm">
+              <p className="metric-label">Companion quick care</p>
               <div className="quick-actions" role="group" aria-label="Quick companion care actions">
-                {(['feed', 'play', 'rest', 'story'] as const).map((action) => (
+                {(['feed', 'play', 'rest'] as const).map((action) => (
                   <button
                     key={action}
                     className="chip-action"
@@ -360,13 +423,15 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
                   </button>
                 ))}
               </div>
-              {reaction ? <p className="status-banner is-success">{reaction}</p> : null}
-              <p className="muted">
-                {activeCompanion.name} is level {activeCompanion.level} with {activeCompanion.coins} coins and {activeCompanion.stars} stars.
-              </p>
-            </>
+              {reaction ? <p className="status-banner is-success">{reaction}</p> : <p className="muted">Keep the home companion happy without leaving the dashboard.</p>}
+            </article>
+          ) : insights[2] ? (
+            <article className={`metric-card metric-card--${insights[2].tone}`}>
+              <p className="metric-label">{insights[2].title}</p>
+              <p className="muted">{insights[2].detail}</p>
+            </article>
           ) : null}
-        </section>
+        </div>
       </section>
     </section>
   );

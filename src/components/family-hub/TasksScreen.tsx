@@ -14,7 +14,7 @@ type TasksScreenProps = {
   canEditTasks?: boolean;
 };
 
-type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done';
+type GroupKey = 'overdue' | 'today' | 'upcoming' | 'waiting' | 'done';
 type FilterKey = 'mine' | 'shared' | 'all';
 
 type DraftTask = {
@@ -51,7 +51,8 @@ const belongsToGroup = (task: TaskItem, group: GroupKey) => {
   if (!task.dueDate) return group === 'waiting';
   const due = startOfDay(new Date(task.dueDate));
   const today = startOfDay(new Date());
-  if (group === 'today') return due <= today;
+  if (group === 'overdue') return due < today;
+  if (group === 'today') return due.getTime() === today.getTime();
   if (group === 'upcoming') return due > today;
   return false;
 };
@@ -63,7 +64,7 @@ const filterMatch = (task: TaskItem, filter: FilterKey, activeUserId: UserId) =>
 };
 
 const GROUP_ICONS: Record<GroupKey, string> = {
-  today: '🔥', upcoming: '📅', waiting: '⏳', done: '✅'
+  overdue: '🚨', today: '🔥', upcoming: '📅', waiting: '⏳', done: '✅'
 };
 
 export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onUpdateTask, onToggleTask, canAssignTasks = true, canEditTasks = true }: TasksScreenProps) => {
@@ -73,6 +74,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
   const [draft, setDraft] = useState<DraftTask>(() => createEmptyDraft(activeUserId));
 
   const groups = useMemo(() => [
+    { key: 'overdue' as const, label: 'Overdue', hint: 'Clear these first' },
     { key: 'today' as const, label: 'Today', hint: 'Do these first' },
     { key: 'upcoming' as const, label: 'Upcoming', hint: 'Next up' },
     { key: 'waiting' as const, label: 'Waiting', hint: 'No date yet' },
@@ -93,7 +95,8 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
   );
 
   const stats = useMemo(() => ({
-    today: filteredTasks.filter((task) => belongsToGroup(task, 'today')).length,
+    today: filteredTasks.filter((task) => belongsToGroup(task, 'today') || belongsToGroup(task, 'overdue')).length,
+    overdue: filteredTasks.filter((task) => belongsToGroup(task, 'overdue')).length,
     upcoming: filteredTasks.filter((task) => belongsToGroup(task, 'upcoming')).length,
     shared: filteredTasks.filter((task) => task.shared && !task.completed).length,
     done: filteredTasks.filter((task) => task.completed).length
@@ -154,16 +157,16 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
             <strong>{stats.today}</strong>
           </article>
           <article className="tasks-summary-card">
+            <span className="metric-label">Overdue</span>
+            <strong>{stats.overdue}</strong>
+          </article>
+          <article className="tasks-summary-card">
             <span className="metric-label">Upcoming</span>
             <strong>{stats.upcoming}</strong>
           </article>
           <article className="tasks-summary-card">
             <span className="metric-label">Shared</span>
             <strong>{stats.shared}</strong>
-          </article>
-          <article className="tasks-summary-card">
-            <span className="metric-label">Done</span>
-            <strong>{stats.done}</strong>
           </article>
         </div>
         <div className="tasks-filter-row" role="tablist" aria-label="Task filters">
@@ -323,7 +326,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
                         type="button"
                         onClick={() => openEdit(task)}
                       >
-                        Edit
+                        Open
                       </button>
                     )}
                   </article>

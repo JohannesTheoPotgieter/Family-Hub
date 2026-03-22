@@ -18,6 +18,13 @@ const USER_COLORS: Record<string, string> = {
   oliver: 'profile-chip--green'
 };
 
+const USER_EMOJI: Record<string, string> = {
+  johannes: '🧑',
+  nicole: '👩',
+  ella: '🧒',
+  oliver: '🧑‍🎓'
+};
+
 const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 
 export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartSetup, onRestartSetup }: Props) => {
@@ -89,14 +96,14 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
               }}
               type="button"
             >
-              <span className="profile-avatar">👤</span>
+              <span className="profile-avatar">{USER_EMOJI[user.id] ?? '👤'}</span>
               <span className="profile-name">{user.name}</span>
             </button>
           ))}
         </div>
 
         <div className="future-profiles">
-          <p className="future-label">Household access</p>
+          <p className="future-label">Household profiles</p>
           <div className="future-grid">
             {activeUsers.map((user) => (
               <div key={user.id} className="future-chip">
@@ -154,12 +161,12 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                 }}
                 disabled={isUnlocking}
               >
-                I forgot my PIN
+                I need help with my PIN
               </button>
             ) : (
               <div className="stack-sm">
                 <p className="error-banner">
-                  This clears {users.find((user) => user.id === selectedUser)?.name}&apos;s saved PIN and setup data on this device so you can start again.
+                  This removes {users.find((user) => user.id === selectedUser)?.name}&apos;s PIN and on-device setup on this device only. Use it only when an adult wants to start that profile again from scratch.
                 </p>
                 <div className="task-composer-actions">
                   <button className="btn btn-ghost" type="button" onClick={() => setConfirmResetProfile(false)}>
@@ -174,7 +181,7 @@ export const LoginScreen = ({ users, hasPin, isSetupComplete, onUnlock, onStartS
                       setPin('');
                     }}
                   >
-                    Reset and restart setup
+                    Clear PIN and restart
                   </button>
                 </div>
               </div>
