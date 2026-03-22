@@ -587,6 +587,12 @@ button:focus-visible {
 }
 .today-hero-top { display: flex; justify-content: flex-end; }
 .today-avatar-badge { font-size: 1.5rem; }
+.primary-focus-card {
+  border: 1px solid rgba(115, 145, 208, 0.24);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.6);
+}
 .today-hero h2 {
   font-size: 1.45rem;
   line-height: 1.18;
@@ -1072,7 +1078,7 @@ button:focus-visible {
   gap: 6px;
 }
 .more-tab {
-  min-height: 56px;
+  min-height: 88px;
   border-radius: 16px;
   border: 1px solid rgba(132,159,213,0.3);
   background: rgba(255,255,255,0.62);
@@ -1095,6 +1101,7 @@ button:focus-visible {
 }
 .more-tab-icon { font-size: 1.2rem; line-height: 1; }
 .more-tab-label { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.more-tab-blurb { font-size: 0.68rem; line-height: 1.2; opacity: 0.78; max-width: 10ch; }
 
 /* Avatar squad */
 .avatar-squad-grid { display: grid; gap: 10px; }
@@ -2587,6 +2594,12 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
   flex-wrap: wrap;
 }
 
+.calendar-primary-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 720px) {
   .dashboard-priority-grid,
   .dashboard-snapshot-grid,
@@ -2603,5 +2616,42 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
   .money-overview-highlight {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .money-kpi-grid,
+  .statement-import-summary,
+  .statement-preview-controls,
+  .statement-mapping-grid,
+  .money-editor-grid,
+  .setup-row,
+  .foundation-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .more-tab-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .task-item,
+  .money-transaction-item,
+  .money-payment-head {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .money-transaction-item {
+    justify-content: stretch;
+  }
+
+  .task-composer-actions,
+  .calendar-primary-actions,
+  .wizard-actions,
+  .wizard-next-group {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .bottom-nav {
+    width: min(calc(100% - 16px), 520px);
   }
 }

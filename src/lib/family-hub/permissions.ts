@@ -76,5 +76,5 @@ export const getTabsForUser = (user: User | null, settings?: Pick<AppSettings, '
 
 export const getRoleLabel = (user: User) => {
   const roleKey = getRoleKey(user);
-  return roleKey === 'parent_admin' ? 'Parent admin' : roleKey === 'adult_editor' ? 'Adult editor' : 'Child limited';
+  return roleKey === 'parent_admin' ? 'Parent' : roleKey === 'adult_editor' ? 'Adult' : 'Kid';
 };

@@ -338,7 +338,7 @@ export const MoneyScreen = ({
   return (
     <section className="stack-md">
       <ScreenIntro title="Money Manager" subtitle="See what is coming in, what is going out, and what needs attention without needing accounting jargon." badge="Money" />
-      {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Detailed bills, transactions, budgets, and edits stay hidden.</div> : null}
+      {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Parents can unlock the full money workspace from Family settings when needed.</div> : null}
       <MoneyFilterBar options={visibleTabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
       {tab === 'overview' ? (
         <>
@@ -368,9 +368,9 @@ export const MoneyScreen = ({
             <div className="money-payment-meta">
               <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Add bill</button>
               <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }} disabled={!accessModel.canManage}>Add transaction</button>
-              <button className="btn btn-ghost" onClick={openStatementImport} disabled={!accessModel.canManage}>Import statement</button>
               <button className="btn btn-ghost" disabled={!nextBillToPay || !accessModel.canManage} onClick={() => { if (nextBillToPay) onMarkBillPaid(nextBillToPay.id, 'manual-proof'); }}>Mark next bill paid</button>
             </div>
+            <p className="muted">Need more detail? Open Transactions for advanced imports and line-by-line history.</p>
           </FoundationBlock>
           <FoundationBlock title="Cashflow planner" description="See what balance you likely land on after recorded transactions and unpaid bills.">
             <div className="money-kpi-grid">
@@ -428,6 +428,13 @@ export const MoneyScreen = ({
                 <select value={billDraft.category} onChange={(event) => setBillDraft((prev) => ({ ...prev, category: event.target.value }))}>{spendCategories.map((category) => <option key={category}>{category}</option>)}</select>
                 <input value={billDraft.notes} placeholder="Notes (optional)" onChange={(event) => setBillDraft((prev) => ({ ...prev, notes: event.target.value }))} />
               </div>
+              <label className="task-field">
+                <span>Repeats</span>
+                <select value={billDraft.recurrence} onChange={(event) => setBillDraft((prev) => ({ ...prev, recurrence: event.target.value as 'none' | 'monthly' }))}>
+                  <option value="none">One time</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </label>
               <label className="task-shared-toggle"><input type="checkbox" checked={billDraft.autoCreateTransaction} onChange={(event) => setBillDraft((prev) => ({ ...prev, autoCreateTransaction: event.target.checked }))} />Auto-create transaction when paid</label>
               <button className="btn btn-primary" onClick={saveBill}>{billEditId ? 'Save changes' : 'Save bill'}</button>
             </article>
@@ -445,8 +452,8 @@ export const MoneyScreen = ({
                   </div>
                   <div className="money-payment-meta">
                     <BillStatusBadge dueDateIso={bill.dueDateIso} paid={bill.paid} />
-                    <span className="route-pill">Proof: {bill.proofFileName ?? 'Not attached'}</span>
-                    <span className="route-pill">Linked: {bill.linkedTransactionId ? 'Yes' : 'No'}</span>
+                    {bill.recurrence === 'monthly' ? <span className="route-pill">Repeats monthly</span> : null}
+                    {bill.notes ? <span className="route-pill">{bill.notes}</span> : null}
                     {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')} disabled={!accessModel.canManage}>Mark paid</button> : null}
                     <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)} disabled={!accessModel.canManage}>Duplicate</button>
                     <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false, recurrence: bill.recurrence ?? 'none' }); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Edit</button>
@@ -476,7 +483,7 @@ export const MoneyScreen = ({
                 setTransactionComposerOpen(true);
               }
             }} disabled={!accessModel.canManage}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
-            <button className="btn btn-ghost" onClick={openStatementImport} disabled={!accessModel.canManage}>Import statement</button>
+            <button className="btn btn-ghost" onClick={openStatementImport} disabled={!accessModel.canManage}>Advanced import</button>
             <input value={search} placeholder="Search title" onChange={(event) => setSearch(event.target.value)} />
           </div>
           <div className="money-editor-grid">
@@ -504,14 +511,13 @@ export const MoneyScreen = ({
                 <article key={tx.id} className="money-transaction-item">
                   <div>
                     <p className="money-activity-title">{tx.title}</p>
-                    <p className="muted">{formatDueDateFriendly(tx.dateIso)} · {tx.category} {tx.notes ? `· ${tx.notes}` : ''}</p>
-                    <div className="money-payment-meta">
-                      <span className={`item-tag ${tx.kind === 'inflow' ? 'is-soft' : 'is-task'}`}>{tx.kind === 'inflow' ? 'Inflow' : 'Outflow'}</span>
-                      <span className="route-pill">Source: {sourceLabel(tx.source)}</span>
-                    </div>
+                    <p className="muted">{formatDueDateFriendly(tx.dateIso)} · {tx.category}</p>
+                    {tx.notes ? <p className="muted">{tx.notes}</p> : null}
                   </div>
                   <div className="money-activity-meta">
+                    <span className={`item-tag ${tx.kind === 'inflow' ? 'is-soft' : 'is-task'}`}>{tx.kind === 'inflow' ? 'Money in' : 'Money out'}</span>
                     <AmountText amountCents={tx.amountCents} kind={tx.kind === 'inflow' ? 'positive' : 'negative'} />
+                    <span className="muted">{sourceLabel(tx.source)}</span>
                     {tx.source !== 'bill' ? <button className="money-inline-btn" onClick={() => {
                       setTxEditId(tx.id);
                       setTxDraft({ title: tx.title, amount: String(tx.amountCents / 100), dateIso: tx.dateIso, kind: tx.kind, category: tx.category, notes: tx.notes ?? '' });
@@ -571,7 +577,7 @@ export const MoneyScreen = ({
           {statementInfo ? <div className="status-banner is-success">{statementInfo}</div> : null}
           {!statementParsed ? (
             <article className="money-editor stack-sm">
-              <p className="muted">Upload a CSV, TSV, OFX, or QFX export from your bank. We will map it into transactions, update cashflow automatically, and ask you to review anything that looks uncertain.</p>
+              <p className="muted">Advanced tool: upload a CSV, TSV, OFX, or QFX export from your bank. Family Hub will map it into transactions and flag anything that needs review.</p>
               <label className="btn btn-primary money-upload-btn">
                 {statementLoading ? 'Reading statement...' : 'Choose statement file'}
                 <input type="file" accept=".csv,.tsv,.txt,.ofx,.qfx" onChange={(event) => void handleStatementFileChange(event)} />

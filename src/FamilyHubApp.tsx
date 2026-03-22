@@ -14,7 +14,7 @@ const tabTitles: Record<string, { label: string; subtitle: string }> = {
   Calendar: { label: 'Calendar', subtitle: 'Plans, appointments, and shared schedules.' },
   Tasks: { label: 'Tasks', subtitle: 'Simple chores and to-dos for the household.' },
   Money: { label: 'Money', subtitle: 'Bills, budget, and day-to-day spending clarity.' },
-  More: { label: 'Family', subtitle: 'People, settings, places, and family tools.' }
+  More: { label: 'Family', subtitle: 'People, reminders, settings, and shared household tools.' }
 };
 
 const AppInner = () => {
@@ -51,10 +51,9 @@ const AppInner = () => {
             <p className="eyebrow">Family Hub</p>
             <h1>{activeTabMeta.label}</h1>
             <p className="muted">{activeTabMeta.subtitle}</p>
-            <p className="topbar-meta">{activeUser?.name} · {permissionBundle.roleKey?.replace('_', ' ')}</p>
+            <p className="topbar-meta">{activeUser?.name} · Household profile</p>
           </div>
           <div className="app-topbar-actions">
-            {activeTab !== 'More' ? <button type="button" className="btn btn-ghost" onClick={() => controller.setActiveTab('More')}>Family tools</button> : null}
             <button type="button" className="btn btn-ghost" onClick={controller.lockApp}>Lock</button>
           </div>
         </header>

@@ -15,8 +15,8 @@ const stepTitle: Record<WizardStep, string> = {
   1: 'Welcome',
   2: 'Create your PIN',
   3: 'Confirm your PIN',
-  4: 'Your finances',
-  5: 'Recurring & budget',
+  4: 'Optional money basics',
+  5: 'Optional monthly plan',
   6: 'All done!'
 };
 
@@ -148,7 +148,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
             <div className="setup-summary stack-sm">
               <p className="setup-welcome-emoji">👋</p>
               <p className="muted">You are setting up Family Hub as <strong>{user.name}</strong>.</p>
-              <p className="muted">This takes about 2 minutes. You can change everything later.</p>
+              <p className="muted">Start with a PIN now. Money details are optional and can be added later after you are inside the app.</p>
             </div>
           )}
 
@@ -208,7 +208,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
           {step === 4 && (
             <div className="stack-sm">
-              <p className="muted">Optional — you can skip this and set it up later in Money.</p>
+              <p className="muted">Optional — skip this if you just want to enter the app first and set up money later.</p>
               <label className="task-field">
                 <span>Opening bank balance (R)</span>
                 <input
@@ -234,7 +234,7 @@ export const SetupWizard = ({ user, onFinish }: Props) => {
 
           {step === 5 && (
             <div className="stack-sm">
-              <p className="muted">Optional — add recurring bills and budget categories. We will place them straight into Money for this month.</p>
+              <p className="muted">Optional — add recurring bills and budget categories now, or leave this for later once the family is already set up.</p>
 
               <h4>Monthly recurring payments</h4>
               {recurringRows.map((row) => (

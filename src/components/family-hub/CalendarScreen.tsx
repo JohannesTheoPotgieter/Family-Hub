@@ -41,7 +41,7 @@ const addDays = (date: Date, n: number) => {
 
 const providerLabel: Record<Filter, string> = {
   all: 'All',
-  internal: 'Internal',
+  internal: 'Family events',
   google: 'Google',
   microsoft: 'Outlook',
   ics: 'ICS'
@@ -274,14 +274,14 @@ export const CalendarScreen = ({
         <div className="calendar-hero-top">
           <div>
             <p className="eyebrow">Family Planner</p>
-            <h2>One clear calendar for school runs, appointments, and family time.</h2>
+            <h2>See family plans first, then connect outside calendars only when you need to.</h2>
           </div>
           <span className="route-pill">{agendaSummary.connectedSources} connected source{agendaSummary.connectedSources === 1 ? '' : 's'}</span>
         </div>
         <p className="muted">
           {mode === 'server'
-            ? 'Server mode lets you connect live calendar providers and ICS subscriptions.'
-            : 'Local mode opens secure sign-in when available, and only falls back to a temporary browser-only token if needed.'}
+            ? 'Add family events here and, if you want, connect Google, Outlook, or an ICS calendar from the connection area below.'
+            : 'Add family events here first. If calendar sign-in is set up on this device, you can also connect outside calendars below.'}
         </p>
         <div className="calendar-summary-grid">
           <article className="calendar-summary-card">
@@ -299,6 +299,23 @@ export const CalendarScreen = ({
         </div>
         {statusError ? <div className="error-banner">{statusError}</div> : null}
         {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
+        <div className="calendar-primary-actions">
+          <Button onClick={() => setOpen(true)} disabled={!canEditCalendar}>Add family event</Button>
+          <Button variant="ghost" onClick={() => void syncAllProviders()} disabled={!agendaSummary.connectedSources}>
+            {syncingProvider ? 'Syncing…' : 'Refresh connected calendars'}
+          </Button>
+        </div>
+      </Card>
+
+      <Card className="stack-sm">
+        <div className="section-head section-head--tight">
+          <div>
+            <p className="eyebrow">Outside calendars</p>
+            <h3>Connections</h3>
+          </div>
+          <span className="section-tip">Optional</span>
+        </div>
+        <p className="muted">Connect Google, Outlook, or an ICS feed if you want outside events to appear in the family planner. Advanced setup stays here so the day-to-day planner stays simple.</p>
         <div className="chip-list calendar-action-row">
           {providers.map((provider) => (
             <Chip key={provider.provider} onClick={() => void connectProvider(provider.provider)} aria-label={`Connect ${provider.label}`}>
@@ -311,16 +328,6 @@ export const CalendarScreen = ({
           <Chip onClick={() => void (lastSyncedProvider ? syncProvider(lastSyncedProvider) : push('Connect a calendar first.'))}>
             {syncingProvider ? 'Syncing…' : 'Refresh'}
           </Chip>
-        </div>
-      </Card>
-
-      <Card className="stack-sm">
-        <div className="section-head section-head--tight">
-          <div>
-            <p className="eyebrow">Connections</p>
-            <h3>Connected sources</h3>
-          </div>
-          <span className="section-tip">Live and manual calendars</span>
         </div>
         {providerSummaries.some((item) => item.calendarCount > 0 || item.eventCount > 0) ? providerSummaries.map((summary) => (
           <article key={summary.provider} className="event-card calendar-source-card">
@@ -381,14 +388,14 @@ export const CalendarScreen = ({
         )}
       </Card>
 
-      <Button className="floating-add" onClick={() => setOpen(true)} aria-label="Add internal event">+</Button>
-
       <Modal open={open} title="Add to family plan" onClose={() => setOpen(false)}>
+        <p className="muted">Add a simple family event that everyone can see at a glance.</p>
         <input value={title} placeholder="Movie night, picnic, dentist..." onChange={(event) => setTitle(event.target.value)} />
         <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         <div className="task-composer-actions">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
           <Button
+            disabled={!canEditCalendar}
             onClick={() => {
               if (!title.trim()) return;
               onAddEvent({ title: title.trim(), date, kind: 'event' });
@@ -409,26 +416,27 @@ export const CalendarScreen = ({
       >
         {connectModalProvider === 'ics' ? (
           <>
+            <p className="muted">Paste the share link for a public ICS calendar and give it a friendly name.</p>
             <input value={icsName} placeholder="Calendar name" onChange={(event) => setIcsName(event.target.value)} />
             <input value={icsUrl} placeholder="https://example.com/family.ics" onChange={(event) => setIcsUrl(event.target.value)} />
           </>
         ) : (
           <div className="stack-sm calendar-connect-sheet">
             <div className="calendar-connect-intro">
-              <strong>The easiest way is secure sign-in.</strong>
-              <p className="muted">Family Hub can open the normal {providerLabel[connectModalProvider as Filter] ?? 'calendar'} sign-in flow when the optional calendar server is set up.</p>
+              <strong>The easiest option is secure sign-in.</strong>
+              <p className="muted">Family Hub can open the usual {providerLabel[connectModalProvider as Filter] ?? 'calendar'} sign-in flow when calendar sign-in has been set up for this device.</p>
             </div>
             {connectModalMode === 'oauth' ? (
               <div className="stack-sm calendar-connect-option">
                 <Button onClick={() => void connectProvider(connectModalProvider as Provider)}>Continue with secure sign-in</Button>
                 <button className="btn btn-ghost calendar-link-button" type="button" onClick={() => setConnectModalMode('manual')}>
-                  Use a token instead
+                  Use advanced setup
                 </button>
-                <p className="muted">If secure sign-in is not configured on this device yet, you can still use a temporary read-only token as a fallback.</p>
+                <p className="muted">If sign-in is not set up on this device yet, an adult can use the advanced setup option instead.</p>
               </div>
             ) : (
               <div className="stack-sm calendar-connect-option">
-                <p className="muted">Fallback option: paste a temporary read-only access token for this browser session.</p>
+                <p className="muted">Advanced setup: paste a temporary read-only access token for this browser session.</p>
                 <textarea
                   value={accessToken}
                   placeholder="Paste access token"
@@ -444,7 +452,7 @@ export const CalendarScreen = ({
         )}
         <div className="task-composer-actions">
           <Button variant="ghost" onClick={() => setConnectModalProvider(null)}>Cancel</Button>
-          <Button onClick={() => void submitConnectModal()}>{connectModalProvider === 'ics' ? 'Connect' : connectModalMode === 'manual' ? 'Use token' : 'Done'}</Button>
+          <Button onClick={() => void submitConnectModal()}>{connectModalProvider === 'ics' ? 'Connect calendar' : connectModalMode === 'manual' ? 'Use advanced setup' : 'Continue'}</Button>
         </div>
       </Modal>
     </section>

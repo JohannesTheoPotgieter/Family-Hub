@@ -38,12 +38,12 @@ type Props = {
   onRestartSetup: (userId: UserId) => void;
 };
 
-const SECTION_TABS: { key: MoreSection; icon: string; label: string }[] = [
-  { key: 'reminders', icon: '🔔', label: 'Alerts' },
-  { key: 'avatars', icon: '🐾', label: 'Companions' },
-  { key: 'places', icon: '📍', label: 'Places' },
-  { key: 'users', icon: '👥', label: 'Family' },
-  { key: 'settings', icon: '⚙️', label: 'Settings' }
+const SECTION_TABS: { key: MoreSection; icon: string; label: string; blurb: string }[] = [
+  { key: 'reminders', icon: '🔔', label: 'Alerts', blurb: 'See what needs attention soon.' },
+  { key: 'users', icon: '👥', label: 'Family', blurb: 'Profiles, roles, and setup status.' },
+  { key: 'avatars', icon: '🐾', label: 'Companion', blurb: 'Stars, streaks, and care.' },
+  { key: 'places', icon: '📍', label: 'Outings', blurb: 'Ideas for family adventures later.' },
+  { key: 'settings', icon: '⚙️', label: 'Settings', blurb: 'Security, backup, and reset tools.' }
 ];
 
 const speciesEmoji: Record<string, string> = {
@@ -180,7 +180,7 @@ export const MoreScreen = ({
       <ScreenIntro badge="Family" title="Family space" subtitle="See your household at a glance, manage people and places, and handle settings with clear safety guardrails." />
 
       <div className="more-tab-row">
-        {SECTION_TABS.map(({ key, icon, label }) => (
+        {SECTION_TABS.map(({ key, icon, label, blurb }) => (
           <button
             key={key}
             className={`more-tab ${section === key ? 'is-selected' : ''}`}
@@ -190,6 +190,7 @@ export const MoreScreen = ({
           >
             <span className="more-tab-icon">{icon}</span>
             <span className="more-tab-label">{label}</span>
+            <span className="more-tab-blurb">{blurb}</span>
           </button>
         ))}
       </div>
@@ -233,11 +234,11 @@ export const MoreScreen = ({
       )}
 
       {section === 'places' && (
-        <FoundationBlock title="📍 Places to visit" description="Track places your family wants to go.">
+        <FoundationBlock title="📍 Outing ideas" description="Keep a lightweight list of places your family may want to try later.">
           {places.length === 0 ? (
             <div className="tasks-empty stack">
               <p className="tasks-empty-emoji">🗺</p>
-              <p className="muted">No places saved yet. Add somewhere you would love to visit.</p>
+              <p className="muted">No outing ideas saved yet. Add somewhere your family would love to try later.</p>
             </div>
           ) : null}
           <div className="places-list">
@@ -264,7 +265,7 @@ export const MoreScreen = ({
           </div>
 
           <div className="place-form glass-panel stack-sm">
-            <h4>Add a place</h4>
+            <h4>Add an outing idea</h4>
             <input
               value={placeName}
               placeholder="Place name (e.g. Cape Point)"
@@ -314,11 +315,11 @@ export const MoreScreen = ({
                 setPlaceCost('');
                 setPlaceNotes('');
                 setPlaceStatus('planning');
-                setPlaceAdded('Place saved.');
+                setPlaceAdded('Outing idea saved.');
                 window.setTimeout(() => setPlaceAdded(''), 2000);
               }}
             >
-              Add place
+              Save outing idea
             </button>
           </div>
         </FoundationBlock>
@@ -360,8 +361,23 @@ export const MoreScreen = ({
         <FoundationBlock title="⚙️ Settings" description="Data management and PIN security with clearer family safety guardrails.">
           <div className="stack-sm">
             <p className="route-pill">
-              Signed in permissions: {activeUser ? getRoleLabel(activeUser) : 'Guest'} · {canManageSensitiveData ? 'Sensitive tools enabled' : 'Sensitive tools limited'}
+              Signed in access: {activeUser ? getRoleLabel(activeUser) : 'Guest'} · {canManageSensitiveData ? 'Backups available' : 'Backups limited'}
             </p>
+            <label className="task-field">
+              <span>Family tone</span>
+              <select
+                defaultValue="balanced"
+                onChange={(event) => {
+                  onUpdateSettings({ familyMode: event.target.value as AppSettings['familyMode'] });
+                  setSettingsStatus('Family tone preference saved.');
+                }}
+              >
+                <option value="gentle">Gentle</option>
+                <option value="balanced">Balanced</option>
+                <option value="focused">Focused</option>
+              </select>
+            </label>
+            {settingsStatus ? <p className="status-banner is-success">{settingsStatus}</p> : null}
             <h4>Change your PIN</h4>
             <input
               className="pin-input"
@@ -476,13 +492,13 @@ export const MoreScreen = ({
             {!confirmReset && canResetApp ? (
               <div className="stack-sm">
                 <button className="btn btn-ghost" type="button" onClick={() => void onResetData('soft')}>
-                  Soft reset session
+                  Reset current session
                 </button>
                 <button className="btn btn-ghost" type="button" onClick={() => void onResetData('calendar')}>
-                  Reset calendar only
+                  Reset calendar data
                 </button>
                 <button className="btn btn-ghost" type="button" onClick={() => void onResetData('money')}>
-                  Reset money only
+                  Reset money data
                 </button>
                 <button className="btn btn-ghost btn-danger-ghost" type="button" onClick={() => setConfirmReset(true)}>
                   Hard reset all app data
