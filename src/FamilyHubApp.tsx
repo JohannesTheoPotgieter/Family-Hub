@@ -7,17 +7,13 @@ import { MoreScreen } from './components/family-hub/MoreScreen';
 import { SetupWizard } from './components/family-hub/SetupWizard';
 import { TasksScreen } from './components/family-hub/TasksScreen';
 import { TABS, type Tab, type UserId } from './lib/family-hub/constants';
-import { markBillPaidWithOptionalTransaction } from './lib/family-hub/money';
 import { encodePin, verifyPin } from './lib/family-hub/pin';
-import { clearSetupArtifactsForUser, clearState, createInitialState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
+import { clearState, loadState, saveState, seedMoneyFromSetupProfiles, type FamilyHubState } from './lib/family-hub/storage';
 import { getTabsForUser, hasPermission } from './lib/family-hub/permissions';
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
-import { applyActivityReward, applyChallengeContribution, applyFamilyChallengeReward } from './domain/avatarRewards';
-import type { AvatarActivityEvent } from './domain/avatarTypes';
 import { resetCalendarConnections } from './integrations/calendar';
-import type { NormalizedCalendar, NormalizedEvent, Provider } from './domain/calendar';
-import { toDedupeKey } from './domain/calendar';
+import { addBill, addInternalCalendarEvent, addTask, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, rewardActivity, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction, addTransaction } from './lib/family-hub/appState';
 
 const tabIcons: Record<Tab, string> = {
   Home: '🏡',
@@ -25,36 +21,6 @@ const tabIcons: Record<Tab, string> = {
   Tasks: '✅',
   Money: '💰',
   More: '⋯'
-};
-
-const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
-  if (state.avatarGame.familyChallenges.length) return state;
-  const now = new Date();
-  const start = now.toISOString();
-  const weekEnd = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 7).toISOString();
-  const monthEnd = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 30).toISOString();
-  const challenges = [
-    { id: 'challenge-tasks-week', title: 'Together task burst', description: 'Finish 5 household tasks together this week.', category: 'tasks', cadence: 'weekly', targetType: 'count', targetValue: 5, progressValue: 0, rewardType: 'room_unlock', rewardPayload: 'moon-lamp', startsAtIso: start, endsAtIso: weekEnd, completed: false, participantUserIds: state.users.map((user) => user.id) },
-    { id: 'challenge-plan-month', title: 'Cozy planning circle', description: 'Plan 3 family events this month.', category: 'planning', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'stars', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((user) => user.id) },
-    { id: 'challenge-money-month', title: 'Bright budget month', description: 'Pay bills on time as a family this month.', category: 'money', cadence: 'monthly', targetType: 'count', targetValue: 3, progressValue: 0, rewardType: 'family_theme', rewardPayload: 'cozy-study', startsAtIso: start, endsAtIso: monthEnd, completed: false, participantUserIds: state.users.map((user) => user.id) }
-  ] as FamilyHubState['avatarGame']['familyChallenges'];
-  const progressById = Object.fromEntries(challenges.map((item) => [item.id, { challengeId: item.id, contributionsByUserId: {}, contributingActionIds: [] }]));
-  return { ...state, avatarGame: { ...state.avatarGame, familyChallenges: challenges, challengeProgressById: progressById } };
-};
-
-const getInitialTab = (): Tab => {
-  const raw = new URLSearchParams(window.location.search).get('tab');
-  return raw && TABS.includes(raw as Tab) ? (raw as Tab) : 'Home';
-};
-
-const dedupeExternalEvents = (events: NormalizedEvent[]) => {
-  const seen = new Set<string>();
-  return events.filter((event) => {
-    const key = toDedupeKey(event);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 };
 
 const AppInner = () => {
@@ -67,7 +33,7 @@ const AppInner = () => {
     () => state.users.find((user) => user.id === state.activeUserId) ?? null,
     [state.users, state.activeUserId]
   );
-  const visibleTabs = useMemo(() => getTabsForUser(activeUser), [activeUser]);
+  const visibleTabs = useMemo(() => getTabsForUser(activeUser, state.settings), [activeUser, state.settings]);
 
   useEffect(() => {
     if (!visibleTabs.includes(activeTab)) {
@@ -75,100 +41,8 @@ const AppInner = () => {
     }
   }, [activeTab, visibleTabs]);
 
-  const rewardActivity = (current: FamilyHubState, event: AvatarActivityEvent) => {
-    const currentCompanion = current.avatarGame.companionsByUserId[event.userId];
-    if (!currentCompanion) return current;
-    const nextCompanion = applyActivityReward(currentCompanion, event);
-    let nextGame = {
-      ...current.avatarGame,
-      companionsByUserId: { ...current.avatarGame.companionsByUserId, [event.userId]: nextCompanion },
-      rewardHistory: [{ id: event.actionId, label: event.type, atIso: event.createdAtIso, userId: event.userId }, ...current.avatarGame.rewardHistory].slice(0, 80)
-    };
-
-    const eligible = nextGame.familyChallenges.filter((challenge) => !challenge.completed && (
-      (event.type.includes('TASK') && challenge.category === 'tasks') ||
-      (event.type.includes('CALENDAR') && challenge.category === 'planning') ||
-      (event.type.includes('PAYMENT') && challenge.category === 'money') ||
-      challenge.category === 'mixed'
-    ));
-
-    for (const challenge of eligible) {
-      const progress = nextGame.challengeProgressById[challenge.id] ?? { challengeId: challenge.id, contributionsByUserId: {}, contributingActionIds: [] };
-      const applied = applyChallengeContribution(challenge, progress, event.userId, event.actionId, 1);
-      nextGame = {
-        ...nextGame,
-        familyChallenges: nextGame.familyChallenges.map((item) => (item.id === challenge.id ? applied.challenge : item)),
-        challengeProgressById: { ...nextGame.challengeProgressById, [challenge.id]: applied.progress }
-      };
-      if (applied.completedNow) {
-        nextGame = {
-          ...nextGame,
-          familyRewardTrack: applyFamilyChallengeReward(nextGame.familyRewardTrack, applied.challenge),
-          rewardHistory: [{ id: `${challenge.id}-done`, label: `Challenge complete: ${challenge.title}`, atIso: new Date().toISOString(), userId: event.userId }, ...nextGame.rewardHistory]
-        };
-      }
-    }
-
-    return { ...current, avatarGame: nextGame };
-  };
-
-  const onCareAction = (userId: UserId, action: 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story') => {
-    setState((current) => {
-      const companion = current.avatarGame.companionsByUserId[userId];
-      if (!companion) return current;
-      const buff: Partial<typeof companion.stats> =
-        action === 'feed'
-          ? { hunger: 16, happiness: 4 }
-          : action === 'play'
-            ? { happiness: 12, energy: -6 }
-            : action === 'clean'
-              ? { hygiene: 18, calm: 4 }
-              : action === 'rest'
-                ? { energy: 22, calm: 8 }
-                : action === 'pet'
-                  ? { happiness: 6 }
-                  : { calm: 10, happiness: 6 };
-
-      const stats = {
-        ...companion.stats,
-        energy: Math.max(0, Math.min(100, companion.stats.energy + (buff.energy ?? 0))),
-        hunger: Math.max(0, Math.min(100, companion.stats.hunger + (buff.hunger ?? 0))),
-        hygiene: Math.max(0, Math.min(100, companion.stats.hygiene + (buff.hygiene ?? 0))),
-        happiness: Math.max(0, Math.min(100, companion.stats.happiness + (buff.happiness ?? 0))),
-        confidence: Math.max(0, Math.min(100, companion.stats.confidence + (buff.confidence ?? 0))),
-        calm: Math.max(0, Math.min(100, companion.stats.calm + (buff.calm ?? 0))),
-        health: companion.stats.health
-      };
-
-      return {
-        ...current,
-        avatarGame: {
-          ...current.avatarGame,
-          companionsByUserId: {
-            ...current.avatarGame.companionsByUserId,
-            [userId]: { ...companion, stats, lastInteractionAtIso: new Date().toISOString() }
-          }
-        }
-      };
-    });
-  };
-
-  const buildRestartSetupState = (current: FamilyHubState, userId: UserId, startSetup: boolean): FamilyHubState => {
-    const nextPins = { ...current.userPins };
-    delete nextPins[userId];
-
-    const nextProfiles = { ...current.userSetupProfiles };
-    delete nextProfiles[userId];
-
-    return {
-      ...current,
-      activeUserId: startSetup ? null : current.activeUserId,
-      setupUserId: startSetup ? userId : current.setupUserId,
-      userPins: nextPins,
-      userSetupProfiles: nextProfiles,
-      setupCompleted: { ...current.setupCompleted, [userId]: false },
-      money: clearSetupArtifactsForUser(current.money, userId)
-    };
+  const onCareAction = (userId: Parameters<typeof applyCareAction>[1], action: Parameters<typeof applyCareAction>[2]) => {
+    setState((current) => applyCareAction(current, userId, action));
   };
 
   const restartSetup = (userId: UserId) => {
@@ -185,38 +59,15 @@ const AppInner = () => {
     clearState();
     void resetCalendarConnections();
     setActiveTab('Home');
-    setState(ensureChallenges(createInitialState()));
+    setState(createResetState());
   };
 
-  const applyCalendarSync = (provider: Provider, calendars: NormalizedCalendar[], events: NormalizedEvent[]) => {
-    setState((current) => ({
-      ...current,
-      calendar: {
-        ...current.calendar,
-        calendars: [...current.calendar.calendars.filter((item) => item.provider !== provider), ...calendars],
-        externalEvents: dedupeExternalEvents([...current.calendar.externalEvents.filter((item) => item.provider !== provider), ...events]),
-        lastSyncedAtIsoByProvider: {
-          ...current.calendar.lastSyncedAtIsoByProvider,
-          [provider]: new Date().toISOString()
-        }
-      }
-    }));
+  const applyCalendarSync = (provider: Parameters<typeof applyCalendarSyncState>[1], calendars: Parameters<typeof applyCalendarSyncState>[2], events: Parameters<typeof applyCalendarSyncState>[3]) => {
+    setState((current) => applyCalendarSyncState(current, provider, calendars, events));
   };
 
-  const clearCalendarProviderData = (provider: Provider) => {
-    setState((current) => {
-      const nextLastSynced = { ...current.calendar.lastSyncedAtIsoByProvider };
-      delete nextLastSynced[provider];
-      return {
-        ...current,
-        calendar: {
-          ...current.calendar,
-          calendars: current.calendar.calendars.filter((item) => item.provider !== provider),
-          externalEvents: current.calendar.externalEvents.filter((item) => item.provider !== provider),
-          lastSyncedAtIsoByProvider: nextLastSynced
-        }
-      };
-    });
+  const clearCalendarProviderData = (provider: Parameters<typeof clearCalendarProviderDataState>[1]) => {
+    setState((current) => clearCalendarProviderDataState(current, provider));
   };
 
   if (state.setupUserId) {
@@ -281,14 +132,7 @@ const AppInner = () => {
               externalEvents={state.calendar.externalEvents}
               calendars={state.calendar.calendars}
               lastSyncedAtIsoByProvider={state.calendar.lastSyncedAtIsoByProvider}
-              onAddEvent={(event) =>
-                setState((current) =>
-                  rewardActivity(
-                    { ...current, calendar: { ...current.calendar, events: [{ id: `event-${Date.now()}`, ...event }, ...current.calendar.events] } },
-                    { type: 'APP_CALENDAR_EVENT_ADDED', userId: current.activeUserId!, actionId: `event-${event.title}-${event.date}`, createdAtIso: new Date().toISOString() }
-                  )
-                )
-              }
+              onAddEvent={(event) => setState((current) => addInternalCalendarEvent(current, event))}
               onSyncProvider={applyCalendarSync}
               onClearProviderData={clearCalendarProviderData}
             />
@@ -296,69 +140,29 @@ const AppInner = () => {
           {activeTab === 'Tasks' && (
             <TasksScreen
               tasks={state.tasks.items}
+              users={state.users}
               activeUserId={state.activeUserId}
-              onAddTask={(task) => setState((current) => ({ ...current, tasks: { items: [{ id: `task-${Date.now()}`, completed: false, ...task }, ...current.tasks.items] } }))}
-              onUpdateTask={(id, update) =>
-                setState((current) => ({ ...current, tasks: { items: current.tasks.items.map((task) => (task.id === id ? { ...task, ...update } : task)) } }))
-              }
-              onToggleTask={(id) =>
-                setState((current) => {
-                  const task = current.tasks.items.find((item) => item.id === id);
-                  const next = { ...current, tasks: { items: current.tasks.items.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)) } };
-                  if (!task || task.completed) return next;
-                  return rewardActivity(next, { type: task.shared ? 'APP_SHARED_TASK_COMPLETED' : 'APP_TASK_COMPLETED', userId: current.activeUserId!, actionId: `task-${id}`, createdAtIso: new Date().toISOString() });
-                })
-              }
+              onAddTask={(task) => setState((current) => addTask(current, task))}
+              onUpdateTask={(id, update) => setState((current) => updateTask(current, id, update))}
+              onToggleTask={(id) => setState((current) => toggleTask(current, id))}
             />
           )}
           {activeTab === 'Money' && (
             <MoneyScreen
               money={state.money}
-              onAddBill={(bill) =>
-                setState((current) => ({
-                  ...current,
-                  money: { ...current.money, bills: [{ id: `bill-${Date.now()}`, paid: false, ...bill }, ...current.money.bills] }
-                }))
-              }
-              onUpdateBill={(id, update) =>
-                setState((current) => ({ ...current, money: { ...current.money, bills: current.money.bills.map((bill) => (bill.id === id ? { ...bill, ...update } : bill)) } }))
-              }
-              onDuplicateBill={(id) =>
-                setState((current) => {
-                  const bill = current.money.bills.find((item) => item.id === id);
-                  if (!bill) return current;
-                  return { ...current, money: { ...current.money, bills: [{ ...bill, id: `bill-${Date.now()}`, paid: false, paidDateIso: undefined, linkedTransactionId: undefined }, ...current.money.bills] } };
-                })
-              }
-              onMarkBillPaid={(id, proofFileName) =>
-                setState((current) => {
-                  const bill = current.money.bills.find((item) => item.id === id);
-                  const next = { ...current, money: markBillPaidWithOptionalTransaction(current.money, id, proofFileName) };
-                  if (!bill) return next;
-                  const dueSoon = bill.dueDateIso >= new Date().toISOString().slice(0, 10);
-                  return rewardActivity(next, { type: dueSoon ? 'APP_PAYMENT_PAID_ON_TIME' : 'APP_PAYMENT_MARKED_PAID', userId: current.activeUserId!, actionId: `bill-${id}-paid`, createdAtIso: new Date().toISOString() });
-                })
-              }
-              onAddTransaction={(transaction) => setState((current) => ({ ...current, money: { ...current.money, transactions: [{ id: `tx-${Date.now()}`, ...transaction }, ...current.money.transactions] } }))}
-              onImportTransactions={(transactions) =>
-                setState((current) => ({
-                  ...current,
-                  money: {
-                    ...current.money,
-                    transactions: [
-                      ...transactions.map((transaction, index) => ({ id: `tx-${Date.now()}-${index}-${crypto.randomUUID()}`, ...transaction })),
-                      ...current.money.transactions
-                    ]
-                  }
-                }))
-              }
-              onUpdateTransaction={(id, transaction) =>
-                setState((current) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } }))
-              }
-              onAddBudget={(budget) => setState((current) => ({ ...current, money: { ...current.money, budgets: [{ id: `budget-${Date.now()}`, ...budget }, ...current.money.budgets] } }))}
+              onAddBill={(bill) => setState((current) => addBill(current, bill))}
+              onUpdateBill={(id, update) => setState((current) => updateBill(current, id, update))}
+              onDuplicateBill={(id) => setState((current) => duplicateBill(current, id))}
+              onMarkBillPaid={(id, proofFileName) => setState((current) => markBillPaid(current, id, proofFileName))}
+              onAddTransaction={(transaction) => setState((current) => addTransaction(current, transaction))}
+              onImportTransactions={(transactions) => setState((current) => importTransactions(current, transactions))}
+              onUpdateTransaction={(id, transaction) => setState((current) => updateTransaction(current, id, transaction))}
+              onAddBudget={(budget) => setState((current) => saveMoneyBudget(current, budget).state)}
               onUpdateBudget={(id, update) =>
                 setState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.map((budget) => (budget.id === id ? { ...budget, ...update } : budget)) } }))
               }
+              onDeleteBill={(id) => setState((current) => deleteBill(current, id))}
+              onDeleteTransaction={(id) => setState((current) => deleteTransaction(current, id))}
               onDeleteBudget={(id) => setState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id) } }))}
             />
           )}
@@ -368,7 +172,7 @@ const AppInner = () => {
               activeUser={activeUser}
               activeUserId={state.activeUserId}
               canManageSensitiveData={hasPermission(activeUser, 'data_export')}
-              canResetApp={hasPermission(activeUser, 'data_reset')}
+              canResetApp={hasPermission(activeUser, 'data_reset', state.settings)}
               canRestartSetup={hasPermission(activeUser, 'setup_restart')}
               avatarGame={state.avatarGame}
               setupCompleted={state.setupCompleted}

@@ -25,6 +25,7 @@ import {
   getTopSpendingCategory,
   toCents
 } from '../../lib/family-hub/money';
+import { buildBillPayload, buildBudgetPayload, buildTransactionPayload, createEmptyBillDraft, createEmptyTransactionDraft } from '../../lib/family-hub/moneyActions';
 import { getTodayIso } from '../../lib/family-hub/date';
 import {
   buildStatementImportNote,
@@ -50,6 +51,8 @@ type Props = {
   onImportTransactions: (transactions: Array<Omit<MoneyTransaction, 'id'>>) => void;
   onAddBudget: (budget: Omit<Budget, 'id'>) => void;
   onUpdateBudget: (id: string, update: Partial<Budget>) => void;
+  onDeleteBill: (id: string) => void;
+  onDeleteTransaction: (id: string) => void;
   onDeleteBudget: (id: string) => void;
 };
 
@@ -75,7 +78,6 @@ const statementColumnLabels: Array<{ role: StatementColumnRole; label: string; o
 ];
 
 const sourceLabel = (source: MoneyTransaction['source']) => source === 'bill' ? 'Linked bill' : source === 'statement' ? 'Statement import' : 'Manual';
-const freshTxDraft = (): { title: string; amount: string; dateIso: string; kind: 'inflow' | 'outflow'; category: string; notes: string } => ({ title: '', amount: '', dateIso: getTodayIso(), kind: 'outflow', category: 'Other', notes: '' });
 const getPreviousMonth = (monthIsoYYYYMM: string) => {
   const [year, month] = monthIsoYYYYMM.split('-').map(Number);
   const previous = new Date(year, (month ?? 1) - 2, 1);
@@ -94,6 +96,8 @@ export const MoneyScreen = ({
   onImportTransactions,
   onAddBudget,
   onUpdateBudget,
+  onDeleteBill,
+  onDeleteTransaction,
   onDeleteBudget
 }: Props) => {
   const { push } = useToasts();
@@ -105,9 +109,10 @@ export const MoneyScreen = ({
   const [search, setSearch] = useState('');
   const [txKindFilter, setTxKindFilter] = useState<'all' | 'inflow' | 'outflow'>('all');
   const [txCategoryFilter, setTxCategoryFilter] = useState('all');
-  const [billDraft, setBillDraft] = useState({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
+  const [billDraft, setBillDraft] = useState(createEmptyBillDraft);
+  const [billEditId, setBillEditId] = useState<string | null>(null);
   const [txEditId, setTxEditId] = useState<string | null>(null);
-  const [txDraft, setTxDraft] = useState(freshTxDraft);
+  const [txDraft, setTxDraft] = useState(createEmptyTransactionDraft);
   const [txDraftSource, setTxDraftSource] = useState<'manual' | 'statement'>('manual');
   const [budgetDraft, setBudgetDraft] = useState({ category: 'Groceries', amount: '' });
   const [statementModalOpen, setStatementModalOpen] = useState(false);
@@ -205,23 +210,24 @@ export const MoneyScreen = ({
 
   const resetTransactionComposer = () => {
     setTxEditId(null);
-    setTxDraft(freshTxDraft());
+    setTxDraft(createEmptyTransactionDraft());
     setTxDraftSource('manual');
     setTransactionComposerOpen(false);
   };
 
   const saveBill = () => {
-    const amount = Number.parseFloat(billDraft.amount.replace(',', '.'));
-    if (!billDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
-    onAddBill({ title: billDraft.title.trim(), amountCents: toCents(amount), dueDateIso: billDraft.dueDateIso, category: billDraft.category, notes: billDraft.notes.trim() || undefined, autoCreateTransaction: billDraft.autoCreateTransaction });
-    setBillDraft({ title: '', amount: '', dueDateIso: getTodayIso(), category: 'Utilities', notes: '', autoCreateTransaction: true });
+    const payload = buildBillPayload(billDraft);
+    if (!payload) return;
+    if (billEditId) onUpdateBill(billEditId, payload);
+    else onAddBill(payload);
+    setBillDraft(createEmptyBillDraft());
+    setBillEditId(null);
     setBillComposerOpen(false);
   };
 
   const saveTransaction = () => {
-    const amount = Number.parseFloat(txDraft.amount.replace(',', '.'));
-    if (!txDraft.title.trim() || Number.isNaN(amount) || amount <= 0) return;
-    const payload = { title: txDraft.title.trim(), amountCents: toCents(amount), dateIso: txDraft.dateIso, kind: txDraft.kind, category: txDraft.category, notes: txDraft.notes.trim() || undefined, source: txDraftSource } satisfies Omit<MoneyTransaction, 'id'>;
+    const payload = buildTransactionPayload(txDraft, txDraftSource);
+    if (!payload) return;
     if (txEditId) onUpdateTransaction(txEditId, payload);
     else onAddTransaction(payload);
     resetTransactionComposer();
@@ -323,7 +329,7 @@ export const MoneyScreen = ({
             </div>
             <div className="money-payment-meta">
               <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }}>Add bill</button>
-              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(freshTxDraft()); setTxDraftSource('manual'); }}>Add transaction</button>
+              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }}>Add transaction</button>
               <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
               <button className="btn btn-ghost" disabled={!nextBillToPay} onClick={() => { if (nextBillToPay) onMarkBillPaid(nextBillToPay.id, 'manual-proof'); }}>Mark next bill paid</button>
             </div>
@@ -366,7 +372,7 @@ export const MoneyScreen = ({
         <FoundationBlock title="Bills" description="Plan upcoming bills and confirm what is paid.">
           <MoneySectionHeader title="Bill planner" subtitle="Group by status and filter your month." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
           <div className="money-payment-meta">
-            <button className="btn btn-primary" onClick={() => setBillComposerOpen((open) => !open)}>{billComposerOpen ? 'Close' : 'Add bill'}</button>
+            <button className="btn btn-primary" onClick={() => { if (billComposerOpen) { setBillComposerOpen(false); setBillEditId(null); setBillDraft(createEmptyBillDraft()); } else { setBillComposerOpen(true); } }}>{billComposerOpen ? 'Close' : 'Add bill'}</button>
             <MoneyFilterBar
               options={[{ key: 'all', label: 'All' }, { key: 'overdue', label: `Overdue (${overdueBills.length})` }, { key: 'dueSoon', label: `Due soon (${dueSoonBills.length})` }, { key: 'upcoming', label: `Upcoming (${upcomingBills.length})` }, { key: 'paid', label: `Paid (${paidBills.length})` }]}
               value={billStatusFilter}
@@ -385,7 +391,7 @@ export const MoneyScreen = ({
                 <input value={billDraft.notes} placeholder="Notes (optional)" onChange={(event) => setBillDraft((prev) => ({ ...prev, notes: event.target.value }))} />
               </div>
               <label className="task-shared-toggle"><input type="checkbox" checked={billDraft.autoCreateTransaction} onChange={(event) => setBillDraft((prev) => ({ ...prev, autoCreateTransaction: event.target.checked }))} />Auto-create transaction when paid</label>
-              <button className="btn btn-primary" onClick={saveBill}>Save bill</button>
+              <button className="btn btn-primary" onClick={saveBill}>{billEditId ? 'Save changes' : 'Save bill'}</button>
             </article>
           ) : null}
           {visibleBills.length ? (
@@ -405,7 +411,8 @@ export const MoneyScreen = ({
                     <span className="route-pill">Linked: {bill.linkedTransactionId ? 'Yes' : 'No'}</span>
                     {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')}>Mark paid</button> : null}
                     <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)}>Duplicate</button>
-                    <button className="money-inline-btn" onClick={() => onUpdateBill(bill.id, { notes: `Updated ${todayIso}` })}>Add note</button>
+                    <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false }); setBillComposerOpen(true); }}>Edit</button>
+                    <button className="money-inline-btn" onClick={() => onDeleteBill(bill.id)}>Delete</button>
                   </div>
                 </article>
               ))}
@@ -426,7 +433,7 @@ export const MoneyScreen = ({
               if (transactionComposerOpen) resetTransactionComposer();
               else {
                 setTxEditId(null);
-                setTxDraft(freshTxDraft());
+                setTxDraft(createEmptyTransactionDraft());
                 setTxDraftSource('manual');
                 setTransactionComposerOpen(true);
               }
@@ -473,6 +480,7 @@ export const MoneyScreen = ({
                       setTxDraftSource(tx.source === 'statement' ? 'statement' : 'manual');
                       setTransactionComposerOpen(true);
                     }}>Edit</button> : null}
+                    <button className="money-inline-btn" onClick={() => onDeleteTransaction(tx.id)}>Delete</button>
                   </div>
                 </article>
               ))}
@@ -494,11 +502,9 @@ export const MoneyScreen = ({
               <input value={budgetDraft.amount} inputMode="decimal" placeholder="Budget amount" onChange={(event) => setBudgetDraft((prev) => ({ ...prev, amount: event.target.value }))} />
             </div>
             <button className="btn btn-primary" onClick={() => {
-              const amount = Number.parseFloat(budgetDraft.amount.replace(',', '.'));
-              if (Number.isNaN(amount) || amount < 0) return;
-              const existing = money.budgets.find((budget) => budget.monthIsoYYYYMM === month && budget.category === budgetDraft.category);
-              if (existing) onUpdateBudget(existing.id, { limitCents: toCents(amount) });
-              else onAddBudget({ monthIsoYYYYMM: month, category: budgetDraft.category, limitCents: toCents(amount) });
+              const payload = buildBudgetPayload(budgetDraft, month);
+              if (!payload) return;
+              onAddBudget(payload);
               setBudgetDraft((prev) => ({ ...prev, amount: '' }));
             }}>Save budget</button>
           </article>
@@ -523,6 +529,7 @@ export const MoneyScreen = ({
       <Modal open={statementModalOpen} title="Import bank statement" onClose={() => setStatementModalOpen(false)}>
         <div className="stack-sm">
           {statementError ? <div className="error-banner">{statementError}</div> : null}
+          {statementLoading ? <div className="status-banner">Reading and validating your statement…</div> : null}
           {statementInfo ? <div className="status-banner is-success">{statementInfo}</div> : null}
           {!statementParsed ? (
             <article className="money-editor stack-sm">

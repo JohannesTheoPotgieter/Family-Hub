@@ -156,8 +156,9 @@ const icsClient: CalendarProviderClient = {
       body: JSON.stringify({ name: input.name.trim(), url: input.url.trim() })
     });
   },
-  async disconnect() {
-    return;
+  async disconnect(calendarId?: string) {
+    if (mode !== 'server' || !calendarId) return;
+    await readJson(buildApiUrl(`/api/ics/subscriptions/${encodeURIComponent(calendarId)}`), { method: 'DELETE' });
   },
   async listCalendars() {
     if (mode !== 'server') return [];
@@ -181,7 +182,7 @@ export const resetCalendarConnections = async () => {
   clearCalendarClientStorage();
   if (mode !== 'server') return;
   try {
-    await fetch(buildApiUrl('/api/reset'), { method: 'POST' });
+    await fetch(buildApiUrl('/api/reset'), { method: 'POST', headers: { 'Content-Type': 'application/json' } });
   } catch {
     return;
   }

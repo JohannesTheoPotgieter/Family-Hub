@@ -213,3 +213,46 @@ export const getActiveMonth = (state: MoneyState) => {
 
 export const createDefaultBudgetsForMonth = (monthIsoYYYYMM: string): Budget[] =>
   DEFAULT_MONEY_CATEGORIES.map((category) => ({ id: `budget-${category}-${monthIsoYYYYMM}`, monthIsoYYYYMM, category, limitCents: 0 }));
+
+export type BudgetSaveResult = {
+  state: MoneyState;
+  action: 'created' | 'updated';
+  budgetId: string;
+};
+
+export const findBudgetForMonthCategory = (state: MoneyState, monthIsoYYYYMM: string, category: string) =>
+  state.budgets.find((budget) => budget.monthIsoYYYYMM === monthIsoYYYYMM && budget.category === category);
+
+export const saveBudget = (state: MoneyState, budget: Omit<Budget, 'id'>): BudgetSaveResult => {
+  const existing = findBudgetForMonthCategory(state, budget.monthIsoYYYYMM, budget.category);
+  if (existing) {
+    return {
+      state: { ...state, budgets: state.budgets.map((item) => item.id === existing.id ? { ...item, limitCents: budget.limitCents } : item) },
+      action: 'updated',
+      budgetId: existing.id
+    };
+  }
+
+  const created = { id: `budget-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...budget };
+  return {
+    state: { ...state, budgets: [created, ...state.budgets] },
+    action: 'created',
+    budgetId: created.id
+  };
+};
+
+export const deleteBillAndLinkedTransaction = (state: MoneyState, billId: string): MoneyState => {
+  const bill = state.bills.find((item) => item.id === billId);
+  const linkedTransactionId = bill?.linkedTransactionId;
+  return {
+    ...state,
+    bills: state.bills.filter((item) => item.id !== billId),
+    transactions: linkedTransactionId ? state.transactions.filter((tx) => tx.id !== linkedTransactionId) : state.transactions
+  };
+};
+
+export const deleteTransactionAndUnlinkBills = (state: MoneyState, transactionId: string): MoneyState => ({
+  ...state,
+  bills: state.bills.map((bill) => bill.linkedTransactionId === transactionId ? { ...bill, linkedTransactionId: undefined } : bill),
+  transactions: state.transactions.filter((tx) => tx.id !== transactionId)
+});

@@ -66,6 +66,8 @@ export const CalendarScreen = ({
   const [selectedFilter, setFilter] = useState<Filter>('all');
   const [celebrate, setCelebrate] = useState(false);
   const [syncingProvider, setSyncingProvider] = useState<Provider | null>(null);
+  const [busyMessage, setBusyMessage] = useState('');
+  const [statusError, setStatusError] = useState('');
   const [lastSyncedProvider, setLastSyncedProvider] = useState<Provider | null>(null);
   const [connectModalProvider, setConnectModalProvider] = useState<Provider | null>(null);
   const [accessToken, setAccessToken] = useState('');
@@ -113,6 +115,8 @@ export const CalendarScreen = ({
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
     setSyncingProvider(providerId);
+    setBusyMessage(`Syncing ${providerId === 'microsoft' ? 'Outlook' : providerId.toUpperCase()}…`);
+    setStatusError('');
     try {
       const calendars = await client.listCalendars();
       if (!calendars.length) {
@@ -135,8 +139,11 @@ export const CalendarScreen = ({
       setCelebrate(true);
       window.setTimeout(() => setCelebrate(false), 1200);
     } catch (error) {
-      push((error as Error).message);
+      const message = (error as Error).message;
+      setStatusError(message);
+      push(message);
     } finally {
+      setBusyMessage('');
       setSyncingProvider(null);
     }
   };
@@ -183,6 +190,8 @@ export const CalendarScreen = ({
     }
 
     try {
+      setStatusError('');
+      setBusyMessage(`Connecting ${client.label}…`);
       if (mode === 'server') {
         push(`Redirecting to ${client.label} sign-in…`);
       }
@@ -191,7 +200,11 @@ export const CalendarScreen = ({
         await syncProvider(providerId);
       }
     } catch (error) {
-      push((error as Error).message);
+      const message = (error as Error).message;
+      setStatusError(message);
+      push(message);
+    } finally {
+      setBusyMessage('');
     }
   };
 
@@ -200,6 +213,8 @@ export const CalendarScreen = ({
     const client = providers.find((item) => item.provider === connectModalProvider);
     if (!client) return;
     try {
+      setStatusError('');
+      setBusyMessage(connectModalProvider === 'ics' ? 'Adding ICS subscription…' : `Connecting ${client.label}…`);
       if (connectModalProvider === 'ics') {
         await client.connect({ name: icsName, url: icsUrl });
       } else {
@@ -208,7 +223,11 @@ export const CalendarScreen = ({
       setConnectModalProvider(null);
       await syncProvider(connectModalProvider);
     } catch (error) {
-      push((error as Error).message);
+      const message = (error as Error).message;
+      setStatusError(message);
+      push(message);
+    } finally {
+      setBusyMessage('');
     }
   };
 
@@ -237,6 +256,8 @@ export const CalendarScreen = ({
             ? 'Server mode lets you connect live calendar providers and ICS subscriptions.'
             : 'Local mode works with pasted access tokens and keeps them in this browser session only.'}
         </p>
+        {statusError ? <div className="error-banner">{statusError}</div> : null}
+        {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
         <div className="chip-list">
           {providers.map((provider) => (
             <Chip key={provider.provider} onClick={() => void connectProvider(provider.provider)} aria-label={`Connect ${provider.label}`}>
@@ -260,7 +281,9 @@ export const CalendarScreen = ({
             <small>
               {summary.calendarCount} calendar{summary.calendarCount === 1 ? '' : 's'} · {summary.eventCount} event{summary.eventCount === 1 ? '' : 's'} · {formatLastSynced(summary.lastSyncedAtIso)}
             </small>
-            <div className="chip-list">
+            {statusError ? <div className="error-banner">{statusError}</div> : null}
+        {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
+        <div className="chip-list">
               <Chip onClick={() => void syncProvider(summary.provider)}>Sync {summary.label}</Chip>
               {(summary.calendarCount > 0 || summary.eventCount > 0) ? <Chip onClick={() => void clearProvider(summary.provider)}>Clear</Chip> : null}
             </div>

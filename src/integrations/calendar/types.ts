@@ -11,7 +11,7 @@ export interface CalendarProviderClient {
   label: string;
   isAvailable(): boolean;
   connect(input?: CalendarConnectInput): Promise<void>;
-  disconnect(): Promise<void>;
+  disconnect(calendarId?: string): Promise<void>;
   listCalendars(): Promise<NormalizedCalendar[]>;
   listEvents(params: { calendarId: string; timeMinIso: string; timeMaxIso: string }): Promise<NormalizedEvent[]>;
 }
