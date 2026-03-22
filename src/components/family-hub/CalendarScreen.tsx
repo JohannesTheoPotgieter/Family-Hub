@@ -118,10 +118,15 @@ export const CalendarScreen = ({
   const syncProvider = async (providerId: Provider) => {
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
+    if (!canConnectCalendar && (providerId === 'google' || providerId === 'microsoft' || providerId === 'ics')) {
+      setBusyMessage('');
+      setSyncingProvider(null);
+      push('Only adult profiles can connect calendars.');
+      return;
+    }
     setSyncingProvider(providerId);
     setBusyMessage(`Syncing ${providerId === 'microsoft' ? 'Outlook' : providerId.toUpperCase()}…`);
     setStatusError('');
-    if (!canConnectCalendar && (providerId === 'google' || providerId === 'microsoft' || providerId === 'ics')) { push('Only adult profiles can connect calendars.'); return; }
     try {
       const calendars = await client.listCalendars();
       if (!calendars.length) {

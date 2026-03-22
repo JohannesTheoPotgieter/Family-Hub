@@ -3,6 +3,21 @@ import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage.ts';
 
 export const DEFAULT_MONEY_CATEGORIES = ['Groceries', 'Utilities', 'Transport', 'School', 'Entertainment', 'Health', 'Other'];
 
+export type MoneyVisibility = 'full' | 'summary' | 'hidden';
+
+export const getMoneyAccessModel = (moneyVisibility: MoneyVisibility = 'full', canEditMoney = true) => {
+  const hidden = moneyVisibility === 'hidden';
+  const summaryOnly = moneyVisibility === 'summary';
+  const canSeeDetails = moneyVisibility === 'full';
+  return {
+    hidden,
+    summaryOnly,
+    canSeeDetails,
+    canManage: canEditMoney && canSeeDetails,
+    allowedTabs: hidden ? [] : (summaryOnly ? ['overview'] : ['overview', 'bills', 'transactions', 'budget'])
+  } as const;
+};
+
 export type CashflowEntry = {
   id: string;
   title: string;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deleteBillAndLinkedTransaction, findBudgetForMonthCategory, markBillPaidWithOptionalTransaction, saveBudget } from '../lib/family-hub/money.ts';
+import { deleteBillAndLinkedTransaction, findBudgetForMonthCategory, getMoneyAccessModel, markBillPaidWithOptionalTransaction, saveBudget } from '../lib/family-hub/money.ts';
 import { createInitialState, loadState } from '../lib/family-hub/storage.ts';
 
 test('saveBudget prevents duplicate monthly budgets for the same category', () => {
@@ -49,4 +49,19 @@ test('initial state remains backward-compatible for localStorage loading', () =>
     removeItem(key) { this.store.delete(key); }
   };
   assert.equal(loadState().users.length, createInitialState().users.length);
+});
+
+test('money access model keeps child summary users out of detailed money tools', () => {
+  const summaryAccess = getMoneyAccessModel('summary', false);
+  assert.deepEqual(summaryAccess.allowedTabs, ['overview']);
+  assert.equal(summaryAccess.canSeeDetails, false);
+  assert.equal(summaryAccess.canManage, false);
+
+  const hiddenAccess = getMoneyAccessModel('hidden', false);
+  assert.deepEqual(hiddenAccess.allowedTabs, []);
+  assert.equal(hiddenAccess.hidden, true);
+
+  const fullAccess = getMoneyAccessModel('full', true);
+  assert.equal(fullAccess.canSeeDetails, true);
+  assert.equal(fullAccess.canManage, true);
 });

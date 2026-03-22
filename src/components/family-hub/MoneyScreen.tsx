@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { AmountText } from './money/AmountText';
 import { BillStatusBadge } from './money/BillStatusBadge';
@@ -22,6 +22,7 @@ import {
   getMonthSpendingTotal,
   getMonthTransactions,
   getNetBalance,
+  getMoneyAccessModel,
   getOverdueBills,
   getRecentMoneyActivity,
   getTopSpendingCategory,
@@ -128,6 +129,8 @@ export const MoneyScreen = ({
   const [statementParsed, setStatementParsed] = useState<ParsedStatement | null>(null);
   const [statementMapping, setStatementMapping] = useState<StatementColumnMapping>(() => createEmptyStatementColumnMapping());
   const [statementOverrides, setStatementOverrides] = useState<Record<string, StatementRowOverride>>({});
+  const accessModel = useMemo(() => getMoneyAccessModel(moneyVisibility, canEditMoney), [moneyVisibility, canEditMoney]);
+  const visibleTabOptions = useMemo(() => tabOptions.filter((option) => accessModel.allowedTabs.includes(option.key)), [accessModel.allowedTabs]);
 
   const todayIso = getTodayIso();
   const monthBills = useMemo(() => getMonthBills(money, month), [money, month]);
@@ -216,6 +219,12 @@ export const MoneyScreen = ({
   const statementImportableRows = statementReviewRows.filter((row) => row.include && !row.needsFix);
   const statementIncludedNeedsFixCount = statementReviewRows.filter((row) => row.include && row.needsFix).length;
 
+  useEffect(() => {
+    if (!accessModel.allowedTabs.includes(tab)) {
+      setTab((accessModel.allowedTabs[0] ?? 'overview') as MoneyTab);
+    }
+  }, [accessModel.allowedTabs, tab]);
+
   const resetTransactionComposer = () => {
     setTxEditId(null);
     setTxDraft(createEmptyTransactionDraft());
@@ -242,6 +251,7 @@ export const MoneyScreen = ({
   };
 
   const openStatementImport = () => {
+    if (!accessModel.canManage) return;
     setTab('transactions');
     setStatementModalOpen(true);
     setStatementError('');
@@ -290,7 +300,7 @@ export const MoneyScreen = ({
   };
 
   const importStatementRows = () => {
-    if (!statementParsed) return;
+    if (!accessModel.canManage || !statementParsed) return;
     if (!statementImportableRows.length) {
       setStatementError('Select at least one valid row to import.');
       return;
@@ -316,10 +326,20 @@ export const MoneyScreen = ({
     resetStatementImport();
   };
 
+  if (accessModel.hidden) {
+    return (
+      <section className="stack-md">
+        <ScreenIntro title="Money Manager" subtitle="Money details are hidden for this profile right now." badge="Money" />
+        <EmptyStateCard title="Money is hidden" description="A parent can enable a limited summary view for this profile in Settings when needed." />
+      </section>
+    );
+  }
+
   return (
     <section className="stack-md">
       <ScreenIntro title="Money Manager" subtitle="Track bills, money in and money out, and monthly budgets in one clear place." badge="Money" />
-      <MoneyFilterBar options={tabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
+      {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Detailed bills, transactions, budgets, and edits stay hidden.</div> : null}
+      <MoneyFilterBar options={visibleTabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
       {tab === 'overview' ? (
         <>
           <FoundationBlock title="This month at a glance" description="Quick answers for your household money plan.">
@@ -336,10 +356,10 @@ export const MoneyScreen = ({
               <MoneyStatCard label="Left to budget" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
             </div>
             <div className="money-payment-meta">
-              <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }}>Add bill</button>
-              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }}>Add transaction</button>
-              <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
-              <button className="btn btn-ghost" disabled={!nextBillToPay} onClick={() => { if (nextBillToPay) onMarkBillPaid(nextBillToPay.id, 'manual-proof'); }}>Mark next bill paid</button>
+              <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Add bill</button>
+              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }} disabled={!accessModel.canManage}>Add transaction</button>
+              <button className="btn btn-ghost" onClick={openStatementImport} disabled={!accessModel.canManage}>Import statement</button>
+              <button className="btn btn-ghost" disabled={!nextBillToPay || !accessModel.canManage} onClick={() => { if (nextBillToPay) onMarkBillPaid(nextBillToPay.id, 'manual-proof'); }}>Mark next bill paid</button>
             </div>
           </FoundationBlock>
           <FoundationBlock title="Cashflow planner" description="See what balance you likely land on after recorded transactions and unpaid bills.">
@@ -349,7 +369,7 @@ export const MoneyScreen = ({
               <MoneyStatCard label="Bills still due" value={<AmountText amountCents={cashflowPlan.scheduledBillOutflowCents} kind="negative" />} />
               <MoneyStatCard label="Projected closing" value={<AmountText amountCents={cashflowPlan.projectedClosingBalanceCents} kind={cashflowPlan.projectedClosingBalanceCents >= 0 ? 'positive' : 'negative'} />} />
             </div>
-            {cashflowPlan.entries.length ? (
+            {cashflowPlan.entries.length && accessModel.canSeeDetails ? (
               <div className="stack-sm">
                 {cashflowPlan.entries.slice(0, 6).map((entry) => (
                   <article key={entry.id} className="money-transaction-item">
@@ -365,14 +385,14 @@ export const MoneyScreen = ({
                   </article>
                 ))}
               </div>
-            ) : <EmptyStateCard title="No cashflow items yet" description="Add income, bills, or statement imports to generate a month-by-month forecast." />}
+            ) : <EmptyStateCard title={accessModel.summaryOnly ? 'Detailed cashflow is hidden' : 'No cashflow items yet'} description={accessModel.summaryOnly ? 'This profile can still use the summary cards above without seeing line-by-line money activity.' : 'Add income, bills, or statement imports to generate a month-by-month forecast.'} />}
           </FoundationBlock>
           <FoundationBlock title="What needs attention" description={`Overdue: ${overdueBills.length} · Due soon: ${dueSoonBills.length} · Over budget categories: ${budgetStatus.overBudgetCount}`}>
-            {recentActivity.length ? (
+            {recentActivity.length && accessModel.canSeeDetails ? (
               <div className="stack-sm">
                 {recentActivity.map((activity) => <article key={activity.id} className="money-activity-item"><span>{activity.title}</span><AmountText amountCents={Math.abs(activity.amountCents)} kind={activity.amountCents >= 0 ? 'positive' : 'negative'} /></article>)}
               </div>
-            ) : <EmptyStateCard title="No activity yet" description="Add your first bill or transaction to start tracking." />}
+            ) : <EmptyStateCard title={accessModel.summaryOnly ? 'Detailed activity is hidden' : 'No activity yet'} description={accessModel.summaryOnly ? 'Adults can open the full money workspace when they need line-by-line history.' : 'Add your first bill or transaction to start tracking.'} />}
           </FoundationBlock>
         </>
       ) : null}
@@ -380,14 +400,14 @@ export const MoneyScreen = ({
         <FoundationBlock title="Bills" description="Plan upcoming bills and confirm what is paid.">
           <MoneySectionHeader title="Bill planner" subtitle="Group by status and filter your month." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
           <div className="money-payment-meta">
-            <button className="btn btn-primary" onClick={() => { if (billComposerOpen) { setBillComposerOpen(false); setBillEditId(null); setBillDraft(createEmptyBillDraft()); } else { setBillComposerOpen(true); } }}>{billComposerOpen ? 'Close' : 'Add bill'}</button>
+            <button className="btn btn-primary" onClick={() => { if (billComposerOpen) { setBillComposerOpen(false); setBillEditId(null); setBillDraft(createEmptyBillDraft()); } else { setBillComposerOpen(true); } }} disabled={!accessModel.canManage}>{billComposerOpen ? 'Close' : 'Add bill'}</button>
             <MoneyFilterBar
               options={[{ key: 'all', label: 'All' }, { key: 'overdue', label: `Overdue (${overdueBills.length})` }, { key: 'dueSoon', label: `Due soon (${dueSoonBills.length})` }, { key: 'upcoming', label: `Upcoming (${upcomingBills.length})` }, { key: 'paid', label: `Paid (${paidBills.length})` }]}
               value={billStatusFilter}
               onChange={(next) => setBillStatusFilter(next as typeof billStatusFilter)}
             />
           </div>
-          {billComposerOpen ? (
+          {billComposerOpen && accessModel.canManage ? (
             <article className="money-editor stack-sm">
               <input value={billDraft.title} placeholder="Bill title" onChange={(event) => setBillDraft((prev) => ({ ...prev, title: event.target.value }))} />
               <div className="money-editor-grid">
@@ -417,15 +437,15 @@ export const MoneyScreen = ({
                     <BillStatusBadge dueDateIso={bill.dueDateIso} paid={bill.paid} />
                     <span className="route-pill">Proof: {bill.proofFileName ?? 'Not attached'}</span>
                     <span className="route-pill">Linked: {bill.linkedTransactionId ? 'Yes' : 'No'}</span>
-                    {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')}>Mark paid</button> : null}
-                    <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)}>Duplicate</button>
-                    <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false, recurrence: bill.recurrence ?? 'none' }); setBillComposerOpen(true); }}>Edit</button>
-                    <button className="money-inline-btn" onClick={() => onDeleteBill(bill.id)}>Delete</button>
+                    {!bill.paid ? <button className="money-inline-btn" onClick={() => onMarkBillPaid(bill.id, 'manual-proof')} disabled={!accessModel.canManage}>Mark paid</button> : null}
+                    <button className="money-inline-btn" onClick={() => onDuplicateBill(bill.id)} disabled={!accessModel.canManage}>Duplicate</button>
+                    <button className="money-inline-btn" onClick={() => { setBillEditId(bill.id); setBillDraft({ title: bill.title, amount: String(bill.amountCents / 100), dueDateIso: bill.dueDateIso, category: bill.category, notes: bill.notes ?? '', autoCreateTransaction: bill.autoCreateTransaction !== false, recurrence: bill.recurrence ?? 'none' }); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Edit</button>
+                    <button className="money-inline-btn" onClick={() => onDeleteBill(bill.id)} disabled={!accessModel.canManage}>Delete</button>
                   </div>
                 </article>
               ))}
             </div>
-          ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)} disabled={!canEditMoney}>Add bill</button>} />}
+          ) : <EmptyStateCard title="No bills added yet" description="No bills added yet. Add one to start tracking due dates." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)} disabled={!accessModel.canManage}>Add bill</button>} />}
         </FoundationBlock>
       ) : null}
       {tab === 'transactions' ? (
@@ -445,15 +465,15 @@ export const MoneyScreen = ({
                 setTxDraftSource('manual');
                 setTransactionComposerOpen(true);
               }
-            }}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
-            <button className="btn btn-ghost" onClick={openStatementImport}>Import statement</button>
+            }} disabled={!accessModel.canManage}>{transactionComposerOpen ? 'Close' : 'Add transaction'}</button>
+            <button className="btn btn-ghost" onClick={openStatementImport} disabled={!accessModel.canManage}>Import statement</button>
             <input value={search} placeholder="Search title" onChange={(event) => setSearch(event.target.value)} />
           </div>
           <div className="money-editor-grid">
             <select value={txCategoryFilter} onChange={(event) => setTxCategoryFilter(event.target.value)}><option value="all">All categories</option>{transactionCategories.map((category) => <option key={category}>{category}</option>)}</select>
             <MoneyFilterBar options={[{ key: 'all', label: 'All' }, { key: 'inflow', label: 'Money in' }, { key: 'outflow', label: 'Money out' }]} value={txKindFilter} onChange={(next) => setTxKindFilter(next as typeof txKindFilter)} />
           </div>
-          {transactionComposerOpen ? (
+          {transactionComposerOpen && accessModel.canManage ? (
             <article className="money-editor stack-sm">
               <input value={txDraft.title} placeholder="Title" onChange={(event) => setTxDraft((prev) => ({ ...prev, title: event.target.value }))} />
               <div className="money-editor-grid">
@@ -487,13 +507,13 @@ export const MoneyScreen = ({
                       setTxDraft({ title: tx.title, amount: String(tx.amountCents / 100), dateIso: tx.dateIso, kind: tx.kind, category: tx.category, notes: tx.notes ?? '' });
                       setTxDraftSource(tx.source === 'statement' ? 'statement' : 'manual');
                       setTransactionComposerOpen(true);
-                    }}>Edit</button> : null}
-                    <button className="money-inline-btn" onClick={() => onDeleteTransaction(tx.id)}>Delete</button>
+                    }} disabled={!accessModel.canManage}>Edit</button> : null}
+                    <button className="money-inline-btn" onClick={() => onDeleteTransaction(tx.id)} disabled={!accessModel.canManage}>Delete</button>
                   </div>
                 </article>
               ))}
             </div>
-          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one or import a statement to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)} disabled={!canEditMoney}>Add transaction</button>} />}
+          ) : <EmptyStateCard title="No transactions yet" description="No transactions yet. Add one or import a statement to see your money flow." action={<button className="btn btn-primary" onClick={() => setTransactionComposerOpen(true)} disabled={!accessModel.canManage}>Add transaction</button>} />}
         </FoundationBlock>
       ) : null}
       {tab === 'budget' ? (
@@ -514,7 +534,7 @@ export const MoneyScreen = ({
               if (!payload) return;
               onAddBudget(payload);
               setBudgetDraft((prev) => ({ ...prev, amount: '' }));
-            }}>Save budget</button>
+            }} disabled={!accessModel.canManage}>Save budget</button>
           </article>
           {starterBudgetSuggestions.length ? (
             <article className="money-editor stack-sm">
@@ -522,19 +542,19 @@ export const MoneyScreen = ({
               <div className="money-payment-meta">
                 {starterBudgetSuggestions.slice(0, 3).map((item) => <span key={item.category} className="route-pill">{item.category} · {formatCurrencyZAR(item.limitCents)}</span>)}
               </div>
-              <button className="btn btn-ghost" onClick={() => starterBudgetSuggestions.forEach((item) => onAddBudget({ monthIsoYYYYMM: month, category: item.category, limitCents: item.limitCents }))}>
+              <button className="btn btn-ghost" onClick={() => starterBudgetSuggestions.forEach((item) => onAddBudget({ monthIsoYYYYMM: month, category: item.category, limitCents: item.limitCents }))} disabled={!accessModel.canManage}>
                 Create starter budgets
               </button>
             </article>
           ) : null}
           <div className="budget-category-list">
             {currentMonthBudgets.length ? currentMonthBudgets.map((budget) => (
-              <BudgetProgressCard key={budget.id} category={budget.category} limitCents={budget.limitCents} spentCents={monthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === budget.category).reduce((sum, tx) => sum + tx.amountCents, 0)} onEdit={() => setBudgetDraft({ category: budget.category, amount: String(budget.limitCents / 100) })} onDelete={() => onDeleteBudget(budget.id)} />
+              <BudgetProgressCard key={budget.id} category={budget.category} limitCents={budget.limitCents} spentCents={monthTransactions.filter((tx) => tx.kind === 'outflow' && tx.category === budget.category).reduce((sum, tx) => sum + tx.amountCents, 0)} onEdit={accessModel.canManage ? () => setBudgetDraft({ category: budget.category, amount: String(budget.limitCents / 100) }) : undefined} onDelete={accessModel.canManage ? () => onDeleteBudget(budget.id) : undefined} />
             )) : <EmptyStateCard title="No budgets yet" description="Set a budget for groceries, transport, and more." />}
           </div>
         </FoundationBlock>
       ) : null}
-      <Modal open={statementModalOpen} title="Import bank statement" onClose={() => setStatementModalOpen(false)}>
+      <Modal open={statementModalOpen && accessModel.canManage} title="Import bank statement" onClose={() => setStatementModalOpen(false)}>
         <div className="stack-sm">
           {statementError ? <div className="error-banner">{statementError}</div> : null}
           {statementLoading ? <div className="status-banner">Reading and validating your statement…</div> : null}
