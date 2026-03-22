@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { resetCalendarConnections } from '../../integrations/calendar';
-import { addBill, addInternalCalendarEvent, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction } from './appState';
+import { addBill, addInternalCalendarEvent, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, completeUserSetup, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction } from './appState';
 import { appendAuditEntry, createResetStateForMode, exportBackup, importBackup, type AdminResetMode } from './adminActions';
 import { TABS, type Tab, type UserId } from './constants';
 import { encodePin, verifyPin } from './pin';
 import { localPersistenceAdapter } from './persistence';
 import { getTabsForUser, hasPermission, resolvePermissionBundle } from './permissions';
-import { seedMoneyFromSetupProfiles, type FamilyHubState } from './storage';
+import type { FamilyHubState } from './storage';
 
 const tabIcons: Record<Tab, string> = { Home: '🏡', Calendar: '📅', Tasks: '✅', Money: '💰', More: '⋯' };
 
@@ -53,18 +53,14 @@ export const useFamilyHubController = () => {
     applyCalendarSync: (provider: Parameters<typeof applyCalendarSyncState>[1], calendars: Parameters<typeof applyCalendarSyncState>[2], events: Parameters<typeof applyCalendarSyncState>[3]) => patchState((current) => applyCalendarSyncState(current, provider, calendars, events)),
     clearCalendarProviderData: (provider: Parameters<typeof clearCalendarProviderDataState>[1]) => patchState((current) => clearCalendarProviderDataState(current, provider)),
     completeSetup: async (userId: UserId, pin: string, profile: FamilyHubState['userSetupProfiles'][UserId]) => {
+      if (!profile) return;
       const encodedPin = await encodePin(userId, pin);
       patchState((current) => {
-        const userSetupProfiles = { ...current.userSetupProfiles, [userId]: profile };
-        return appendAuditEntry({
-          ...current,
-          activeUserId: userId,
-          setupUserId: null,
-          userPins: { ...current.userPins, [userId]: encodedPin },
-          userSetupProfiles,
-          setupCompleted: { ...current.setupCompleted, [userId]: true },
-          money: seedMoneyFromSetupProfiles(current.money, userSetupProfiles)
-        }, 'setup.completed', `${userId} completed setup.`);
+        return appendAuditEntry(
+          completeUserSetup(current, userId, encodedPin, profile),
+          'setup.completed',
+          `${userId} completed setup.`
+        );
       });
     },
     unlockUser: async (id: UserId, pin: string) => {

@@ -4,7 +4,7 @@ import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain
 import { toDedupeKey } from '../../domain/calendar.ts';
 import type { Tab, UserId } from './constants.ts';
 import { deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, markBillPaidWithOptionalTransaction, saveBudget, type BudgetSaveResult } from './money.ts';
-import { clearSetupArtifactsForUser, createInitialState, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem } from './storage.ts';
+import { clearSetupArtifactsForUser, createInitialState, seedMoneyFromSetupProfiles, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem, type UserSetupProfile } from './storage.ts';
 
 const addDays = (dateIso: string, days: number) => {
   const date = new Date(`${dateIso}T12:00:00`);
@@ -135,6 +135,24 @@ export const buildRestartSetupState = (current: FamilyHubState, userId: UserId, 
     userSetupProfiles: nextProfiles,
     setupCompleted: { ...current.setupCompleted, [userId]: false },
     money: clearSetupArtifactsForUser(current.money, userId)
+  };
+};
+
+export const completeUserSetup = (
+  current: FamilyHubState,
+  userId: UserId,
+  encodedPin: string,
+  profile: UserSetupProfile
+): FamilyHubState => {
+  const userSetupProfiles = { ...current.userSetupProfiles, [userId]: profile };
+  return {
+    ...current,
+    activeUserId: userId,
+    setupUserId: null,
+    userPins: { ...current.userPins, [userId]: encodedPin },
+    userSetupProfiles,
+    setupCompleted: { ...current.setupCompleted, [userId]: true },
+    money: seedMoneyFromSetupProfiles(current.money, { [userId]: profile })
   };
 };
 
