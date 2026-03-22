@@ -1,4 +1,5 @@
 import type { Tab, User } from './constants';
+import type { AppSettings } from './storage';
 
 export type PermissionKey =
   | 'money_view'
@@ -12,7 +13,7 @@ export type PermissionKey =
 
 const rolePermissions: Record<User['role'], PermissionKey[]> = {
   parent: ['money_view', 'money_edit', 'calendar_connect', 'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset'],
-  adult: ['money_view', 'money_edit', 'calendar_connect', 'places_edit', 'pin_manage', 'setup_restart', 'data_export'],
+  adult: ['money_view', 'money_edit', 'calendar_connect', 'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset'],
   child: ['places_edit', 'pin_manage']
 };
 
@@ -22,10 +23,17 @@ const roleTabAccess: Record<User['role'], Tab[]> = {
   child: ['Home', 'Calendar', 'Tasks', 'More']
 };
 
-export const hasPermission = (user: User | null, permission: PermissionKey) =>
-  user ? rolePermissions[user.role].includes(permission) : false;
+export const hasPermission = (user: User | null, permission: PermissionKey, settings?: Pick<AppSettings, 'requireParentForReset'>) => {
+  if (!user || !rolePermissions[user.role].includes(permission)) return false;
+  if (permission === 'data_reset' && settings?.requireParentForReset !== false) return user.role === 'parent';
+  return true;
+};
 
-export const getTabsForUser = (user: User | null): Tab[] => (user ? roleTabAccess[user.role] : ['Home', 'Calendar', 'Tasks', 'Money', 'More']);
+export const getTabsForUser = (user: User | null, settings?: Pick<AppSettings, 'hideMoneyForKids'>): Tab[] => {
+  if (!user) return ['Home', 'Calendar', 'Tasks', 'Money', 'More'];
+  if (user.role === 'child' && settings?.hideMoneyForKids === false) return ['Home', 'Calendar', 'Tasks', 'Money', 'More'];
+  return roleTabAccess[user.role];
+};
 
 export const getRoleLabel = (user: User) => (
   user.role === 'parent'

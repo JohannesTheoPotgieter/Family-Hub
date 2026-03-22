@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import type { UserId } from '../../lib/family-hub/constants';
+import { USERS, type UserId } from '../../lib/family-hub/constants';
 import type { TaskItem } from '../../lib/family-hub/storage';
 import { ScreenIntro } from './BaselineScaffold';
 
 type TasksScreenProps = {
   tasks: TaskItem[];
+  users?: typeof USERS;
   activeUserId: UserId;
   onAddTask: (task: Omit<TaskItem, 'id' | 'completed'>) => void;
   onUpdateTask: (id: string, update: Omit<TaskItem, 'id' | 'completed'>) => void;
@@ -62,7 +63,7 @@ const GROUP_ICONS: Record<GroupKey, string> = {
   today: '🔥', upcoming: '📅', waiting: '⏳', done: '✅'
 };
 
-export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onToggleTask }: TasksScreenProps) => {
+export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onUpdateTask, onToggleTask }: TasksScreenProps) => {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -174,6 +175,16 @@ export const TasksScreen = ({ tasks, activeUserId, onAddTask, onUpdateTask, onTo
               </button>
             )}
           </div>
+          <label className="task-field">
+            <span>Owner</span>
+            <select
+              value={draft.ownerId}
+              data-testid="select-task-owner"
+              onChange={(event) => setDraft((c) => ({ ...c, ownerId: event.target.value as UserId }))}
+            >
+              {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+            </select>
+          </label>
           <textarea
             className="task-notes"
             aria-label="Task notes"
