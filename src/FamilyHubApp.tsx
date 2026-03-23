@@ -5,22 +5,17 @@ import { MoneyScreen } from './components/family-hub/MoneyScreen';
 import { MoreScreen } from './components/family-hub/MoreScreen';
 import { SetupWizard } from './components/family-hub/SetupWizard';
 import { TasksScreen } from './components/family-hub/TasksScreen';
+import { getRouteDefinition, getVisibleRoutes } from './routing/routeHelpers';
+import { RoleGuard } from './routing/RoleGuard';
 import { useFamilyHubController } from './lib/family-hub/useFamilyHubController';
 import { ToastViewport } from './ui/Toast';
 import { ToastProvider } from './ui/useToasts';
 
-const tabTitles: Record<string, { label: string; subtitle: string }> = {
-  Home: { label: 'Home', subtitle: 'Your family command center for today.' },
-  Calendar: { label: 'Calendar', subtitle: 'Plans, appointments, and shared schedules.' },
-  Tasks: { label: 'Tasks', subtitle: 'Simple chores and to-dos for the household.' },
-  Money: { label: 'Money', subtitle: 'Bills, budget, and day-to-day spending clarity.' },
-  More: { label: 'Family', subtitle: 'People, reminders, settings, and shared household tools.' }
-};
-
 const AppInner = () => {
   const controller = useFamilyHubController();
-  const { state, activeTab, activeUser, visibleTabs, tabIcons, tabs, permissionBundle } = controller;
-  const activeTabMeta = tabTitles[activeTab] ?? { label: activeTab, subtitle: '' };
+  const { state, activeTab, activeUser, visibleTabs, permissionBundle, tabIcons } = controller;
+  const activeRoute = getRouteDefinition(activeTab);
+  const visibleRoutes = getVisibleRoutes(visibleTabs);
 
   if (state.setupUserId) {
     const user = state.users.find((item) => item.id === state.setupUserId);
@@ -49,8 +44,8 @@ const AppInner = () => {
         <header className="app-topbar glass-card">
           <div>
             <p className="eyebrow">Family Hub</p>
-            <h1>{activeTabMeta.label}</h1>
-            <p className="muted">{activeTabMeta.subtitle}</p>
+            <h1>{activeRoute.label}</h1>
+            <p className="muted">{activeRoute.subtitle}</p>
             <p className="topbar-meta">{activeUser?.name} · Household profile</p>
           </div>
           <div className="app-topbar-actions">
@@ -59,8 +54,11 @@ const AppInner = () => {
         </header>
 
         <section className="screen-content">
-          {activeTab === 'Home' && <HomeScreen state={state} onCareAction={controller.onCareAction} onLock={controller.lockApp} />}
-          {activeTab === 'Calendar' && (
+          <RoleGuard allowed={activeTab === 'Home'}>
+            <HomeScreen state={state} onCareAction={controller.onCareAction} onLock={controller.lockApp} />
+          </RoleGuard>
+
+          <RoleGuard allowed={activeTab === 'Calendar'}>
             <CalendarScreen
               internalEvents={state.calendar.events}
               externalEvents={state.calendar.externalEvents}
@@ -72,8 +70,9 @@ const AppInner = () => {
               canConnectCalendar={permissionBundle.canConnectCalendar}
               canEditCalendar={permissionBundle.canEditCalendar}
             />
-          )}
-          {activeTab === 'Tasks' && (
+          </RoleGuard>
+
+          <RoleGuard allowed={activeTab === 'Tasks'}>
             <TasksScreen
               tasks={state.tasks.items}
               users={state.users}
@@ -84,8 +83,9 @@ const AppInner = () => {
               canAssignTasks={permissionBundle.canAssignTasks}
               canEditTasks={permissionBundle.canEditTasks}
             />
-          )}
-          {activeTab === 'Money' && (
+          </RoleGuard>
+
+          <RoleGuard allowed={activeTab === 'Money'}>
             <MoneyScreen
               money={state.money}
               onAddBill={controller.addBill}
@@ -103,8 +103,9 @@ const AppInner = () => {
               moneyVisibility={permissionBundle.moneyVisibility}
               canEditMoney={permissionBundle.canEditMoney}
             />
-          )}
-          {activeTab === 'More' && (
+          </RoleGuard>
+
+          <RoleGuard allowed={activeTab === 'More'}>
             <MoreScreen
               users={state.users}
               activeUser={activeUser}
@@ -131,20 +132,20 @@ const AppInner = () => {
               onLock={controller.lockApp}
               onRestartSetup={controller.restartSetup}
             />
-          )}
+          </RoleGuard>
         </section>
 
         <nav className="bottom-nav glass-card" aria-label="Primary">
-          {tabs.filter((tab) => visibleTabs.includes(tab)).map((tab) => (
+          {visibleRoutes.map((route) => (
             <button
-              key={tab}
+              key={route.tab}
               type="button"
-              className={`nav-item ${activeTab === tab ? 'is-active' : ''}`}
-              onClick={() => controller.setActiveTab(tab)}
-              aria-current={activeTab === tab ? 'page' : undefined}
+              className={`nav-item ${activeTab === route.tab ? 'is-active' : ''}`}
+              onClick={() => controller.setActiveTab(route.tab)}
+              aria-current={activeTab === route.tab ? 'page' : undefined}
             >
-              <span className="nav-item-icon">{tabIcons[tab]}</span>
-              <span>{tabTitles[tab]?.label ?? tab}</span>
+              <span className="nav-item-icon">{tabIcons[route.tab] ?? route.icon}</span>
+              <span>{route.label}</span>
             </button>
           ))}
         </nav>

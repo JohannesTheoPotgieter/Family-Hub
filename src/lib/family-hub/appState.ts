@@ -3,6 +3,7 @@ import type { AvatarActivityEvent } from '../../domain/avatarTypes.ts';
 import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar.ts';
 import { toDedupeKey } from '../../domain/calendar.ts';
 import type { Tab, UserId } from './constants.ts';
+import { getInitialRouteFromLocation } from '../../routing/routeHelpers.ts';
 import { deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, markBillPaidWithOptionalTransaction, saveBudget, type BudgetSaveResult } from './money.ts';
 import { clearSetupArtifactsForUser, createInitialState, seedMoneyFromSetupProfiles, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem, type UserSetupProfile } from './storage.ts';
 
@@ -36,10 +37,7 @@ export const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
   return { ...state, avatarGame: { ...state.avatarGame, familyChallenges: challenges, challengeProgressById: progressById } };
 };
 
-export const getInitialTab = (): Tab => {
-  const raw = new URLSearchParams(window.location.search).get('tab');
-  return raw && ['Home', 'Calendar', 'Tasks', 'Money', 'More'].includes(raw) ? (raw as Tab) : 'Home';
-};
+export const getInitialTab = (): Tab => getInitialRouteFromLocation(window.location.search);
 
 export const dedupeExternalEvents = (events: NormalizedEvent[]) => {
   const seen = new Set<string>();
