@@ -5,4 +5,4 @@ export {
   hasPermission,
   resolvePermissionBundle,
   type PermissionKey
-} from '../../config/permissions';
+} from '../../config/permissions.ts';

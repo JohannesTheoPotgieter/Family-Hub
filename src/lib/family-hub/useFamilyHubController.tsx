@@ -3,7 +3,7 @@ import { resetCalendarConnections } from '../../integrations/calendar';
 import { addBill, addInternalCalendarEvent, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, completeUserSetup, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction } from './appState';
 import { appendAuditEntry, createResetStateForMode, exportBackup, importBackup, type AdminResetMode } from './adminActions';
 import { TABS, type Tab, type UserId } from './constants';
-import { APP_ROUTES } from '../../config/routes';
+import { APP_ROUTES } from '../../config/routes.ts';
 import { resolveActiveTab } from '../../routing/routeHelpers';
 import { encodePin, verifyPin } from './pin';
 import { localPersistenceAdapter } from './persistence';

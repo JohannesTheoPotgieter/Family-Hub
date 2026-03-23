@@ -77,6 +77,7 @@ const AppInner = () => {
               tasks={state.tasks.items}
               users={state.users}
               activeUserId={state.activeUserId}
+              avatarGame={state.avatarGame}
               onAddTask={controller.addTask}
               onUpdateTask={controller.updateTask}
               onToggleTask={controller.toggleTask}

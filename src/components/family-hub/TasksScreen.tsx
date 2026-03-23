@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { USERS, type UserId } from '../../lib/family-hub/constants';
 import type { TaskItem } from '../../lib/family-hub/storage';
+import type { AvatarGameState } from '../../domain/avatarTypes.ts';
 import { ScreenIntro } from './BaselineScaffold';
 
 type TasksScreenProps = {
   tasks: TaskItem[];
   users?: typeof USERS;
   activeUserId: UserId;
+  avatarGame: AvatarGameState;
   onAddTask: (task: Omit<TaskItem, 'id' | 'completed'>) => void;
   onUpdateTask: (id: string, update: Omit<TaskItem, 'id' | 'completed'>) => void;
   onToggleTask: (id: string) => void;
@@ -15,7 +17,7 @@ type TasksScreenProps = {
 };
 
 type GroupKey = 'overdue' | 'today' | 'upcoming' | 'waiting' | 'done';
-type FilterKey = 'mine' | 'shared' | 'all';
+type FilterKey = 'ready' | 'mine' | 'shared' | 'done' | 'all';
 
 type DraftTask = {
   title: string;
@@ -67,11 +69,36 @@ const GROUP_ICONS: Record<GroupKey, string> = {
   overdue: '🚨', today: '🔥', upcoming: '📅', waiting: '⏳', done: '✅'
 };
 
-export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onUpdateTask, onToggleTask, canAssignTasks = true, canEditTasks = true }: TasksScreenProps) => {
-  const [filter, setFilter] = useState<FilterKey>('all');
+const getTaskEnergyLabel = (task: TaskItem, activeUserId: UserId) => {
+  if (task.completed) return 'Completed';
+  if (task.ownerId === activeUserId && (!task.dueDate || belongsToGroup(task, 'today') || belongsToGroup(task, 'overdue'))) return 'Best next move';
+  if (task.shared) return 'Do together';
+  if (belongsToGroup(task, 'overdue')) return 'Needs rescue';
+  if (belongsToGroup(task, 'today')) return 'Ready today';
+  if (belongsToGroup(task, 'upcoming')) return 'Coming up';
+  return 'Can wait';
+};
+
+const getTaskActionLabel = (task: TaskItem, activeUserId: UserId) => {
+  if (task.completed) return 'Done';
+  if (task.shared) return 'Finish together';
+  if (task.ownerId === activeUserId) return 'Mark done';
+  return 'Help out';
+};
+
+export const TasksScreen = ({ tasks, users = USERS, activeUserId, avatarGame, onAddTask, onUpdateTask, onToggleTask, canAssignTasks = true, canEditTasks = true }: TasksScreenProps) => {
+  const [filter, setFilter] = useState<FilterKey>('ready');
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftTask>(() => createEmptyDraft(activeUserId));
+  const [celebration, setCelebration] = useState<{ title: string; detail: string } | null>(null);
+
+  const activeUser = users.find((user) => user.id === activeUserId);
+  const openTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
+  const myOpenTasks = useMemo(() => openTasks.filter((task) => task.ownerId === activeUserId), [openTasks, activeUserId]);
+  const sharedOpenTasks = useMemo(() => openTasks.filter((task) => task.shared), [openTasks]);
+  const taskChallenge = useMemo(() => avatarGame.familyChallenges.find((challenge) => challenge.category === 'tasks' && !challenge.completed) ?? avatarGame.familyChallenges.find((challenge) => challenge.category === 'tasks') ?? null, [avatarGame.familyChallenges]);
+  const companion = avatarGame.companionsByUserId[activeUserId];
 
   const groups = useMemo(() => [
     { key: 'overdue' as const, label: 'Overdue', hint: 'Clear these first' },
@@ -82,7 +109,11 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
   ], []);
 
   const filteredTasks = useMemo(
-    () => tasks.filter((task) => filterMatch(task, filter, activeUserId)),
+    () => tasks.filter((task) => {
+      if (filter === 'ready') return !task.completed && (belongsToGroup(task, 'overdue') || belongsToGroup(task, 'today') || (!task.dueDate && task.ownerId === activeUserId));
+      if (filter === 'done') return task.completed;
+      return filterMatch(task, filter, activeUserId);
+    }),
     [tasks, filter, activeUserId]
   );
 
@@ -101,6 +132,12 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
     shared: filteredTasks.filter((task) => task.shared && !task.completed).length,
     done: filteredTasks.filter((task) => task.completed).length
   }), [filteredTasks]);
+
+  useEffect(() => {
+    if (!celebration) return;
+    const timeout = window.setTimeout(() => setCelebration(null), 3200);
+    return () => window.clearTimeout(timeout);
+  }, [celebration]);
 
   const openAdd = () => {
     setEditingTaskId(null);
@@ -137,6 +174,16 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
     setDraft(createEmptyDraft(activeUserId));
   };
 
+  const handleToggleTask = (task: TaskItem) => {
+    onToggleTask(task.id);
+    if (task.completed) return;
+    const rewardLabel = task.shared ? '+1 family star · +6 coins' : '+4 coins';
+    setCelebration({
+      title: task.shared ? 'Family win unlocked ✨' : 'Nice work! 🎉',
+      detail: `${task.title} complete. ${rewardLabel} and your companion feels the momentum.`
+    });
+  };
+
   return (
     <section className="tasks-screen stack-lg">
       <ScreenIntro badge="Tasks" title="Family to-dos" subtitle="Fast, friendly task lists for what needs attention now, later, and together." />
@@ -145,11 +192,33 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
         <div className="tasks-toolbar-top">
           <div>
             <p className="eyebrow">Task snapshot</p>
-            <h3>Stay on top of home routines</h3>
+            <h3>{activeUser ? `${activeUser.name}'s next wins` : 'Stay on top of home routines'}</h3>
+            <p className="muted">Lead with the few tasks that matter right now, then let the rest stay quietly organized.</p>
           </div>
           <button className="btn btn-primary tasks-add-btn" data-testid="btn-add-task" onClick={openAdd} type="button" disabled={!canEditTasks}>
             + Add task
           </button>
+        </div>
+        <div className="tasks-focus-grid" aria-label="Task focus highlights">
+          <article className="tasks-focus-card tasks-focus-card--primary">
+            <span className="metric-label">Up next for you</span>
+            <strong>{myOpenTasks[0]?.title ?? 'You are caught up'}</strong>
+            <p className="muted">
+              {myOpenTasks[0]
+                ? `${labelForTask(myOpenTasks[0])} · ${myOpenTasks[0].shared ? 'Shared family win' : 'Personal win'}`
+                : 'No personal chores are waiting right now.'}
+            </p>
+          </article>
+          <article className="tasks-focus-card">
+            <span className="metric-label">Family quest</span>
+            <strong>{taskChallenge ? `${taskChallenge.progressValue}/${taskChallenge.targetValue}` : 'No quest yet'}</strong>
+            <p className="muted">{taskChallenge ? `${taskChallenge.title} · reward: ${taskChallenge.rewardType.replace('_', ' ')}` : 'Shared progress will appear here.'}</p>
+          </article>
+          <article className="tasks-focus-card">
+            <span className="metric-label">Companion boost</span>
+            <strong>{companion ? `Lv ${companion.level} · ${companion.mood}` : 'Ready to cheer'}</strong>
+            <p className="muted">{companion ? `${companion.name} has ${companion.coins} coins and ${companion.stars} stars.` : 'Task wins feed visible momentum.'}</p>
+          </article>
         </div>
         <div className="tasks-summary-grid">
           <article className="tasks-summary-card">
@@ -170,7 +239,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
           </article>
         </div>
         <div className="tasks-filter-row" role="tablist" aria-label="Task filters">
-          {(['mine', 'shared', 'all'] as const).map((f) => (
+          {(['ready', 'mine', 'shared', 'done', 'all'] as const).map((f) => (
             <button
               key={f}
               className={`tasks-filter-chip ${filter === f ? 'is-active' : ''}`}
@@ -178,11 +247,27 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
               onClick={() => setFilter(f)}
               type="button"
             >
-              {f === 'mine' ? '👤 Mine' : f === 'shared' ? '👥 Shared' : '📋 All'}
+              {f === 'ready' ? '⚡ Ready now' : f === 'mine' ? '👤 Mine' : f === 'shared' ? '👥 Shared' : f === 'done' ? '✅ Done' : '📋 All'}
             </button>
           ))}
         </div>
+        <div className="tasks-management-row">
+          <span className="route-pill">{sharedOpenTasks.length} shared open</span>
+          <span className="route-pill">{myOpenTasks.length} for you</span>
+          <span className="route-pill">{canAssignTasks ? 'Adults can reassign' : 'Child-friendly view'}</span>
+        </div>
       </section>
+
+      {celebration ? (
+        <section className="glass-panel task-celebration-banner" aria-label="Task completion feedback">
+          <div>
+            <p className="eyebrow">Completion moment</p>
+            <h3>{celebration.title}</h3>
+            <p className="muted">{celebration.detail}</p>
+          </div>
+          <span className="task-celebration-emoji" aria-hidden="true">🎊</span>
+        </section>
+      ) : null}
 
       {composerOpen && (
         <section className="glass-panel task-composer stack" aria-label={editingTaskId ? 'Edit task' : 'Add task'}>
@@ -228,6 +313,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
               {users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
             </select>
           </label>
+          {!canAssignTasks ? <p className="muted">Tasks stay assigned to you here so finishing them stays frictionless.</p> : <p className="muted">Adults can assign directly while keeping titles short and easy for kids to scan.</p>}
           <label className="task-field">
             <span>Repeats</span>
             <select value={draft.recurrence} onChange={(event) => setDraft((c) => ({ ...c, recurrence: event.target.value as DraftTask['recurrence'] }))}>
@@ -295,21 +381,24 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
                 return (
                   <article
                     key={task.id}
-                    className={`task-item ${task.completed ? 'is-done' : ''}`}
+                    className={`task-item ${task.completed ? 'is-done' : ''} ${task.ownerId === activeUserId ? 'is-owned' : ''} ${task.shared ? 'is-shared' : ''}`}
                     data-testid={`task-item-${task.id}`}
                   >
                     <button
                       type="button"
                       className={`task-check ${task.completed ? 'is-done' : ''}`}
-                      onClick={() => onToggleTask(task.id)}
+                      onClick={() => handleToggleTask(task)}
                       aria-label={task.completed ? `Mark "${task.title}" incomplete` : `Complete "${task.title}"`}
                     >
                       {task.completed ? '✓' : ''}
                     </button>
                     <div className="task-main">
                       <div className="task-title-row">
-                        <p className="task-title">{task.title}</p>
-                        {owner ? <span className="route-pill">{owner.name}</span> : null}
+                        <div>
+                          <p className="task-kicker">{getTaskEnergyLabel(task, activeUserId)}</p>
+                          <p className="task-title">{task.title}</p>
+                        </div>
+                        {owner ? <span className="route-pill">{task.ownerId === activeUserId ? 'For you' : owner.name}</span> : null}
                       </div>
                       <div className="task-meta">
                         <span className="route-pill">{labelForTask(task)}</span>
@@ -318,6 +407,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, onAddTask, onU
                         {(task.completionCount ?? 0) > 0 && <span className="route-pill">🏅 {task.completionCount} done</span>}
                       </div>
                       {task.notes ? <p className="muted">{task.notes}</p> : null}
+                      {!task.completed ? <p className="task-card-tip">{getTaskActionLabel(task, activeUserId)}</p> : null}
                     </div>
                     {!task.completed && (
                       <button
