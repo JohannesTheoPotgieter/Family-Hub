@@ -735,8 +735,22 @@ button:focus-visible {
 .task-check:hover { transform: scale(1.08); }
 .task-check.is-done { background: linear-gradient(135deg, #3cce89, #29b878); border-color: transparent; }
 .task-main { display: grid; gap: 5px; }
+.task-kicker {
+  margin: 0 0 2px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5770a1;
+}
 .task-title { font-weight: 700; color: #1b325f; }
 .task-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.task-card-tip {
+  margin: 2px 0 0;
+  color: #2f568f;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
 .task-edit-btn { min-height: 32px; padding: 5px 10px; border-radius: 10px; font-size: 0.8rem; }
 
 /* ─────────────────────────────────────────
@@ -2577,8 +2591,70 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
   gap: 14px;
 }
 
+.tasks-focus-grid,
+.tasks-management-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tasks-focus-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tasks-focus-card,
+.task-celebration-banner {
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(118, 147, 205, 0.18);
+  background: linear-gradient(160deg, rgba(255,255,255,0.82), rgba(243,248,255,0.76));
+  box-shadow: 0 12px 26px rgba(24, 48, 97, 0.08);
+}
+
+.tasks-focus-card--primary {
+  background: linear-gradient(160deg, rgba(255,255,255,0.94), rgba(255,244,227,0.84));
+}
+
+.tasks-focus-card strong {
+  display: block;
+  margin: 6px 0 4px;
+  color: #193568;
+  font-size: 1.05rem;
+}
+
+.task-celebration-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-celebration-emoji {
+  font-size: 2rem;
+}
+
 .task-item {
   align-items: flex-start;
+  position: relative;
+}
+
+.task-item.is-owned {
+  border-color: rgba(98, 134, 216, 0.28);
+}
+
+.task-item.is-shared::after {
+  content: 'TEAM';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(234, 243, 255, 0.92);
+  color: #2f568f;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
 }
 
 .calendar-action-row,
@@ -2603,6 +2679,7 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
 @media (max-width: 720px) {
   .dashboard-priority-grid,
   .dashboard-snapshot-grid,
+  .tasks-focus-grid,
   .tasks-summary-grid,
   .calendar-summary-grid,
   .money-brief-grid,
@@ -2637,6 +2714,10 @@ h4 { font-size: 0.94rem; line-height: 1.25; }
   .money-payment-head {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .task-celebration-banner {
+    align-items: flex-start;
   }
 
   .money-transaction-item {

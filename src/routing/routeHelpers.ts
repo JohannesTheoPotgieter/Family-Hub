@@ -1,6 +1,6 @@
-import type { Tab } from '../lib/family-hub/constants';
-import { APP_ROUTES } from '../config/routes';
-import { TABS } from '../lib/family-hub/constants';
+import type { Tab } from '../lib/family-hub/constants.ts';
+import { APP_ROUTES } from '../config/routes.ts';
+import { TABS } from '../lib/family-hub/constants.ts';
 
 
 export const getRouteDefinition = (tab: Tab) => APP_ROUTES[tab];
