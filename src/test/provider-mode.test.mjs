@@ -9,24 +9,28 @@ test('calendar mode defaults local in integration file', () => {
 });
 
 test('server calendar storage requires an explicit encryption key', () => {
-  const content = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(content, /padEnd\(32, 'x'\)/);
-  assert.match(content, /TOKEN_ENC_KEY/);
+  const indexContent = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
+  const startupContent = fs.readFileSync(new URL('../../server/bootstrap/startup-maintenance.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(indexContent, /padEnd\(32, 'x'\)/);
+  assert.match(startupContent, /TOKEN_ENC_KEY/);
 });
 
 test('server reset path is maintenance-only and normal boot stays read-only', () => {
-  const indexContent = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
+  const routeContent = fs.readFileSync(new URL('../../server/bootstrap/routes.mjs', import.meta.url), 'utf8');
+  const startupContent = fs.readFileSync(new URL('../../server/bootstrap/startup-maintenance.mjs', import.meta.url), 'utf8');
   const storageContent = fs.readFileSync(new URL('../../server/storage.mjs', import.meta.url), 'utf8');
-  assert.match(indexContent, /FAMILY_HUB_MAINTENANCE_MODE === '1'/);
-  assert.match(indexContent, /assertMaintenanceModeEnabled/);
+  assert.match(startupContent, /FAMILY_HUB_MAINTENANCE_MODE === '1'/);
+  assert.match(routeContent, /assertMaintenanceModeEnabled/);
   assert.match(storageContent, /Keep boot read-only/);
 });
 
 test('server sanitizes OAuth return targets and ICS subscription urls', () => {
-  const content = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
-  assert.match(content, /sanitizeReturnTo/);
-  assert.match(content, /validateIcsSubscriptionUrl/);
-  assert.match(content, /common\/oauth2\/v2\.0\/authorize/);
+  const indexContent = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
+  const authContent = fs.readFileSync(new URL('../../server/bootstrap/auth.mjs', import.meta.url), 'utf8');
+  const routeContent = fs.readFileSync(new URL('../../server/bootstrap/routes.mjs', import.meta.url), 'utf8');
+  assert.match(indexContent, /sanitizeReturnTo/);
+  assert.match(routeContent, /validateIcsSubscriptionUrl/);
+  assert.match(authContent, /common\/oauth2\/v2\.0\/authorize/);
 });
 
 test('server helper exports keep unsafe return urls on the allowed origin only', () => {
