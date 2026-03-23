@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { UserId } from '../../lib/family-hub/constants';
-import type { Bill, FamilyHubState, TaskItem } from '../../lib/family-hub/storage';
+import type { AuditEntry, Bill, FamilyHubState, TaskItem } from '../../lib/family-hub/storage';
 import { formatCurrencyZAR, getMonthIncomeTotal, getMonthSpendingTotal, getNetBalance, getSafeToSpend } from '../../lib/family-hub/money';
 import { getTodayIso } from '../../lib/family-hub/date';
 import { buildHomeInsights } from '../../lib/family-hub/homeInsights';
@@ -13,6 +13,14 @@ type HomeScreenProps = {
   onLock: () => void;
 };
 
+type HomeEvent = {
+  id: string;
+  title: string;
+  iso: string;
+  kind: string;
+  sourceLabel: string;
+};
+
 const moodEmoji: Record<string, string> = {
   happy: '🙂',
   sleepy: '😴',
@@ -22,7 +30,9 @@ const moodEmoji: Record<string, string> = {
   sad: '🥺',
   curious: '🧭',
   calm: '🌿',
-  sparkly: '✨'
+  sparkly: '✨',
+  excited: '⚡',
+  silly: '🎉'
 };
 
 const speciesEmoji: Record<string, string> = {
@@ -87,8 +97,7 @@ const getUpcomingEvents = (state: FamilyHubState) => {
 
   return [...internal, ...external]
     .filter((event) => new Date(event.iso) >= todayStart)
-    .sort((a, b) => a.iso.localeCompare(b.iso))
-    .slice(0, 4);
+    .sort((a, b) => a.iso.localeCompare(b.iso));
 };
 
 const getOverduePayments = (state: FamilyHubState) => {
@@ -100,6 +109,33 @@ const getPriorityTone = (overdueBills: Bill[], openTasks: TaskItem[]) => {
   if (overdueBills.length > 0) return 'urgent';
   if (openTasks.length > 4) return 'busy';
   return 'steady';
+};
+
+const getTaskTimingLabel = (task: TaskItem, ownerName: string | undefined, todayIso: string) => {
+  if (!task.dueDate) return `${ownerName ?? 'Family'} · Anytime`;
+  if (task.dueDate < todayIso) return `${ownerName ?? 'Family'} · Overdue`;
+  if (task.dueDate === todayIso) return `${ownerName ?? 'Family'} · Today`;
+  return `${ownerName ?? 'Family'} · ${new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric' }).format(new Date(`${task.dueDate}T12:00:00`))}`;
+};
+
+const getEventTimingLabel = (event: HomeEvent) => {
+  const date = new Date(event.iso);
+  return new Intl.DateTimeFormat('en-ZA', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: event.iso.includes('T12:00:00.000Z') ? undefined : 'numeric',
+    minute: event.iso.includes('T12:00:00.000Z') ? undefined : '2-digit'
+  }).format(date);
+};
+
+const getChangeLabel = (entry: AuditEntry) => {
+  const lowerType = entry.type.toLowerCase();
+  if (lowerType.includes('task')) return 'Task updated';
+  if (lowerType.includes('bill') || lowerType.includes('money') || lowerType.includes('transaction')) return 'Money updated';
+  if (lowerType.includes('calendar') || lowerType.includes('event')) return 'Calendar updated';
+  if (lowerType.includes('avatar') || lowerType.includes('reward')) return 'Family progress';
+  return 'Recent change';
 };
 
 export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => {
@@ -117,9 +153,10 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
   const overdueBills = useMemo(() => getOverduePayments(state), [state]);
   const upcomingEvents = useMemo(() => getUpcomingEvents(state), [state]);
   const todayTasks = useMemo(
-    () => openTasks.filter((task) => !task.dueDate || task.dueDate <= todayIso).slice(0, 3),
+    () => openTasks.filter((task) => !task.dueDate || task.dueDate <= todayIso).slice(0, 4),
     [openTasks, todayIso]
   );
+  const recentChanges = useMemo(() => state.auditLog.slice(0, 4), [state.auditLog]);
 
   const income = getMonthIncomeTotal(state.money, monthKey);
   const spending = getMonthSpendingTotal(state.money, monthKey);
@@ -128,60 +165,73 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
   const priorityTone = getPriorityTone(overdueBills, openTasks);
   const isFirstDay = openTasks.length === 0 && state.money.bills.length === 0 && state.money.transactions.length === 0 && state.calendar.events.length === 0 && state.calendar.externalEvents.length === 0;
 
-  const priorityCards = [
-    {
-      title: overdueBills.length > 0 ? `${overdueBills.length} bill${overdueBills.length === 1 ? '' : 's'} overdue` : dueSoonBills.length > 0 ? `${dueSoonBills.length} bill${dueSoonBills.length === 1 ? '' : 's'} due this week` : 'Bills look on track',
-      detail: overdueBills[0]
-        ? `${overdueBills[0].title} should be handled first.`
-        : dueSoonBills[0]
-          ? `${dueSoonBills[0].title} is the next money task.`
-          : 'No unpaid bills need urgent attention right now.',
-      tone: overdueBills.length > 0 ? 'danger' : dueSoonBills.length > 0 ? 'warn' : 'calm'
-    },
-    {
-      title: openTasks.length > 0 ? `${openTasks.length} open task${openTasks.length === 1 ? '' : 's'}` : 'Tasks are all caught up',
-      detail: todayTasks[0]
-        ? `${todayTasks[0].title}${todayTasks[0].ownerId === activeUser?.id ? ' is yours today.' : ' is next on the family list.'}`
-        : 'A calm day means fewer loose ends around the home.',
-      tone: openTasks.length > 0 ? 'celebrate' : 'calm'
-    },
-    {
-      title: upcomingEvents[0] ? `${upcomingEvents.length} thing${upcomingEvents.length === 1 ? '' : 's'} coming up` : 'Calendar is open',
-      detail: upcomingEvents[0]
-        ? `${upcomingEvents[0].title} is next on the calendar.`
-        : 'Add an event when you want everyone aligned on plans.',
-      tone: upcomingEvents[0] ? 'calm' : 'celebrate'
-    }
-  ];
+  const todayHeadline = overdueBills.length > 0
+    ? `${overdueBills.length} urgent money item${overdueBills.length === 1 ? '' : 's'} need attention`
+    : todayTasks.length > 0
+      ? `${todayTasks.length} task${todayTasks.length === 1 ? '' : 's'} are ready for today`
+      : upcomingEvents.length > 0
+        ? `${upcomingEvents.length} plan${upcomingEvents.length === 1 ? '' : 's'} are coming up`
+        : 'Everything looks calm right now';
 
-  const primaryAction = overdueBills.length > 0
+  const nextAction = overdueBills.length > 0
     ? {
-        eyebrow: 'Fix first',
+        eyebrow: 'Do next',
         title: `Pay ${overdueBills[0]?.title ?? 'overdue bill'}`,
-        detail: overdueBills.length === 1 ? 'There is one overdue bill needing attention right now.' : `${overdueBills.length} overdue bills need attention right now.`
+        detail: 'Clear the most time-sensitive money item first so the rest of the day feels lighter.',
+        tone: 'danger'
       }
     : todayTasks[0]
       ? {
           eyebrow: 'Do next',
           title: todayTasks[0].title,
-          detail: `${todayTasks[0].ownerId === activeUser?.id ? 'Your next task is ready.' : 'A family task is due next.'} Stay on top of the day with one quick win.`
+          detail: `${todayTasks[0].ownerId === activeUser?.id ? 'This one belongs to you.' : 'This is the clearest family task to handle next.'}`,
+          tone: 'warn'
         }
       : upcomingEvents[0]
         ? {
             eyebrow: 'Coming up',
             title: upcomingEvents[0].title,
-            detail: 'Your next calendar item is lined up so everyone stays in sync.'
+            detail: 'Your next calendar item is the main thing to keep in mind today.',
+            tone: 'calm'
           }
         : {
-            eyebrow: 'A calm day',
-            title: 'Nothing urgent right now',
-            detail: 'Add a plan, task, or bill when you want the dashboard to guide the day.'
+            eyebrow: 'Breathe easy',
+            title: 'Nothing urgent is waiting',
+            detail: 'Use quick actions to add plans when your family day starts to fill up.',
+            tone: 'celebrate'
           };
 
+  const todayOverview = [
+    {
+      label: 'Need now',
+      value: overdueBills.length > 0 ? `${overdueBills.length} urgent` : todayTasks.length > 0 ? `${todayTasks.length} ready` : 'All clear',
+      detail: overdueBills.length > 0 ? 'Bills overdue' : todayTasks.length > 0 ? 'Tasks due today' : 'No urgent blockers',
+      tone: overdueBills.length > 0 ? 'danger' : todayTasks.length > 0 ? 'warn' : 'calm'
+    },
+    {
+      label: 'Changed',
+      value: recentChanges.length ? `${recentChanges.length} updates` : 'Quiet',
+      detail: recentChanges[0] ? recentChanges[0].detail : 'No recent family changes',
+      tone: recentChanges.length ? 'celebrate' : 'calm'
+    },
+    {
+      label: 'Plans',
+      value: upcomingEvents.length ? `${Math.min(upcomingEvents.length, 9)} upcoming` : 'Open day',
+      detail: upcomingEvents[0] ? upcomingEvents[0].title : 'No events scheduled yet',
+      tone: 'calm'
+    },
+    {
+      label: 'Money',
+      value: formatCurrencyZAR(safeToSpend),
+      detail: 'Safe to spend',
+      tone: net < 0 ? 'warn' : 'celebrate'
+    }
+  ];
+
   return (
-    <section className="home-screen stack-lg">
-      <header className={`glass-panel today-hero today-hero--${priorityTone}`}>
-        <div className="today-hero-top">
+    <section className="home-screen home-command-center stack-lg">
+      <header className={`glass-panel command-hero command-hero--${priorityTone}`}>
+        <div className="command-hero-top">
           <div className="today-hero-badge-row">
             <span className="today-pill">{getTodayLabel()}</span>
             {activeCompanion ? (
@@ -194,245 +244,286 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
             Switch profile
           </button>
         </div>
-        <div className="today-hero-content">
-          <div>
-            <p className="eyebrow">{primaryAction.eyebrow}</p>
-            <h2>{getGreeting()}{activeUser ? `, ${activeUser.name}` : ''}</h2>
-            <p className="muted">{primaryAction.detail}</p>
-          </div>
-          <div className="today-family-summary">
-            <div>
-              <strong>{state.users.filter((user) => user.active).length}</strong>
-              <span>active family members</span>
-            </div>
-            <div>
-              <strong>{familyTrack.familyStars}</strong>
-              <span>family stars</span>
-            </div>
-            <div>
-              <strong>{upcomingEvents.length}</strong>
-              <span>upcoming plans</span>
-            </div>
-          </div>
-        </div>
-        <div className="primary-focus-card">
-          <p className="metric-label">Main thing to handle</p>
-          <h3>{primaryAction.title}</h3>
-        </div>
-      </header>
 
-      <section className="dashboard-section stack-sm" aria-label="Today priorities">
-        <div className="section-head section-head--tight">
-          <div>
-            <p className="eyebrow">Today’s priorities</p>
-            <h3>Start here, then move on</h3>
+        <div className="command-hero-main">
+          <div className="stack-sm">
+            <p className="eyebrow">Today overview</p>
+            <h2>{getGreeting()}{activeUser ? `, ${activeUser.name}` : ''}</h2>
+            <p className="command-hero-summary">{todayHeadline}</p>
+            <p className="muted">A warm, at-a-glance family view that helps you spot what matters now, what comes next, and what quietly changed.</p>
           </div>
-          <span className="section-tip">Top 3 only</span>
+
+          <article className={`primary-action-card primary-action-card--${nextAction.tone}`}>
+            <p className="metric-label">{nextAction.eyebrow}</p>
+            <h3>{nextAction.title}</h3>
+            <p className="muted">{nextAction.detail}</p>
+          </article>
         </div>
-        <div className="dashboard-priority-grid">
-          {priorityCards.map((item) => (
-            <article key={item.title} className={`glass-panel priority-card priority-card--${item.tone}`}>
-              <p className="metric-label">{item.title}</p>
+
+        <div className="today-overview-grid" aria-label="Today overview metrics">
+          {todayOverview.map((item) => (
+            <article key={item.label} className={`today-overview-card today-overview-card--${item.tone}`}>
+              <p className="metric-label">{item.label}</p>
+              <strong>{item.value}</strong>
               <p className="muted">{item.detail}</p>
             </article>
           ))}
         </div>
-      </section>
+      </header>
 
       {isFirstDay ? (
-        <section className="glass-panel stack-sm" aria-label="Getting started">
+        <section className="glass-panel command-empty-state stack-sm" aria-label="Getting started">
           <div className="section-head section-head--tight">
             <div>
-              <p className="eyebrow">Start here</p>
-              <h3>Set up your first family rhythm</h3>
+              <p className="eyebrow">Empty state</p>
+              <h3>Your family command center is ready</h3>
             </div>
+            <span className="section-tip">Start small</span>
           </div>
           <div className="mini-list">
             <div className="mini-list-item">
               <div>
-                <p className="mini-list-title">Add one family event</p>
-                <p className="muted">Start with something simple like school pickup, movie night, or an appointment.</p>
+                <p className="mini-list-title">Add one event</p>
+                <p className="muted">Try school pickup, dinner out, or an appointment so everyone can see what is coming.</p>
               </div>
             </div>
             <div className="mini-list-item">
               <div>
-                <p className="mini-list-title">Add one shared task</p>
-                <p className="muted">A quick chore helps the dashboard become useful immediately.</p>
+                <p className="mini-list-title">Add one task</p>
+                <p className="muted">A shared chore is enough to make the home screen useful immediately.</p>
               </div>
             </div>
             <div className="mini-list-item">
               <div>
-                <p className="mini-list-title">Add one bill or transaction</p>
-                <p className="muted">Even one money item makes the planner and summaries much clearer.</p>
+                <p className="mini-list-title">Add one money item</p>
+                <p className="muted">One bill or transaction gives the money snapshot context for the week ahead.</p>
               </div>
             </div>
           </div>
         </section>
       ) : null}
 
-      <section className="dashboard-snapshot-grid" aria-label="Household snapshots">
-        <article className="glass-panel dashboard-card stack-sm" data-testid="metric-open-tasks">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="eyebrow">Tasks</p>
-              <h3>{openTasks.length} open</h3>
+      <div className="command-layout-grid">
+        <div className="command-main-column stack-lg">
+          <section className="glass-panel command-section stack-sm" aria-label="Upcoming calendar">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Upcoming calendar</p>
+                <h3>What the family is moving toward</h3>
+              </div>
+              <span className="section-tip">Next 5 items</span>
             </div>
-            <span className="route-pill">{todayTasks.length} for today</span>
-          </div>
-          {todayTasks.length ? (
-            <div className="mini-list">
-              {todayTasks.map((task) => {
-                const owner = state.users.find((user) => user.id === task.ownerId);
-                return (
-                  <div key={task.id} className="mini-list-item">
-                    <div>
-                      <p className="mini-list-title">{task.title}</p>
-                      <p className="muted">{owner?.name ?? 'Unassigned'} · {task.dueDate ? (task.dueDate <= todayIso ? 'Today' : task.dueDate) : 'Anytime'}</p>
+            {upcomingEvents.length ? (
+              <div className="command-list">
+                {upcomingEvents.slice(0, 5).map((event) => (
+                  <article key={event.id} className="command-list-item">
+                    <span className={`event-kind-dot is-${event.kind ?? 'event'}`} />
+                    <div className="command-list-content">
+                      <p className="command-list-title">{event.title}</p>
+                      <p className="muted">{getEventTimingLabel(event)} · {event.sourceLabel}</p>
                     </div>
-                    {task.shared ? <span className="route-pill">Shared</span> : null}
+                    <span className="route-pill">{event.kind === 'appointment' ? 'Appointment' : 'Plan'}</span>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="soft-empty-card">
+                <p className="mini-list-title">No upcoming plans yet</p>
+                <p className="muted">Add a family event to make this area your shared “what’s next” lane.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="glass-panel command-section stack-sm" aria-label="Urgent tasks and chores">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Urgent tasks & chores</p>
+                <h3>What should happen next</h3>
+              </div>
+              <span className="section-tip">Top {todayTasks.length || 3}</span>
+            </div>
+            {todayTasks.length ? (
+              <div className="command-list">
+                {todayTasks.map((task) => {
+                  const owner = state.users.find((user) => user.id === task.ownerId);
+                  return (
+                    <article key={task.id} className="command-list-item command-list-item--actionable">
+                      <div className="command-rank-badge">{task.dueDate && task.dueDate < todayIso ? '!' : '•'}</div>
+                      <div className="command-list-content">
+                        <p className="command-list-title">{task.title}</p>
+                        <p className="muted">{getTaskTimingLabel(task, owner?.name, todayIso)}</p>
+                      </div>
+                      {task.shared ? <span className="route-pill">Shared</span> : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="soft-empty-card">
+                <p className="mini-list-title">No urgent chores right now</p>
+                <p className="muted">That means the family is caught up. Keep this space for only the tasks that matter today.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="glass-panel command-section stack-sm" aria-label="What changed">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">What changed</p>
+                <h3>Recent family updates</h3>
+              </div>
+              <span className="section-tip">Latest activity</span>
+            </div>
+            {recentChanges.length ? (
+              <div className="command-change-grid">
+                {recentChanges.map((entry) => (
+                  <article key={entry.id} className="change-card">
+                    <p className="metric-label">{getChangeLabel(entry)}</p>
+                    <p className="change-card-title">{entry.detail}</p>
+                    <p className="muted">{new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(entry.createdAtIso))}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="soft-empty-card soft-empty-card--loading">
+                <p className="mini-list-title">Nothing changed recently</p>
+                <p className="muted">When tasks, plans, or money updates happen, a quick family activity stream will appear here.</p>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <aside className="command-side-column stack-lg">
+          <section className="glass-panel command-section stack-sm" aria-label="Money snapshot">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Money snapshot</p>
+                <h3>{formatCurrencyZAR(safeToSpend)} safe to spend</h3>
+              </div>
+              <span className={`route-pill ${overdueBills.length ? 'route-pill--danger' : ''}`}>{overdueBills.length} overdue</span>
+            </div>
+            <div className="money-brief-grid money-brief-grid--home">
+              <div>
+                <span className="metric-label">In</span>
+                <strong>{formatCurrencyZAR(income)}</strong>
+              </div>
+              <div>
+                <span className="metric-label">Out</span>
+                <strong>{formatCurrencyZAR(spending)}</strong>
+              </div>
+              <div>
+                <span className="metric-label">Net</span>
+                <strong>{formatCurrencyZAR(net)}</strong>
+              </div>
+            </div>
+            <p className="muted">
+              {overdueBills.length > 0
+                ? `${overdueBills.length} bill${overdueBills.length === 1 ? '' : 's'} need attention now.`
+                : dueSoonBills.length > 0
+                  ? `${dueSoonBills.length} bill${dueSoonBills.length === 1 ? '' : 's'} are due over the next 7 days.`
+                  : 'Bills look calm for the week ahead.'}
+            </p>
+          </section>
+
+          <section className="glass-panel command-section stack-sm" aria-label="Family progress">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Family activity & rewards</p>
+                <h3>Momentum feels visible</h3>
+              </div>
+              <span className="crew-points">{familyTrack.familyStars} stars</span>
+            </div>
+            <div className="family-progress-strip">
+              <article className="family-progress-card">
+                <p className="metric-label">Family stars</p>
+                <strong>{familyTrack.familyStars}</strong>
+                <p className="muted">Shared wins add up across the household.</p>
+              </article>
+              <article className="family-progress-card">
+                <p className="metric-label">Active members</p>
+                <strong>{state.users.filter((user) => user.active).length}</strong>
+                <p className="muted">Everyone in one calm shared view.</p>
+              </article>
+            </div>
+            <div className="avatar-row">
+              {state.users.map((user) => {
+                const companion = state.avatarGame.companionsByUserId[user.id];
+                return (
+                  <div
+                    key={user.id}
+                    className={`avatar-pill ${state.activeUserId === user.id ? 'is-active' : ''} ${!user.active ? 'is-inactive-user' : ''}`}
+                  >
+                    <span className="avatar-badge">{speciesEmoji[companion.species] ?? '🐾'}</span>
+                    <div className="avatar-pill-info">
+                      <span className="avatar-pill-name">{user.name}</span>
+                      <span className="avatar-mini-points">Lv {companion.level} · {companion.mood}</span>
+                    </div>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <p className="muted">No urgent tasks. This is a good day to stay ahead.</p>
-          )}
-        </article>
+            {state.activeUserId && activeCompanion ? <p className="muted">{activeCompanion.name} is level {activeCompanion.level} with {activeCompanion.coins} coins and {activeCompanion.stars} stars.</p> : null}
+          </section>
 
-        <article className="glass-panel dashboard-card stack-sm" data-testid="metric-payments-due">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="eyebrow">Money snapshot</p>
-              <h3>{formatCurrencyZAR(safeToSpend)} safe to spend</h3>
-            </div>
-            <span className={`route-pill ${overdueBills.length ? 'route-pill--danger' : ''}`}>{overdueBills.length} overdue</span>
-          </div>
-          <div className="money-brief-grid">
-            <div>
-              <span className="metric-label">Money in</span>
-              <strong>{formatCurrencyZAR(income)}</strong>
-            </div>
-            <div>
-              <span className="metric-label">Money out</span>
-              <strong>{formatCurrencyZAR(spending)}</strong>
-            </div>
-            <div>
-              <span className="metric-label">This month</span>
-              <strong>{formatCurrencyZAR(net)}</strong>
-            </div>
-          </div>
-          <p className="muted">
-            {overdueBills.length > 0
-              ? `${overdueBills.length} bill${overdueBills.length === 1 ? '' : 's'} need attention now.`
-              : dueSoonBills.length > 0
-                ? `${dueSoonBills.length} bill${dueSoonBills.length === 1 ? '' : 's'} due in the next 7 days.`
-                : 'Bills are under control for the week ahead.'}
-          </p>
-        </article>
-      </section>
-
-      <section className="dashboard-snapshot-grid" aria-label="Upcoming plans and family summary">
-        <article className="glass-panel home-events-panel stack-sm">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="eyebrow">Next on the calendar</p>
-              <h3>Coming up soon</h3>
-            </div>
-            <span className="section-tip">Next 4 items</span>
-          </div>
-          {upcomingEvents.length ? (
-            <div className="home-events-list">
-              {upcomingEvents.map((event) => (
-                <div key={event.id} className="home-event-item">
-                  <span className={`event-kind-dot is-${event.kind ?? 'event'}`} />
-                  <div>
-                    <p className="home-event-title">{event.title}</p>
-                    <p className="home-event-date muted">
-                      {new Intl.DateTimeFormat('en-ZA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(event.iso))} · {event.sourceLabel}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">Nothing scheduled yet. Add a family plan to keep everyone aligned.</p>
-          )}
-        </article>
-
-        <section className="glass-panel crew-strip stack-sm" aria-label="Family crew">
-          <div className="section-head section-head--tight">
-            <div>
-              <p className="eyebrow">Family</p>
-              <h3>Your crew</h3>
-            </div>
-            <span className="crew-points">{familyTrack.familyStars} stars</span>
-          </div>
-          <div className="avatar-row">
-            {state.users.map((user) => {
-              const companion = state.avatarGame.companionsByUserId[user.id];
-              return (
-                <div
-                  key={user.id}
-                  className={`avatar-pill ${state.activeUserId === user.id ? 'is-active' : ''} ${!user.active ? 'is-inactive-user' : ''}`}
-                >
-                  <span className="avatar-badge">{speciesEmoji[companion.species] ?? '🐾'}</span>
-                  <div className="avatar-pill-info">
-                    <span className="avatar-pill-name">{user.name}</span>
-                    <span className="avatar-mini-points">Lv {companion.level} · {companion.mood}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {state.activeUserId && activeCompanion ? <p className="muted">{activeCompanion.name} is level {activeCompanion.level} with {activeCompanion.coins} coins and {activeCompanion.stars} stars.</p> : null}
-        </section>
-      </section>
-
-      <section className="glass-panel stack-sm" aria-label="Daily plan insights">
-        <div className="section-head section-head--tight">
-          <div>
-            <p className="eyebrow">Helpful nudges</p>
-            <h3>Three small reminders</h3>
-          </div>
-          {state.activeUserId && activeCompanion ? <span className="section-tip">Companion check-in</span> : null}
-        </div>
-        <div className="foundation-grid">
-          {insights.slice(0, 2).map((insight) => (
-            <article key={insight.title} className={`metric-card metric-card--${insight.tone}`}>
-              <p className="metric-label">{insight.title}</p>
-              <p className="muted">{insight.detail}</p>
-            </article>
-          ))}
-          {state.activeUserId && activeCompanion ? (
-            <article className="metric-card metric-card--celebrate stack-sm">
-              <p className="metric-label">Companion quick care</p>
-              <div className="quick-actions" role="group" aria-label="Quick companion care actions">
-                {(['feed', 'play', 'rest'] as const).map((action) => (
-                  <button
-                    key={action}
-                    className="chip-action"
-                    data-testid={`btn-avatar-${action}`}
-                    type="button"
-                    onClick={() => {
-                      onCareAction(state.activeUserId as UserId, action);
-                      setReaction(`${careLabels[action]} done for ${activeCompanion.name}.`);
-                    }}
-                  >
-                    {careLabels[action]}
-                  </button>
-                ))}
+          <section className="glass-panel command-section stack-sm" aria-label="Quick actions">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Quick actions</p>
+                <h3>Keep the day moving</h3>
               </div>
-              {reaction ? <p className="status-banner is-success">{reaction}</p> : <p className="muted">Keep the home companion happy without leaving the dashboard.</p>}
-            </article>
-          ) : insights[2] ? (
-            <article className={`metric-card metric-card--${insights[2].tone}`}>
-              <p className="metric-label">{insights[2].title}</p>
-              <p className="muted">{insights[2].detail}</p>
-            </article>
-          ) : null}
-        </div>
-      </section>
+              <span className="section-tip">One tap</span>
+            </div>
+            <div className="quick-actions quick-actions--home" role="group" aria-label="Quick actions">
+              <button className="chip-action" type="button" onClick={onLock}>Switch profile</button>
+              {state.activeUserId && activeCompanion ? (
+                <>
+                  {(['feed', 'play', 'rest'] as const).map((action) => (
+                    <button
+                      key={action}
+                      className="chip-action"
+                      data-testid={`btn-avatar-${action}`}
+                      type="button"
+                      onClick={() => {
+                        onCareAction(state.activeUserId as UserId, action);
+                        setReaction(`${careLabels[action]} done for ${activeCompanion.name}.`);
+                      }}
+                    >
+                      {careLabels[action]}
+                    </button>
+                  ))}
+                </>
+              ) : null}
+            </div>
+            {reaction ? <p className="status-banner is-success">{reaction}</p> : <p className="muted">Short, friendly actions belong here so the screen feels useful instead of busy.</p>}
+          </section>
+
+          <section className="glass-panel command-section stack-sm" aria-label="Helpful nudges and loading states">
+            <div className="section-head">
+              <div>
+                <p className="eyebrow">Helpful nudges</p>
+                <h3>Suggested copy & states</h3>
+              </div>
+            </div>
+            <div className="command-change-grid">
+              {insights.slice(0, 2).map((insight) => (
+                <article key={insight.title} className={`change-card change-card--${insight.tone}`}>
+                  <p className="metric-label">{insight.title}</p>
+                  <p className="change-card-title">{insight.detail}</p>
+                </article>
+              ))}
+              <article className="change-card skeleton-card">
+                <p className="metric-label">Loading state</p>
+                <p className="change-card-title">Refreshing your family day…</p>
+                <div className="skeleton-lines" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </article>
+            </div>
+          </section>
+        </aside>
+      </div>
     </section>
   );
 };
