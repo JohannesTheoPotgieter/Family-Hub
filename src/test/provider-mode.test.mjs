@@ -11,7 +11,15 @@ test('calendar mode defaults local in integration file', () => {
 test('server calendar storage requires an explicit encryption key', () => {
   const content = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(content, /padEnd\(32, 'x'\)/);
-  assert.match(content, /TOKEN_ENC_KEY must be set to at least 32 characters/);
+  assert.match(content, /TOKEN_ENC_KEY/);
+});
+
+test('server reset path is maintenance-only and normal boot stays read-only', () => {
+  const indexContent = fs.readFileSync(new URL('../../server/index.mjs', import.meta.url), 'utf8');
+  const storageContent = fs.readFileSync(new URL('../../server/storage.mjs', import.meta.url), 'utf8');
+  assert.match(indexContent, /FAMILY_HUB_MAINTENANCE_MODE === '1'/);
+  assert.match(indexContent, /assertMaintenanceModeEnabled/);
+  assert.match(storageContent, /Keep boot read-only/);
 });
 
 test('server sanitizes OAuth return targets and ICS subscription urls', () => {

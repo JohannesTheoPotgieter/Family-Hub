@@ -57,3 +57,9 @@ export const assertResetRequestAllowed = (req, clientOrigin) => {
   const refererOk = referer ? referer.startsWith(`${allowedOrigin}/`) || referer === allowedOrigin : true;
   if (!originOk || !refererOk) throw createHttpError(403, 'Reset requests must come from the Family Hub app origin.');
 };
+
+export const assertMaintenanceModeEnabled = (maintenanceModeEnabled, routeName) => {
+  if (!maintenanceModeEnabled) {
+    throw createHttpError(403, `${routeName} is disabled during normal runtime. Re-run with FAMILY_HUB_MAINTENANCE_MODE=1 or use an explicit maintenance script.`);
+  }
+};

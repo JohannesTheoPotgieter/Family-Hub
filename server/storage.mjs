@@ -3,6 +3,9 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHttpError } from './security.mjs';
 
+const EMPTY_SERVER_STATE = Object.freeze({ providers: {}, icsSubscriptions: [] });
+const cloneEmptyServerState = () => ({ providers: {}, icsSubscriptions: [] });
+
 export const createServerStorage = ({ dataFile, encKey }) => {
   const requireEncKey = () => {
     if (!encKey) throw createHttpError(500, 'TOKEN_ENC_KEY must be set to at least 32 characters before connecting Google or Outlook.');
@@ -10,11 +13,16 @@ export const createServerStorage = ({ dataFile, encKey }) => {
   };
 
   const loadPersistedState = () => {
-    if (!existsSync(dataFile)) return { providers: {}, icsSubscriptions: [] };
+    if (!existsSync(dataFile)) return cloneEmptyServerState();
     try {
-      return JSON.parse(readFileSync(dataFile, 'utf8'));
+      const parsed = JSON.parse(readFileSync(dataFile, 'utf8'));
+      return {
+        providers: parsed?.providers && typeof parsed.providers === 'object' ? parsed.providers : {},
+        icsSubscriptions: Array.isArray(parsed?.icsSubscriptions) ? parsed.icsSubscriptions : []
+      };
     } catch {
-      return { providers: {}, icsSubscriptions: [] };
+      // Keep boot read-only: malformed storage must not be auto-repaired or rewritten during startup.
+      return cloneEmptyServerState();
     }
   };
 
@@ -67,5 +75,5 @@ export const createServerStorage = ({ dataFile, encKey }) => {
     savePersistedState();
   };
 
-  return { dataFile: resolve(dataFile), persistedState, requireEncKey, encrypt, decrypt, savePersistedState, getStoredProviderAccount, saveProviderAccount, clearProviderAccount, addIcsSubscription, removeIcsSubscription, reset };
+  return { dataFile: resolve(dataFile), emptyState: EMPTY_SERVER_STATE, persistedState, requireEncKey, encrypt, decrypt, savePersistedState, getStoredProviderAccount, saveProviderAccount, clearProviderAccount, addIcsSubscription, removeIcsSubscription, reset };
 };
