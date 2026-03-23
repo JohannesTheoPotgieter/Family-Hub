@@ -3,12 +3,14 @@ import { resetCalendarConnections } from '../../integrations/calendar';
 import { addBill, addInternalCalendarEvent, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, completeUserSetup, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction } from './appState';
 import { appendAuditEntry, createResetStateForMode, exportBackup, importBackup, type AdminResetMode } from './adminActions';
 import { TABS, type Tab, type UserId } from './constants';
+import { APP_ROUTES } from '../../config/routes';
+import { resolveActiveTab } from '../../routing/routeHelpers';
 import { encodePin, verifyPin } from './pin';
 import { localPersistenceAdapter } from './persistence';
 import { getTabsForUser, hasPermission, resolvePermissionBundle } from './permissions';
 import type { FamilyHubState } from './storage';
 
-const tabIcons: Record<Tab, string> = { Home: '🏡', Calendar: '📅', Tasks: '✅', Money: '💰', More: '⋯' };
+const tabIcons: Record<Tab, string> = Object.fromEntries(TABS.map((tab) => [tab, APP_ROUTES[tab].icon])) as Record<Tab, string>;
 
 export const useFamilyHubController = () => {
   const [state, setState] = useState<FamilyHubState>(() => ensureChallenges(localPersistenceAdapter.load()));
@@ -21,7 +23,8 @@ export const useFamilyHubController = () => {
   const visibleTabs = useMemo(() => getTabsForUser(activeUser, state.settings), [activeUser, state.settings]);
 
   useEffect(() => {
-    if (!visibleTabs.includes(activeTab)) setActiveTab(visibleTabs[0] ?? 'Home');
+    const nextTab = resolveActiveTab(activeTab, visibleTabs);
+    if (nextTab !== activeTab) setActiveTab(nextTab);
   }, [activeTab, visibleTabs]);
 
   const patchState = (updater: (current: FamilyHubState) => FamilyHubState) => setState((current) => ensureChallenges(updater(current)));
