@@ -22,9 +22,22 @@ type CalendarScreenProps = {
 };
 
 type Filter = 'all' | 'internal' | 'google' | 'microsoft' | 'ics';
+type CalendarView = 'day' | 'week' | 'month';
+
+type DisplayEvent = {
+  id: string;
+  provider: Filter;
+  title: string;
+  iso: string;
+  allDay: boolean;
+  dayKey: string;
+  timeLabel: string;
+  sourceLabel: string;
+  familyLabel: string;
+};
 
 const formatDayKey = (date: Date) => date.toISOString().slice(0, 10);
-const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-ZA', opts).format(date);
+const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', opts).format(date);
 const startWeek = (date: Date) => {
   const next = new Date(date);
   const day = next.getDay();
@@ -33,22 +46,44 @@ const startWeek = (date: Date) => {
   next.setHours(0, 0, 0, 0);
   return next;
 };
+const startMonth = (date: Date) => {
+  const next = new Date(date.getFullYear(), date.getMonth(), 1);
+  next.setHours(0, 0, 0, 0);
+  return next;
+};
+const endMonth = (date: Date) => {
+  const next = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  next.setHours(23, 59, 59, 999);
+  return next;
+};
 const addDays = (date: Date, n: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + n);
   return next;
 };
+const isSameDay = (a: Date, b: Date) => formatDayKey(a) === formatDayKey(b);
+const isSameMonth = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
 const providerLabel: Record<Filter, string> = {
   all: 'All',
-  internal: 'Family events',
+  internal: 'Family',
   google: 'Google',
   microsoft: 'Outlook',
   ics: 'ICS'
 };
 
+const providerToneLabel: Record<Filter, string> = {
+  all: 'Everything',
+  internal: 'Family plan',
+  google: 'Google calendar',
+  microsoft: 'Outlook calendar',
+  ics: 'ICS feed'
+};
+
 const formatLastSynced = (value?: string) =>
-  value ? new Intl.DateTimeFormat('en-ZA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : 'Not synced yet';
+  value ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : 'Not synced yet';
+
+const eventTimeLabel = (iso: string, allDay: boolean) => (allDay ? 'All day' : fmt(new Date(iso), { hour: 'numeric', minute: '2-digit' }));
 
 export const CalendarScreen = ({
   internalEvents,
@@ -64,6 +99,7 @@ export const CalendarScreen = ({
   const mode = getCalendarMode();
   const providers = useMemo(() => getCalendarProviderClients(), []);
   const [day, setDay] = useState(new Date());
+  const [view, setView] = useState<CalendarView>('week');
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(formatDayKey(new Date()));
@@ -81,18 +117,41 @@ export const CalendarScreen = ({
   const { push } = useToasts();
 
   const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startWeek(day), i)), [day]);
+  const monthAnchor = useMemo(() => startMonth(day), [day]);
+  const monthGrid = useMemo(() => {
+    const monthStart = startMonth(day);
+    const gridStart = startWeek(monthStart);
+    return Array.from({ length: 35 }, (_, i) => addDays(gridStart, i));
+  }, [day]);
 
-  const merged = useMemo(() => {
-    const internal = internalEvents.map((event) => ({
+  const merged = useMemo<DisplayEvent[]>(() => {
+    const internal = internalEvents.map((event) => {
+      const iso = `${event.date}T12:00:00.000Z`;
+      return {
+        id: event.id,
+        provider: 'internal' as const,
+        title: event.title,
+        iso,
+        allDay: true,
+        dayKey: event.date,
+        timeLabel: eventTimeLabel(iso, true),
+        sourceLabel: 'Family plan',
+        familyLabel: 'Everyone'
+      };
+    });
+    const external = externalEvents.map((event) => ({
       id: event.id,
-      provider: 'internal' as const,
+      provider: event.provider as Filter,
       title: event.title,
-      iso: `${event.date}T12:00:00.000Z`,
-      allDay: false
+      iso: event.start.iso,
+      allDay: event.start.allDay,
+      dayKey: formatDayKey(new Date(event.start.iso)),
+      timeLabel: eventTimeLabel(event.start.iso, event.start.allDay),
+      sourceLabel: providerToneLabel[event.provider as Filter] ?? 'Connected calendar',
+      familyLabel: calendars.find((calendar) => calendar.id === event.calendarId)?.name ?? 'Connected calendar'
     }));
-    const external = externalEvents.map((event) => ({ id: event.id, provider: event.provider, title: event.title, iso: event.start.iso, allDay: event.start.allDay }));
-    return [...internal, ...external];
-  }, [internalEvents, externalEvents]);
+    return [...internal, ...external].sort((a, b) => a.iso.localeCompare(b.iso));
+  }, [calendars, externalEvents, internalEvents]);
 
   const availableFilters = useMemo(
     () => ['all', 'internal', ...providers.map((provider) => provider.provider)] as Filter[],
@@ -111,16 +170,68 @@ export const CalendarScreen = ({
     [calendars, externalEvents, lastSyncedAtIsoByProvider, providers]
   );
 
-  const selectedDayEvents = merged
-    .filter((event) => formatDayKey(new Date(event.iso)) === formatDayKey(day))
-    .filter((event) => selectedFilter === 'all' || event.provider === selectedFilter)
-    .sort((a, b) => a.iso.localeCompare(b.iso));
+  const filteredEvents = useMemo(
+    () => merged.filter((event) => selectedFilter === 'all' || event.provider === selectedFilter),
+    [merged, selectedFilter]
+  );
+
+  const selectedDayEvents = useMemo(
+    () => filteredEvents.filter((event) => event.dayKey === formatDayKey(day)),
+    [day, filteredEvents]
+  );
+
+  const weekEvents = useMemo(
+    () => week.map((weekDay) => ({ day: weekDay, events: filteredEvents.filter((event) => event.dayKey === formatDayKey(weekDay)) })),
+    [filteredEvents, week]
+  );
 
   const agendaSummary = useMemo(() => ({
     total: merged.length,
-    today: merged.filter((event) => formatDayKey(new Date(event.iso)) === formatDayKey(new Date())).length,
-    connectedSources: providerSummaries.filter((item) => item.calendarCount > 0 || item.eventCount > 0).length
-  }), [merged, providerSummaries]);
+    today: merged.filter((event) => event.dayKey === formatDayKey(new Date())).length,
+    connectedSources: providerSummaries.filter((item) => item.calendarCount > 0 || item.eventCount > 0).length,
+    familyEvents: internalEvents.length
+  }), [internalEvents.length, merged, providerSummaries]);
+
+  const monthSummary = useMemo(() => {
+    const monthEvents = filteredEvents.filter((event) => {
+      const eventDate = new Date(event.iso);
+      return eventDate >= monthAnchor && eventDate <= endMonth(day);
+    });
+    return {
+      total: monthEvents.length,
+      busiestDay: monthGrid.reduce<{ label: string; count: number }>((best, gridDay) => {
+        const count = filteredEvents.filter((event) => event.dayKey === formatDayKey(gridDay)).length;
+        if (count > best.count) return { label: fmt(gridDay, { month: 'short', day: 'numeric' }), count };
+        return best;
+      }, { label: 'No busy day yet', count: 0 })
+    };
+  }, [day, filteredEvents, monthAnchor, monthGrid]);
+
+  const quickAdd = () => {
+    if (!title.trim() || !canEditCalendar) return;
+    onAddEvent({ title: title.trim(), date, kind: 'event' });
+    push('Added to the family plan.');
+    setTitle('');
+    setDate(formatDayKey(day));
+    setOpen(false);
+    setView('day');
+  };
+
+  const shiftRange = (direction: -1 | 1) => {
+    if (view === 'day') setDay((current) => addDays(current, direction));
+    if (view === 'week') setDay((current) => addDays(current, direction * 7));
+    if (view === 'month') setDay((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  };
+
+  const rangeLabel = useMemo(() => {
+    if (view === 'day') return fmt(day, { weekday: 'long', month: 'long', day: 'numeric' });
+    if (view === 'week') {
+      const start = startWeek(day);
+      const end = addDays(start, 6);
+      return `${fmt(start, { month: 'short', day: 'numeric' })} – ${fmt(end, { month: start.getMonth() === end.getMonth() ? undefined : 'short', day: 'numeric' })}`;
+    }
+    return fmt(day, { month: 'long', year: 'numeric' });
+  }, [day, view]);
 
   const syncProvider = async (providerId: Provider) => {
     const client = providers.find((item) => item.provider === providerId);
@@ -193,9 +304,11 @@ export const CalendarScreen = ({
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
 
-
     if (providerId === 'ics') {
-      if (!canConnectCalendar) { push('Only adult profiles can connect calendars.'); return; }
+      if (!canConnectCalendar) {
+        push('Only adult profiles can connect calendars.');
+        return;
+      }
       setIcsName('');
       setIcsUrl('');
       setConnectModalProvider(providerId);
@@ -254,6 +367,10 @@ export const CalendarScreen = ({
   };
 
   useEffect(() => {
+    setDate(formatDayKey(day));
+  }, [day]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get('connected');
     const provider = params.get('provider') as Provider | null;
@@ -270,52 +387,213 @@ export const CalendarScreen = ({
   return (
     <section className="stack-lg">
       <Confetti active={celebrate} />
-      <Card className="stack-sm calendar-hero">
+
+      <Card className="stack-md calendar-hero calendar-planner-shell">
         <div className="calendar-hero-top">
           <div>
-            <p className="eyebrow">Family Planner</p>
-            <h2>See family plans first, then connect outside calendars only when you need to.</h2>
+            <p className="eyebrow">Family planner</p>
+            <h2>A calmer calendar for family life.</h2>
+            <p className="muted calendar-hero-copy">
+              See what matters today, switch views quickly, and add plans in seconds without losing connected calendars.
+            </p>
           </div>
           <span className="route-pill">{agendaSummary.connectedSources} connected source{agendaSummary.connectedSources === 1 ? '' : 's'}</span>
         </div>
-        <p className="muted">
-          {mode === 'server'
-            ? 'Add family events here and, if you want, connect Google, Outlook, or an ICS calendar from the connection area below.'
-            : 'Add family events here first. If calendar sign-in is set up on this device, you can also connect outside calendars below.'}
-        </p>
-        <div className="calendar-summary-grid">
+
+        <div className="calendar-summary-grid calendar-summary-grid--hero">
           <article className="calendar-summary-card">
-            <span className="metric-label">Events today</span>
+            <span className="metric-label">Today</span>
             <strong>{agendaSummary.today}</strong>
+            <small>{agendaSummary.today === 1 ? 'event scheduled' : 'events scheduled'}</small>
           </article>
           <article className="calendar-summary-card">
-            <span className="metric-label">Upcoming loaded</span>
-            <strong>{agendaSummary.total}</strong>
+            <span className="metric-label">Family plans</span>
+            <strong>{agendaSummary.familyEvents}</strong>
+            <small>shared with everyone</small>
           </article>
           <article className="calendar-summary-card">
-            <span className="metric-label">Selected day</span>
-            <strong>{selectedDayEvents.length}</strong>
+            <span className="metric-label">This month</span>
+            <strong>{monthSummary.total}</strong>
+            <small>{monthSummary.busiestDay.count ? `${monthSummary.busiestDay.label} is busiest` : 'No crowded days yet'}</small>
           </article>
         </div>
+
         {statusError ? <div className="error-banner">{statusError}</div> : null}
         {busyMessage ? <div className="status-banner">{busyMessage}</div> : null}
-        <div className="calendar-primary-actions">
-          <Button onClick={() => setOpen(true)} disabled={!canEditCalendar}>Add family event</Button>
-          <Button variant="ghost" onClick={() => void syncAllProviders()} disabled={!agendaSummary.connectedSources}>
-            {syncingProvider ? 'Syncing…' : 'Refresh connected calendars'}
-          </Button>
+
+        <div className="calendar-quick-add">
+          <div className="calendar-quick-add__intro">
+            <p className="eyebrow">Quick add</p>
+            <strong>Make event creation feel instant.</strong>
+            <span>Best for school pickups, movie nights, dinners, or anything the whole family should see.</span>
+          </div>
+          <div className="calendar-quick-add__fields">
+            <input
+              value={title}
+              placeholder="Add a family plan…"
+              onChange={(event) => setTitle(event.target.value)}
+              disabled={!canEditCalendar}
+              aria-label="Event title"
+            />
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={!canEditCalendar} aria-label="Event date" />
+            <Button onClick={quickAdd} disabled={!title.trim() || !canEditCalendar}>Quick add</Button>
+            <Button variant="ghost" onClick={() => setOpen(true)} disabled={!canEditCalendar}>More details</Button>
+          </div>
         </div>
       </Card>
 
-      <Card className="stack-sm">
+      <Card className="stack-md calendar-planner-shell">
+        <div className="calendar-toolbar calendar-toolbar--planner">
+          <div className="calendar-toolbar__main">
+            <div>
+              <p className="eyebrow">Browse schedule</p>
+              <h3>{rangeLabel}</h3>
+            </div>
+            <div className="calendar-nav-row">
+              <Button variant="ghost" onClick={() => shiftRange(-1)} aria-label="Previous range">←</Button>
+              <Button variant="ghost" onClick={() => setDay(new Date())}>Today</Button>
+              <Button variant="ghost" onClick={() => shiftRange(1)} aria-label="Next range">→</Button>
+            </div>
+          </div>
+
+          <div className="calendar-view-tabs calendar-view-tabs--mobile-friendly" role="tablist" aria-label="Calendar view">
+            {(['day', 'week', 'month'] as CalendarView[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={view === value}
+                className={`calendar-view-tab ${view === value ? 'is-active' : ''}`}
+                onClick={() => setView(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+
+          <div className="calendar-filter-row calendar-filter-row--planner" aria-label="Calendar source filter">
+            {availableFilters.map((filter) => (
+              <Chip key={filter} className={selectedFilter === filter ? 'is-active' : ''} onClick={() => setFilter(filter)}>
+                {providerLabel[filter]}
+              </Chip>
+            ))}
+          </div>
+        </div>
+
+        {view === 'day' ? (
+          <div className="calendar-agenda-layout">
+            <Card className="stack-sm calendar-focus-card">
+              <div className="section-head section-head--tight">
+                <div>
+                  <p className="eyebrow">Focused day</p>
+                  <h3>{fmt(day, { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
+                </div>
+                <span className="section-tip">{selectedDayEvents.length} item{selectedDayEvents.length === 1 ? '' : 's'}</span>
+              </div>
+              {selectedDayEvents.length ? selectedDayEvents.map((event) => (
+                <article key={`${event.provider}-${event.id}`} className={`calendar-event-card provider-${event.provider}`}>
+                  <div className="calendar-event-card__top">
+                    <span className={`calendar-provider-pill provider-${event.provider}`}>{event.sourceLabel}</span>
+                    <span className="calendar-event-time">{event.timeLabel}</span>
+                  </div>
+                  <strong>{event.title}</strong>
+                  <div className="calendar-event-meta">
+                    <span>{event.familyLabel}</span>
+                    <span>{providerToneLabel[event.provider]}</span>
+                  </div>
+                </article>
+              )) : (
+                <div className="calendar-empty-state">
+                  <p className="tasks-empty-emoji">✨</p>
+                  <strong>Nothing scheduled yet.</strong>
+                  <p className="muted">Use quick add to capture a plan fast, or connect a calendar below.</p>
+                </div>
+              )}
+            </Card>
+
+            <Card className="stack-sm calendar-focus-card calendar-focus-card--side">
+              <div className="section-head section-head--tight">
+                <div>
+                  <p className="eyebrow">Family visibility</p>
+                  <h3>What everyone can see</h3>
+                </div>
+              </div>
+              <div className="calendar-legend-list">
+                <div className="calendar-legend-item"><span className="calendar-provider-pill provider-internal">Family plan</span><p>Shared plans are always highlighted first so coordination is obvious.</p></div>
+                <div className="calendar-legend-item"><span className="calendar-provider-pill provider-google">Google</span><p>Connected calendars stay visible, but secondary to the family plan.</p></div>
+                <div className="calendar-legend-item"><span className="calendar-provider-pill provider-microsoft">Outlook</span><p>Each event shows its source and connected calendar name for clarity.</p></div>
+              </div>
+            </Card>
+          </div>
+        ) : null}
+
+        {view === 'week' ? (
+          <div className="calendar-week-board">
+            {weekEvents.map(({ day: weekDay, events }) => (
+              <button
+                key={formatDayKey(weekDay)}
+                type="button"
+                className={`calendar-week-column ${isSameDay(day, weekDay) ? 'is-active' : ''}`}
+                onClick={() => setDay(weekDay)}
+              >
+                <div className="calendar-week-column__header">
+                  <span>{fmt(weekDay, { weekday: 'short' })}</span>
+                  <strong>{fmt(weekDay, { day: 'numeric' })}</strong>
+                </div>
+                <div className="calendar-week-column__body">
+                  {events.length ? events.slice(0, 4).map((event) => (
+                    <span key={`${event.provider}-${event.id}`} className={`calendar-item-chip provider-${event.provider}`}>
+                      {event.timeLabel} · {event.title}
+                    </span>
+                  )) : <span className="calendar-week-column__empty">Free day</span>}
+                  {events.length > 4 ? <span className="calendar-more">+{events.length - 4} more</span> : null}
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {view === 'month' ? (
+          <div className="calendar-month-grid" role="grid" aria-label="Month view">
+            {monthGrid.map((gridDay) => {
+              const dayEvents = filteredEvents.filter((event) => event.dayKey === formatDayKey(gridDay));
+              return (
+                <button
+                  key={formatDayKey(gridDay)}
+                  type="button"
+                  role="gridcell"
+                  className={`calendar-day-cell ${isSameDay(day, gridDay) ? 'is-selected' : ''} ${isSameMonth(gridDay, day) ? '' : 'is-outside'}`}
+                  onClick={() => {
+                    setDay(gridDay);
+                    setView('day');
+                  }}
+                >
+                  <div className="calendar-day-cell__header">
+                    <span className="calendar-day-number">{fmt(gridDay, { day: 'numeric' })}</span>
+                    {dayEvents.length ? <span className="calendar-day-count">{dayEvents.length}</span> : null}
+                  </div>
+                  <div className="calendar-mini-list">
+                    {dayEvents.slice(0, 3).map((event) => (
+                      <span key={`${event.provider}-${event.id}`} className={`calendar-dot provider-${event.provider}`}>{event.title}</span>
+                    ))}
+                    {!dayEvents.length ? <span className="calendar-week-column__empty">No plans</span> : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </Card>
+
+      <Card className="stack-sm calendar-planner-shell">
         <div className="section-head section-head--tight">
           <div>
-            <p className="eyebrow">Outside calendars</p>
-            <h3>Connections</h3>
+            <p className="eyebrow">Connected calendars</p>
+            <h3>Keep outside events in sync</h3>
           </div>
           <span className="section-tip">Optional</span>
         </div>
-        <p className="muted">Connect Google, Outlook, or an ICS feed if you want outside events to appear in the family planner. Advanced setup stays here so the day-to-day planner stays simple.</p>
+        <p className="muted">Advanced setup stays separate so the main planner stays clean and easy for the whole family.</p>
         <div className="chip-list calendar-action-row">
           {providers.map((provider) => (
             <Chip key={provider.provider} onClick={() => void connectProvider(provider.provider)} aria-label={`Connect ${provider.label}`}>
@@ -330,7 +608,7 @@ export const CalendarScreen = ({
           </Chip>
         </div>
         {providerSummaries.some((item) => item.calendarCount > 0 || item.eventCount > 0) ? providerSummaries.map((summary) => (
-          <article key={summary.provider} className="event-card calendar-source-card">
+          <article key={summary.provider} className="calendar-source-card">
             <div>
               <p>{summary.label}</p>
               <small>
@@ -342,50 +620,7 @@ export const CalendarScreen = ({
               {(summary.calendarCount > 0 || summary.eventCount > 0) ? <Chip onClick={() => void clearProvider(summary.provider)}>Clear</Chip> : null}
             </div>
           </article>
-        )) : <p className="muted">Connect Google, Outlook, or an ICS feed and the events will stay visible across Home, Calendar, and alerts.</p>}
-      </Card>
-
-      <Card className="week-strip stack-sm"><div className="section-head section-head--tight"><div><p className="eyebrow">This week</p><h3>Pick a day</h3></div><span className="section-tip">Tap to focus</span></div>
-        {week.map((weekDay) => {
-          const key = formatDayKey(weekDay);
-          const hasEvents = merged.some((item) => formatDayKey(new Date(item.iso)) === key);
-          return (
-            <button key={key} className={`calendar-day-chip ${formatDayKey(day) === key ? 'is-active' : ''}`} onClick={() => setDay(weekDay)} type="button">
-              <span>{fmt(weekDay, { weekday: 'short' })}</span>
-              <strong>{fmt(weekDay, { day: 'numeric' })}</strong>
-              {hasEvents ? <i aria-hidden="true">•</i> : null}
-            </button>
-          );
-        })}
-      </Card>
-
-      <div className="chip-list calendar-filter-row">
-        {availableFilters.map((filter) => (
-          <Chip key={filter} className={selectedFilter === filter ? 'is-active' : ''} onClick={() => setFilter(filter)}>
-            {providerLabel[filter]}
-          </Chip>
-        ))}
-      </div>
-
-      <Card className="stack-sm">
-        <div className="section-head section-head--tight">
-          <div>
-            <p className="eyebrow">Agenda</p>
-            <h3>{fmt(day, { weekday: 'long', month: 'short', day: 'numeric' })}</h3>
-          </div>
-          <span className="section-tip">{selectedFilter === 'all' ? 'All calendars' : providerLabel[selectedFilter]}</span>
-        </div>
-        {selectedDayEvents.length ? selectedDayEvents.map((event) => (
-          <article key={`${event.provider}-${event.id}`} className={`event-card provider-${event.provider}`}>
-            <p>{event.title}</p>
-            <small>{event.allDay ? 'All day' : fmt(new Date(event.iso), { hour: 'numeric', minute: '2-digit' })} · {providerLabel[event.provider as Filter] ?? 'Internal'}</small>
-          </article>
-        )) : (
-          <div className="stack-sm">
-            <p className="tasks-empty-emoji">🗓️</p>
-            <p className="muted">No events yet. Add a plan or connect a calendar.</p>
-          </div>
-        )}
+        )) : <div className="calendar-empty-state calendar-empty-state--compact"><strong>No calendars connected.</strong><p className="muted">Connect Google, Outlook, or an ICS feed when you want outside events to appear in Family Hub.</p></div>}
       </Card>
 
       <Modal open={open} title="Add to family plan" onClose={() => setOpen(false)}>
@@ -394,18 +629,7 @@ export const CalendarScreen = ({
         <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         <div className="task-composer-actions">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
-            disabled={!canEditCalendar}
-            onClick={() => {
-              if (!title.trim()) return;
-              onAddEvent({ title: title.trim(), date, kind: 'event' });
-              push('Added to the plan.');
-              setTitle('');
-              setOpen(false);
-            }}
-          >
-            Save
-          </Button>
+          <Button disabled={!title.trim() || !canEditCalendar} onClick={quickAdd}>Save</Button>
         </div>
       </Modal>
 
