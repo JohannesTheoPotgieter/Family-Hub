@@ -3,10 +3,17 @@ import { randomUUID } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createIcsService } from './ics.mjs';
-import { corsHeaders, readJsonBody, redirect, sendError, sendJson } from './http.mjs';
+import { readJsonBody, redirect, sendError, sendJson } from './http.mjs';
 import { createOauthService } from './oauth.mjs';
 import { createProviderService } from './providers.mjs';
-import { assertResetRequestAllowed, createHttpError, isPrivateIpAddress, sanitizeReturnTo as sanitizeReturnToBase, validateIcsSubscriptionUrl } from './security.mjs';
+import {
+  assertMaintenanceModeEnabled,
+  assertResetRequestAllowed,
+  createHttpError,
+  isPrivateIpAddress,
+  sanitizeReturnTo as sanitizeReturnToBase,
+  validateIcsSubscriptionUrl
+} from './security.mjs';
 import { createServerStorage } from './storage.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +22,7 @@ const clientOrigin = process.env.CLIENT_ORIGIN ?? 'http://localhost:5000';
 const rawEncKey = (process.env.TOKEN_ENC_KEY ?? '').trim();
 const encKey = Buffer.byteLength(rawEncKey) >= 32 ? Buffer.from(rawEncKey).subarray(0, 32) : null;
 const dataFile = resolve(__dirname, '.family-hub-server.json');
+const maintenanceMode = process.env.FAMILY_HUB_MAINTENANCE_MODE === '1';
 
 const providerConfig = {
   google: {
@@ -36,7 +44,6 @@ const defaultReturnTo = {
   microsoft: `${clientOrigin}/?tab=Calendar&provider=microsoft&connected=1`
 };
 
-const ENCRYPTION_KEY_ERROR = 'TOKEN_ENC_KEY must be set to at least 32 characters before connecting Google or Outlook.';
 const storage = createServerStorage({ dataFile, encKey });
 const providerService = createProviderService({ providerConfig, providerLabel, storage });
 const icsService = createIcsService();
@@ -47,6 +54,8 @@ export { isPrivateIpAddress, validateIcsSubscriptionUrl };
 export const sanitizeReturnToPublic = sanitizeReturnTo;
 export { sanitizeReturnToPublic as sanitizeReturnTo };
 
+// Normal server boot must stay read-only with respect to durable state. Startup only loads
+// the existing persistence file so production/staging restarts remain predictable.
 export const server = createServer(async (req, res) => {
   try {
     if (!req.url) throw createHttpError(400, 'Missing request URL.');
@@ -143,10 +152,11 @@ export const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/reset' && req.method === 'POST') {
+      assertMaintenanceModeEnabled(maintenanceMode, '/api/reset');
       assertResetRequestAllowed(req, clientOrigin);
       storage.reset();
       icsService.clearAll();
-      return sendJson(res, clientOrigin, 200, { ok: true });
+      return sendJson(res, clientOrigin, 200, { ok: true, maintenanceMode: true });
     }
 
     return sendJson(res, clientOrigin, 404, { error: 'Not found' });

@@ -10,7 +10,8 @@
     "dev:all": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
     "build": "tsc -b && vite build",
     "test": "node --experimental-strip-types --experimental-specifier-resolution=node --test src/test/*.test.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "maintenance:reset-server-state": "node server/maintenance/reset-server-state.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

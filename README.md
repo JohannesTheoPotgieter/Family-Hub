@@ -13,12 +13,14 @@
 - Refresh tokens are encrypted at rest with AES-GCM (`TOKEN_ENC_KEY`) and the server now requires that key to be explicitly set.
 - Supports Google, Microsoft, and ICS subscriptions.
 - ICS subscriptions are limited to verified public `http(s)` URLs and OAuth callbacks only redirect back to `CLIENT_ORIGIN`.
+- Normal boot is read-only with respect to the persistence file; reset behavior is blocked unless `FAMILY_HUB_MAINTENANCE_MODE=1` or the explicit maintenance script is used.
 
 ## Scripts
 - `npm run dev:client` - Vite client on port `5000`.
 - `npm run dev:server` - Node API server on port `8787`.
 - `npm run dev:all` - Run both together on Windows, macOS, or Linux.
 - `npm run test` - unit tests.
+- `npm run maintenance:reset-server-state -- --force` - explicit maintenance-only reset of encrypted provider tokens and ICS subscriptions.
 
 ## Provider setup notes
 - Set `VITE_API_BASE_URL=http://localhost:8787` in the client env when using server mode locally.
