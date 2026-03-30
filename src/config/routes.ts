@@ -38,7 +38,7 @@ export const APP_ROUTES: Record<Tab, AppRouteDefinition> = {
   },
   More: {
     tab: 'More',
-    label: 'Family',
+    label: 'More',
     subtitle: 'People, reminders, settings, and shared household tools.',
     icon: '⋯',
     isVisible: () => true

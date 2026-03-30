@@ -22,4 +22,4 @@ export const buildBudgetPayload = (draft: { category: string; amount: string }, 
   return { monthIsoYYYYMM, category: draft.category, limitCents: toCents(amount) };
 };
 
-export const getBudgetSaveMode = (budgets: Budget[], monthIsoYYYYMM: string, category: string) => findBudgetForMonthCategory({ bills: [], transactions: [], budgets, savingsGoals: [], settings: { currency: 'ZAR' } }, monthIsoYYYYMM, category) ? 'update' : 'create';
+export const getBudgetSaveMode = (budgets: Budget[], monthIsoYYYYMM: string, category: string) => findBudgetForMonthCategory({ bills: [], transactions: [], budgets, savingsGoals: [], plannerItems: [], plannerOpeningBalance: 0, settings: { currency: 'ZAR' } }, monthIsoYYYYMM, category) ? 'update' : 'create';

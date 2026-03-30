@@ -1,5 +1,6 @@
 import { getTodayIso } from './date.ts';
 import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage.ts';
+import { getLineItemAmount } from './planner.ts';
 
 export const DEFAULT_MONEY_CATEGORIES = ['Groceries', 'Utilities', 'Transport', 'School', 'Entertainment', 'Health', 'Other'];
 
@@ -14,7 +15,7 @@ export const getMoneyAccessModel = (moneyVisibility: MoneyVisibility = 'full', c
     summaryOnly,
     canSeeDetails,
     canManage: canEditMoney && canSeeDetails,
-    allowedTabs: hidden ? [] : (summaryOnly ? ['overview'] : ['overview', 'bills', 'transactions', 'budget'])
+    allowedTabs: hidden ? [] : (summaryOnly ? ['overview'] : ['overview', 'plan', 'bills', 'spending', 'goals'])
   } as const;
 };
 
@@ -25,8 +26,8 @@ export type CashflowEntry = {
   amountCents: number;
   kind: 'inflow' | 'outflow';
   category: string;
-  source: 'transaction' | 'bill';
-  status: 'recorded' | 'scheduled';
+  source: 'transaction' | 'bill' | 'planner';
+  status: 'recorded' | 'scheduled' | 'projected';
   runningBalanceCents: number;
 };
 
@@ -104,8 +105,14 @@ export const getOpeningBalanceCents = (state: MoneyState, monthIsoYYYYMM: string
   }, 0);
 };
 
-export const getCashflowPlan = (state: MoneyState, monthIsoYYYYMM: string): CashflowPlan => {
-  const openingBalanceCents = getOpeningBalanceCents(state, monthIsoYYYYMM);
+export const getCashflowPlan = (
+  state: MoneyState,
+  monthIsoYYYYMM: string,
+  options?: { includePlannerItems?: boolean }
+): CashflowPlan => {
+  const openingBalanceCents = options?.includePlannerItems && state.plannerItems.length > 0
+    ? state.plannerOpeningBalance
+    : getOpeningBalanceCents(state, monthIsoYYYYMM);
   const monthTransactions = getMonthTransactions(state, monthIsoYYYYMM);
   const monthBills = getMonthBills(state, monthIsoYYYYMM);
 
@@ -132,8 +139,25 @@ export const getCashflowPlan = (state: MoneyState, monthIsoYYYYMM: string): Cash
       source: 'bill' as const,
       status: bill.paid ? 'recorded' as const : 'scheduled' as const
     }));
+  const plannerEntries = options?.includePlannerItems
+    ? state.plannerItems
+      .filter((item) => item.isActive)
+      .map((item) => {
+        const amountCents = getLineItemAmount(item, monthIsoYYYYMM);
+        return {
+          id: `planner-${item.id}-${monthIsoYYYYMM}`,
+          title: item.description,
+          dateIso: `${monthIsoYYYYMM}-01`,
+          amountCents: item.kind === 'income' ? amountCents : -amountCents,
+          kind: item.kind === 'income' ? 'inflow' as const : 'outflow' as const,
+          category: item.category,
+          source: 'planner' as const,
+          status: 'projected' as const
+        };
+      })
+    : [];
 
-  const sortedEntries = [...transactionEntries, ...billEntries].sort((a, b) => {
+  const sortedEntries = [...transactionEntries, ...billEntries, ...plannerEntries].sort((a, b) => {
     if (a.dateIso !== b.dateIso) return a.dateIso.localeCompare(b.dateIso);
     if (a.status !== b.status) return a.status === 'recorded' ? -1 : 1;
     return a.title.localeCompare(b.title);

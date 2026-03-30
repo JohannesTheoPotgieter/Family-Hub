@@ -5,7 +5,7 @@ import { toDedupeKey } from '../../domain/calendar.ts';
 import type { Tab, UserId } from './constants.ts';
 import { getInitialRouteFromLocation } from '../../routing/routeHelpers.ts';
 import { deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, markBillPaidWithOptionalTransaction, saveBudget, type BudgetSaveResult } from './money.ts';
-import { clearSetupArtifactsForUser, createInitialState, seedMoneyFromSetupProfiles, type Bill, type FamilyHubState, type MoneyTransaction, type TaskItem, type UserSetupProfile } from './storage.ts';
+import { clearSetupArtifactsForUser, createInitialState, seedMoneyFromSetupProfiles, type Bill, type FamilyHubState, type MoneyTransaction, type PlannerLineItem, type TaskItem, type UserSetupProfile } from './storage.ts';
 
 const addDays = (dateIso: string, days: number) => {
   const date = new Date(`${dateIso}T12:00:00`);
@@ -273,6 +273,22 @@ export const addTransaction = (current: FamilyHubState, transaction: Omit<MoneyT
 export const importTransactions = (current: FamilyHubState, transactions: Array<Omit<MoneyTransaction, 'id'>>) => ({ ...current, money: { ...current.money, transactions: [...transactions.map((transaction, index) => ({ id: `tx-${Date.now()}-${index}-${crypto.randomUUID()}`, ...transaction })), ...current.money.transactions] } });
 export const updateTransaction = (current: FamilyHubState, id: string, transaction: Omit<MoneyTransaction, 'id'>) => ({ ...current, money: { ...current.money, transactions: current.money.transactions.map((tx) => (tx.id === id ? { ...tx, ...transaction } : tx)) } });
 export const deleteTransaction = (current: FamilyHubState, id: string) => ({ ...current, money: deleteTransactionAndUnlinkBills(current.money, id) });
+export const addPlannerItem = (state: FamilyHubState, item: Omit<PlannerLineItem, 'id'>): FamilyHubState => ({
+  ...state,
+  money: { ...state.money, plannerItems: [{ id: `plan-${Date.now()}`, ...item }, ...state.money.plannerItems] }
+});
+export const updatePlannerItem = (state: FamilyHubState, id: string, update: Partial<PlannerLineItem>): FamilyHubState => ({
+  ...state,
+  money: { ...state.money, plannerItems: state.money.plannerItems.map((item) => item.id === id ? { ...item, ...update } : item) }
+});
+export const deletePlannerItem = (state: FamilyHubState, id: string): FamilyHubState => ({
+  ...state,
+  money: { ...state.money, plannerItems: state.money.plannerItems.filter((item) => item.id !== id) }
+});
+export const setPlannerOpeningBalance = (state: FamilyHubState, amountCents: number): FamilyHubState => ({
+  ...state,
+  money: { ...state.money, plannerOpeningBalance: amountCents }
+});
 export const saveMoneyBudget = (current: FamilyHubState, budget: Omit<import('./storage.ts').Budget, 'id'>): { state: FamilyHubState; result: BudgetSaveResult } => {
   const result = saveBudget(current.money, budget);
   return { state: { ...current, money: result.state }, result };
