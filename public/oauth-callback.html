@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connecting...</title>
+  </head>
+  <body>
+    <script>
+      const search = new URLSearchParams(window.location.search);
+      const provider = search.get('provider') ?? 'unknown';
+      const hash = new URLSearchParams(window.location.hash.substring(1));
+      const token = hash.get('access_token');
+      const error = hash.get('error');
+
+      if (window.opener) {
+        if (token) {
+          window.opener.postMessage({ type: 'oauth-token', provider, token }, window.location.origin);
+        } else if (error) {
+          window.opener.postMessage({ type: 'oauth-error', provider, message: error }, window.location.origin);
+        }
+      }
+
+      window.close();
+    </script>
+  </body>
+</html>

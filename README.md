@@ -40,3 +40,24 @@
 - Companion growth is tied to real household actions through pure reward functions in `src/domain/avatarRewards.ts`.
 - Family challenges auto-seed and track per-user contributions with shared unlock rewards.
 - Companion UX lives in More -> Companion home and includes a safe 2D fallback path for reduced motion or unsupported devices.
+
+## Calendar setup (local/static mode)
+
+Family Hub can connect to Google, Outlook, and Apple Calendar without a backend.
+
+### Google Calendar
+1. Create a project at console.cloud.google.com
+2. Enable the Google Calendar API
+3. Create an OAuth 2.0 Web Client ID
+4. Add your app URL to "Authorised JavaScript origins"
+5. Set `VITE_GOOGLE_CLIENT_ID=your-id` in Replit Secrets
+
+### Outlook Calendar
+1. Register an app at portal.azure.com → App registrations
+2. Add a Redirect URI of type "Single-page application" pointing to your app URL
+3. Under API permissions, add Calendars.Read + User.Read (delegated)
+4. Set `VITE_MICROSOFT_CLIENT_ID=your-id` in Replit Secrets
+
+### Apple Calendar
+No setup needed. Share a calendar from the Calendar app (Mac/iPhone) and paste
+the webcal:// link directly into Family Hub.

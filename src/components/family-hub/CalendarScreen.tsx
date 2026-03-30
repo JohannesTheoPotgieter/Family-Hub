@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CalendarEvent } from '../../lib/family-hub/storage';
-import { getCalendarMode, getCalendarProviderClients } from '../../integrations/calendar';
+import { getCalendarMode, getCalendarProviderClients, hasCalendarOAuthConfig } from '../../integrations/calendar';
 import type { Provider, NormalizedCalendar, NormalizedEvent } from '../../domain/calendar';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
@@ -23,6 +23,7 @@ type CalendarScreenProps = {
 
 type Filter = 'all' | 'internal' | 'google' | 'microsoft' | 'ics';
 type CalendarView = 'day' | 'week' | 'month';
+type ConnectStep = 'choose' | 'google-popup' | 'microsoft-popup' | 'apple-ics' | 'manual-token';
 
 type DisplayEvent = {
   id: string;
@@ -109,11 +110,14 @@ export const CalendarScreen = ({
   const [busyMessage, setBusyMessage] = useState('');
   const [statusError, setStatusError] = useState('');
   const [lastSyncedProvider, setLastSyncedProvider] = useState<Provider | null>(null);
-  const [connectModalProvider, setConnectModalProvider] = useState<Provider | null>(null);
-  const [accessToken, setAccessToken] = useState('');
-  const [connectModalMode, setConnectModalMode] = useState<'oauth' | 'manual'>('oauth');
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectStep, setConnectStep] = useState<ConnectStep>('choose');
+  const [connectProvider, setConnectProvider] = useState<Provider | null>(null);
+  const [connectStatus, setConnectStatus] = useState('');
+  const [connectError, setConnectError] = useState('');
   const [icsName, setIcsName] = useState('');
   const [icsUrl, setIcsUrl] = useState('');
+  const [manualToken, setManualToken] = useState('');
   const { push } = useToasts();
 
   const week = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startWeek(day), i)), [day]);
@@ -300,69 +304,104 @@ export const CalendarScreen = ({
     push(`${client.label} connection data cleared from Family Hub.`);
   };
 
-  const connectProvider = async (providerId: Provider) => {
+  const openConnectModal = () => {
+    setConnectOpen(true);
+    setConnectStep('choose');
+    setConnectProvider(null);
+    setConnectStatus('');
+    setConnectError('');
+    setIcsName('');
+    setIcsUrl('');
+    setManualToken('');
+  };
+
+  const closeConnectModal = () => {
+    setConnectOpen(false);
+    setConnectStep('choose');
+    setConnectProvider(null);
+    setConnectStatus('');
+    setConnectError('');
+  };
+
+  const handlePopupConnect = async (providerId: 'google' | 'microsoft') => {
     const client = providers.find((item) => item.provider === providerId);
     if (!client) return;
-
-    if (providerId === 'ics') {
-      if (!canConnectCalendar) {
-        push('Only adult profiles can connect calendars.');
-        return;
-      }
-      setIcsName('');
-      setIcsUrl('');
-      setConnectModalProvider(providerId);
-      return;
-    }
-
     try {
-      setStatusError('');
-      setBusyMessage(`Connecting ${client.label}…`);
-      push(`Opening ${client.label} sign-in…`);
+      setConnectError('');
+      setConnectStatus(`Opening ${client.label} sign-in…`);
       await client.connect();
-      if (mode === 'local') {
-        await syncProvider(providerId);
-      }
+      setConnectStatus(`${client.label} connected. Syncing…`);
+      await syncProvider(providerId);
+      closeConnectModal();
     } catch (error) {
       const message = (error as Error).message;
-      if (mode === 'local' && (providerId === 'google' || providerId === 'microsoft') && message === 'oauth_unavailable') {
-        setAccessToken('');
-        setConnectModalMode('oauth');
-        setConnectModalProvider(providerId);
-        setBusyMessage('');
-        return;
-      }
-      setStatusError(message);
+      setConnectError(message);
       push(message);
     } finally {
-      setBusyMessage('');
+      setConnectStatus('');
     }
   };
 
-  const submitConnectModal = async () => {
-    if (!connectModalProvider) return;
-    const client = providers.find((item) => item.provider === connectModalProvider);
+  const handleProviderClick = (providerId: 'google' | 'microsoft' | 'apple') => {
+    if (!canConnectCalendar) {
+      push('Only adult profiles can connect calendars.');
+      return;
+    }
+
+    setConnectError('');
+    setConnectStatus('');
+
+    if (providerId === 'apple') {
+      setConnectProvider('ics');
+      setConnectStep('apple-ics');
+      return;
+    }
+
+    setConnectProvider(providerId);
+    setConnectStep(providerId === 'google' ? 'google-popup' : 'microsoft-popup');
+    if (hasCalendarOAuthConfig(providerId)) {
+      void handlePopupConnect(providerId);
+    }
+  };
+
+  const handleManualTokenConnect = async () => {
+    if (connectProvider !== 'google' && connectProvider !== 'microsoft') return;
+    const client = providers.find((item) => item.provider === connectProvider);
     if (!client) return;
     try {
-      setStatusError('');
-      if (connectModalProvider !== 'ics' && connectModalMode === 'oauth') {
-        await connectProvider(connectModalProvider);
-        return;
-      }
-      setBusyMessage(connectModalProvider === 'ics' ? 'Adding ICS subscription…' : `Connecting ${client.label}…`);
-      if (connectModalProvider === 'ics') {
-        await client.connect({ name: icsName, url: icsUrl });
-      } else {
-        await client.connect({ accessToken });
-      }
-      setConnectModalProvider(null);
-      await syncProvider(connectModalProvider);
+      setConnectError('');
+      setConnectStatus(`Connecting ${client.label}…`);
+      await client.connect({ accessToken: manualToken });
+      await syncProvider(connectProvider);
+      closeConnectModal();
     } catch (error) {
       const message = (error as Error).message;
-      setStatusError(message);
+      setConnectError(message);
       push(message);
     } finally {
-      setBusyMessage('');
+      setConnectStatus('');
+    }
+  };
+
+  const handleIcsConnect = async () => {
+    if (!canConnectCalendar) {
+      push('Only adult profiles can connect calendars.');
+      return;
+    }
+    const client = providers.find((item) => item.label === 'Apple Calendar') ?? providers.find((item) => item.provider === 'ics');
+    if (!client) return;
+    try {
+      setConnectError('');
+      setConnectStatus('Adding calendar…');
+      await client.connect({ name: icsName || 'Apple Calendar', url: icsUrl });
+      await syncProvider('ics');
+      closeConnectModal();
+    } catch (error) {
+      const message = (error as Error).message;
+      setConnectError(message);
+      push(message);
+    } finally {
+      setConnectStatus('');
     }
   };
 
@@ -595,11 +634,9 @@ export const CalendarScreen = ({
         </div>
         <p className="muted">Advanced setup stays separate so the main planner stays clean and easy for the whole family.</p>
         <div className="chip-list calendar-action-row">
-          {providers.map((provider) => (
-            <Chip key={provider.provider} onClick={() => void connectProvider(provider.provider)} aria-label={`Connect ${provider.label}`}>
-              Connect {provider.label}
-            </Chip>
-          ))}
+          <Chip onClick={openConnectModal} aria-label="Connect calendar">
+            Connect calendar
+          </Chip>
           <Chip onClick={() => void syncAllProviders()}>
             Sync all
           </Chip>
@@ -633,51 +670,84 @@ export const CalendarScreen = ({
         </div>
       </Modal>
 
-      <Modal
-        open={Boolean(connectModalProvider)}
-        title={connectModalProvider === 'ics' ? 'Add ICS subscription' : `Connect ${providerLabel[connectModalProvider as Filter] ?? 'calendar'}`}
-        onClose={() => setConnectModalProvider(null)}
-      >
-        {connectModalProvider === 'ics' ? (
+      <Modal open={connectOpen} title="Add a calendar" onClose={closeConnectModal}>
+        {connectError ? <div className="error-banner">{connectError}</div> : null}
+        {connectStatus ? <div className="status-banner">{connectStatus}</div> : null}
+
+        {connectStep === 'choose' ? (
           <>
-            <p className="muted">Paste the share link for a public ICS calendar and give it a friendly name.</p>
-            <input value={icsName} placeholder="Calendar name" onChange={(event) => setIcsName(event.target.value)} />
-            <input value={icsUrl} placeholder="https://example.com/family.ics" onChange={(event) => setIcsUrl(event.target.value)} />
-          </>
-        ) : (
-          <div className="stack-sm calendar-connect-sheet">
-            <div className="calendar-connect-intro">
-              <strong>The easiest option is secure sign-in.</strong>
-              <p className="muted">Family Hub can open the usual {providerLabel[connectModalProvider as Filter] ?? 'calendar'} sign-in flow when calendar sign-in has been set up for this device.</p>
+            <div className="provider-card-grid">
+              {[
+                { id: 'google', label: 'Google', icon: '🗓️', sub: 'Gmail & Workspace' },
+                { id: 'microsoft', label: 'Outlook', icon: '📅', sub: 'Microsoft 365' },
+                { id: 'apple', label: 'Apple', icon: '🍎', sub: 'iCloud & iOS' }
+              ].map((provider) => (
+                <button key={provider.id} className="provider-card" type="button" onClick={() => handleProviderClick(provider.id as 'google' | 'microsoft' | 'apple')}>
+                  <span className="provider-card-icon">{provider.icon}</span>
+                  <span className="provider-card-label">{provider.label}</span>
+                  <span className="provider-card-sub">{provider.sub}</span>
+                </button>
+              ))}
             </div>
-            {connectModalMode === 'oauth' ? (
-              <div className="stack-sm calendar-connect-option">
-                <Button onClick={() => void connectProvider(connectModalProvider as Provider)}>Continue with secure sign-in</Button>
-                <button className="btn btn-ghost calendar-link-button" type="button" onClick={() => setConnectModalMode('manual')}>
-                  Use advanced setup
-                </button>
-                <p className="muted">If sign-in is not set up on this device yet, an adult can use the advanced setup option instead.</p>
+            <div className="provider-divider">
+              <span>or paste an ICS / CalDAV link</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={icsUrl} placeholder="webcal:// or https://" onChange={(event) => setIcsUrl(event.target.value)} />
+              <Button onClick={() => void handleIcsConnect()} disabled={!icsUrl.trim()}>Add</Button>
+            </div>
+          </>
+        ) : null}
+
+        {(connectStep === 'google-popup' || connectStep === 'microsoft-popup') && connectProvider ? (
+          !hasCalendarOAuthConfig(connectProvider as 'google' | 'microsoft') ? (
+            <div className="stack-sm">
+              <strong>⚙️ One-time setup needed</strong>
+              <p className="muted">
+                To connect {connectProvider === 'google' ? 'Google Calendar' : 'Outlook Calendar'}, add{' '}
+                <code>{connectProvider === 'google' ? 'VITE_GOOGLE_CLIENT_ID' : 'VITE_MICROSOFT_CLIENT_ID'}</code> in Replit Secrets, then redeploy.
+              </p>
+              <ol className="muted" style={{ paddingLeft: 16, margin: 0 }}>
+                <li>Open the provider developer console and create an OAuth app.</li>
+                <li>Add your Replit app URL as an authorized origin/redirect.</li>
+                <li>Copy the client id to Replit Secrets and redeploy.</li>
+              </ol>
+              <div className="task-composer-actions">
+                <Button variant="ghost" onClick={() => setConnectStep('choose')}>Back</Button>
+                <Button variant="ghost" onClick={() => setConnectStep('manual-token')}>Use manual token instead</Button>
               </div>
-            ) : (
-              <div className="stack-sm calendar-connect-option">
-                <p className="muted">Advanced setup: paste a temporary read-only access token for this browser session.</p>
-                <textarea
-                  value={accessToken}
-                  placeholder="Paste access token"
-                  rows={4}
-                  onChange={(event) => setAccessToken(event.target.value)}
-                />
-                <button className="btn btn-ghost calendar-link-button" type="button" onClick={() => setConnectModalMode('oauth')}>
-                  Back to easy sign-in
-                </button>
-              </div>
-            )}
+            </div>
+          ) : null
+        ) : null}
+
+        {connectStep === 'manual-token' ? (
+          <div className="stack-sm">
+            <p className="muted">Advanced setup: paste a temporary read-only access token for this browser session.</p>
+            <textarea value={manualToken} placeholder="Paste access token" rows={4} onChange={(event) => setManualToken(event.target.value)} />
+            <div className="task-composer-actions">
+              <Button variant="ghost" onClick={() => setConnectStep('choose')}>Back</Button>
+              <Button onClick={() => void handleManualTokenConnect()} disabled={!manualToken.trim()}>Connect token</Button>
+            </div>
           </div>
-        )}
-        <div className="task-composer-actions">
-          <Button variant="ghost" onClick={() => setConnectModalProvider(null)}>Cancel</Button>
-          <Button onClick={() => void submitConnectModal()}>{connectModalProvider === 'ics' ? 'Connect calendar' : connectModalMode === 'manual' ? 'Use advanced setup' : 'Continue'}</Button>
-        </div>
+        ) : null}
+
+        {connectStep === 'apple-ics' ? (
+          <div className="stack-sm">
+            <strong>Connect Apple Calendar</strong>
+            <ol className="muted" style={{ paddingLeft: 16, margin: 0 }}>
+              <li>Open Calendar on your Mac or iPhone.</li>
+              <li>Right-click a calendar and choose Share Calendar.</li>
+              <li>Enable Public Calendar and copy the link.</li>
+              <li>Paste the webcal:// or https:// link below.</li>
+            </ol>
+            <input value={icsName} placeholder="Calendar name" onChange={(event) => setIcsName(event.target.value)} />
+            <input value={icsUrl} placeholder="webcal:// or https:// link" onChange={(event) => setIcsUrl(event.target.value)} />
+            <div className="task-composer-actions">
+              <Button variant="ghost" onClick={() => setConnectStep('choose')}>Cancel</Button>
+              <Button onClick={() => void handleIcsConnect()} disabled={!icsUrl.trim()}>Connect Apple Calendar</Button>
+            </div>
+          </div>
+        ) : null}
       </Modal>
     </section>
   );
