@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { resetCalendarConnections } from '../../integrations/calendar';
-import { addBill, addInternalCalendarEvent, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, completeUserSetup, createResetState, deleteBill, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, toggleTask, updateBill, updateTask, updateTransaction } from './appState';
+import { addBill, addInternalCalendarEvent, addPlannerItem, addTask, addTransaction, applyCalendarSync as applyCalendarSyncState, applyCareAction, buildRestartSetupState, clearCalendarProviderData as clearCalendarProviderDataState, completeUserSetup, createResetState, deleteBill, deletePlannerItem, deleteTransaction, duplicateBill, ensureChallenges, getInitialTab, importTransactions, markBillPaid, saveMoneyBudget, setPlannerOpeningBalance, toggleTask, updateBill, updatePlannerItem, updateTask, updateTransaction } from './appState';
 import { appendAuditEntry, createResetStateForMode, exportBackup, importBackup, type AdminResetMode } from './adminActions';
 import { TABS, type Tab, type UserId } from './constants';
 import { APP_ROUTES } from '../../config/routes.ts';
@@ -98,6 +98,10 @@ export const useFamilyHubController = () => {
     importTransactions: (transactions: Parameters<typeof importTransactions>[1]) => patchState((current) => importTransactions(current, transactions)),
     updateTransaction: (id: string, transaction: Parameters<typeof updateTransaction>[2]) => patchState((current) => updateTransaction(current, id, transaction)),
     saveBudget: (budget: Parameters<typeof saveMoneyBudget>[1]) => patchState((current) => saveMoneyBudget(current, budget).state),
+    addPlannerItem: (item: Parameters<typeof addPlannerItem>[1]) => patchState((current) => addPlannerItem(current, item)),
+    updatePlannerItem: (id: string, update: Parameters<typeof updatePlannerItem>[2]) => patchState((current) => updatePlannerItem(current, id, update)),
+    deletePlannerItem: (id: string) => patchState((current) => deletePlannerItem(current, id)),
+    setPlannerOpeningBalance: (amountCents: number) => patchState((current) => setPlannerOpeningBalance(current, amountCents)),
     deleteBill: (id: string) => patchState((current) => deleteBill(current, id)),
     deleteTransaction: (id: string) => patchState((current) => deleteTransaction(current, id)),
     deleteBudget: (id: string) => patchState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id) } })),

@@ -101,6 +101,10 @@ const AppInner = () => {
               onDeleteBill={controller.deleteBill}
               onDeleteTransaction={controller.deleteTransaction}
               onDeleteBudget={controller.deleteBudget}
+              onAddPlannerItem={controller.addPlannerItem}
+              onUpdatePlannerItem={controller.updatePlannerItem}
+              onDeletePlannerItem={controller.deletePlannerItem}
+              onSetPlannerOpeningBalance={controller.setPlannerOpeningBalance}
               moneyVisibility={permissionBundle.moneyVisibility}
               canEditMoney={permissionBundle.canEditMoney}
             />

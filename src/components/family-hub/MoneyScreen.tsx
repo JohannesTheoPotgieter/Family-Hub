@@ -8,6 +8,7 @@ import { MoneyFilterBar } from './money/MoneyFilterBar';
 import { MoneySectionHeader } from './money/MoneySectionHeader';
 import { MoneyStatCard } from './money/MoneyStatCard';
 import { MonthSwitcher } from './money/MonthSwitcher';
+import { PlannerTab } from './money/PlannerTab';
 import {
   DEFAULT_MONEY_CATEGORIES,
   formatCurrencyZAR,
@@ -58,18 +59,22 @@ type Props = {
   onDeleteBill: (id: string) => void;
   onDeleteTransaction: (id: string) => void;
   onDeleteBudget: (id: string) => void;
+  onAddPlannerItem: (item: Omit<import('../../lib/family-hub/storage').PlannerLineItem, 'id'>) => void;
+  onUpdatePlannerItem: (id: string, update: Partial<import('../../lib/family-hub/storage').PlannerLineItem>) => void;
+  onDeletePlannerItem: (id: string) => void;
+  onSetPlannerOpeningBalance: (amountCents: number) => void;
   moneyVisibility?: 'full' | 'summary' | 'hidden';
   canEditMoney?: boolean;
 };
 
-type MoneyTab = 'overview' | 'bills' | 'budget' | 'transactions' | 'goals';
+type MoneyTab = 'overview' | 'plan' | 'bills' | 'spending' | 'goals';
 type StatementRowOverride = { include?: boolean; kind?: 'inflow' | 'outflow'; category?: string };
 
 const tabOptions = [
   { key: 'overview', label: 'Overview' },
+  { key: 'plan', label: 'Plan' },
   { key: 'bills', label: 'Bills' },
-  { key: 'budget', label: 'Budget' },
-  { key: 'transactions', label: 'Transactions' },
+  { key: 'spending', label: 'Spending' },
   { key: 'goals', label: 'Goals' }
 ] as const satisfies Array<{ key: MoneyTab; label: string }>;
 
@@ -112,6 +117,10 @@ export const MoneyScreen = ({
   onDeleteBill,
   onDeleteTransaction,
   onDeleteBudget,
+  onAddPlannerItem,
+  onUpdatePlannerItem,
+  onDeletePlannerItem,
+  onSetPlannerOpeningBalance,
   moneyVisibility = 'full',
   canEditMoney = true
 }: Props) => {
@@ -153,7 +162,7 @@ export const MoneyScreen = ({
   const budgetStatus = getBudgetStatus(money, month);
   const topCategory = getTopSpendingCategory(money, month);
   const recentActivity = getRecentMoneyActivity(money);
-  const cashflowPlan = useMemo(() => getCashflowPlan(money, month), [money, month]);
+  const cashflowPlan = useMemo(() => getCashflowPlan(money, month, { includePlannerItems: true }), [money, month]);
   const nextBillToPay = overdueBills[0] ?? dueSoonBills[0] ?? upcomingBills[0] ?? null;
   const safeToSpend = getSafeToSpend(money, month);
   const savingsGoals = getSavingsProgress(money);
@@ -288,7 +297,7 @@ export const MoneyScreen = ({
 
   const openStatementImport = () => {
     if (!accessModel.canManage) return;
-    setTab('transactions');
+    setTab('spending');
     setStatementModalOpen(true);
     setStatementError('');
   };
@@ -376,123 +385,101 @@ export const MoneyScreen = ({
       <ScreenIntro title="Money" subtitle="A calm household money view that shows what is coming in, what is going out, and what needs attention next." badge="Money" />
       {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Parents can unlock the full money workspace from Family settings when needed.</div> : null}
       <MoneyFilterBar options={visibleTabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
+      <div className="money-month-bar glass-panel">
+        <span className="eyebrow">Viewing</span>
+        <MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />
+      </div>
       {tab === 'overview' ? (
         <div className="money-overview stack-md">
           <FoundationBlock title="Overview" description="Quick answers for this month so your family can see if money is on track.">
-            <MoneySectionHeader title="This month at a glance" subtitle="Start here for the simple version." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
             <div className="money-health-banner">
               <div>
-                <p className="eyebrow">Are we okay?</p>
-                <h3>{net >= 0 ? 'Yes — you are still ahead this month.' : 'This month is under pressure.'}</h3>
+                <p className="eyebrow">Status</p>
+                <h3>{net >= 0 ? "You're ahead this month." : 'Month needs attention.'}</h3>
                 <p className="muted">{getWeeklyAttentionLabel(overdueBills.length, dueSoonBills.length, budgetStatus.overBudgetCount)}</p>
               </div>
-              <div className="money-health-figure">
-                <span className="muted">Money left after bills</span>
-                <strong className={safeToSpend >= 0 ? 'money-positive' : 'money-negative'}>{formatCurrencyZAR(safeToSpend)}</strong>
-              </div>
             </div>
-            <div className="money-kpi-grid money-kpi-grid--overview">
-              <MoneyStatCard label="Money in" value={<AmountText amountCents={income} kind="positive" />} hint="Income recorded this month" />
-              <MoneyStatCard label="Money out" value={<AmountText amountCents={spending} kind="negative" />} hint="Spending already recorded" />
-              <MoneyStatCard label="Available cash" value={<AmountText amountCents={net} kind={net >= 0 ? 'positive' : 'negative'} />} hint="Money in minus money out" />
-              <MoneyStatCard label="Bills due soon" value={<strong>{dueSoonBills.length}</strong>} hint={dueSoonBills.length ? `${formatCurrencyZAR(dueSoonBills.reduce((sum, bill) => sum + bill.amountCents, 0))} due this week` : 'Nothing due this week'} />
-              <MoneyStatCard label="Budget status" value={<strong>{budgetStatus.totalLimitCents > 0 ? `${budgetUsedPercent}% used` : 'Not set'}</strong>} hint={budgetStatus.overBudgetCount > 0 ? `${budgetStatus.overBudgetCount} category${budgetStatus.overBudgetCount === 1 ? '' : 'ies'} need attention` : 'No budget pressure right now'} />
-              <MoneyStatCard label="Top pressure point" value={<strong>{pressureItems[0]?.title ?? 'Nothing urgent'}</strong>} hint={pressureItems[0]?.note ?? 'Everything looks steady'} />
+            <div className="money-kpi-grid money-kpi-grid--compact">
+              <MoneyStatCard label="Money in" value={<AmountText amountCents={income} kind="positive" />} />
+              <MoneyStatCard label="Money out" value={<AmountText amountCents={spending} kind="negative" />} />
+              <MoneyStatCard label="Safe to spend" value={<AmountText amountCents={safeToSpend} kind={safeToSpend >= 0 ? 'positive' : 'negative'} />} />
             </div>
-            <div className="money-action-row">
-              <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Add bill</button>
-              <button className="btn btn-ghost" onClick={() => { setTab('transactions'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }} disabled={!accessModel.canManage}>Add transaction</button>
-              <button className="btn btn-ghost" disabled={!nextBillToPay || !accessModel.canManage} onClick={() => { if (nextBillToPay) { onMarkBillPaid(nextBillToPay.id, 'manual-proof'); push(`${nextBillToPay.title} marked as paid.`); } }}>Mark next bill paid</button>
-            </div>
-          </FoundationBlock>
-
-          <div className="money-two-column-grid">
-            <FoundationBlock title="This week" description="See what needs attention before it becomes stressful.">
+            <FoundationBlock title="Upcoming pressures" description="Overdue first, then what's due soon.">
               <div className="mini-list">
-                {pressureItems.length ? pressureItems.map((item) => (
+                {pressureItems.slice(0, 3).length ? pressureItems.slice(0, 3).map((item) => (
                   <div key={item.id} className="mini-list-item">
                     <div>
                       <p className="mini-list-title">{item.title}</p>
                       <p className="muted">{item.note}</p>
                     </div>
-                    <span className={`route-pill ${item.urgency === 'high' ? 'route-pill--danger' : ''}`}>{item.urgency === 'high' ? 'Needs attention' : 'Watch this'}</span>
+                    <span className={`route-pill ${item.urgency === 'high' ? 'route-pill--danger' : ''}`}>{item.urgency === 'high' ? 'Urgent' : 'Soon'}</span>
                   </div>
-                )) : <EmptyStateCard title="Nothing urgent this week" description="You have no overdue bills and no budget surprises showing right now." />}
+                )) : <EmptyStateCard title="No urgent pressure" description="No overdue or due-soon bills in this month." />}
               </div>
             </FoundationBlock>
-
-            <FoundationBlock title="Budget check" description="Simple language, so you can tell if spending is still on plan.">
-              <div className="money-plain-insight-card">
-                <p className="eyebrow">Spending status</p>
-                <h3>{budgetStatus.totalLimitCents > 0 ? `${budgetUsedPercent}% of the budget is used.` : 'Set your first budget to track your plan.'}</h3>
-                <p className="muted">
-                  {budgetStatus.totalLimitCents > 0
-                    ? budgetStatus.remainingCents >= 0
-                      ? `${formatCurrencyZAR(budgetStatus.remainingCents)} left across tracked categories.`
-                      : `${formatCurrencyZAR(Math.abs(budgetStatus.remainingCents))} over plan across tracked categories.`
-                    : 'Budgets make it easier to spot pressure before the end of the month.'}
-                </p>
-                {budgetStatus.totalLimitCents > 0 ? <Progress value={Math.min(100, budgetUsedPercent)} /> : null}
-              </div>
-              <div className="money-brief-grid">
-                <MoneyStatCard label="Planned" value={<AmountText amountCents={budgetStatus.totalLimitCents} />} />
-                <MoneyStatCard label="Spent" value={<AmountText amountCents={budgetStatus.totalSpentCents} kind="negative" />} />
-                <MoneyStatCard label="Left" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
-              </div>
-            </FoundationBlock>
-          </div>
-
-          <FoundationBlock title="Cash picture" description="A simple read on how this month may land after recorded activity and unpaid bills.">
-            <div className="money-kpi-grid money-kpi-grid--compact">
-              <MoneyStatCard label="Starting balance" value={<AmountText amountCents={cashflowPlan.openingBalanceCents} kind={cashflowPlan.openingBalanceCents >= 0 ? 'positive' : 'negative'} />} />
-              <MoneyStatCard label="Bills still unpaid" value={<AmountText amountCents={unpaidBillsTotal} kind="negative" />} />
-              <MoneyStatCard label="Likely month-end" value={<AmountText amountCents={cashflowPlan.projectedClosingBalanceCents} kind={cashflowPlan.projectedClosingBalanceCents >= 0 ? 'positive' : 'negative'} />} />
-              <MoneyStatCard label="Left after this week" value={<AmountText amountCents={availableAfterBills} kind={availableAfterBills >= 0 ? 'positive' : 'negative'} />} />
+            <div className="money-action-row">
+              <button className="btn btn-primary" onClick={() => { setTab('bills'); setBillComposerOpen(true); }} disabled={!accessModel.canManage}>Add bill</button>
+              <button className="btn btn-ghost" onClick={() => { setTab('spending'); setTransactionComposerOpen(true); setTxEditId(null); setTxDraft(createEmptyTransactionDraft()); setTxDraftSource('manual'); }} disabled={!accessModel.canManage}>Log spending</button>
+              <button className="btn btn-ghost" onClick={() => setTab('plan')}>See plan</button>
             </div>
-          </FoundationBlock>
-
-          <div className="money-two-column-grid">
-            <FoundationBlock title="Recent activity" description="The latest money moves in one clean list.">
-              {recentActivity.length && accessModel.canSeeDetails ? (
-                <div className="stack-sm">
-                  {recentActivity.map((activity) => (
-                    <article key={activity.id} className="money-activity-item">
-                      <div>
-                        <p className="money-activity-title">{activity.title}</p>
-                        <p className="muted">{formatDueDateFriendly(activity.dateIso)}</p>
-                      </div>
-                      <AmountText amountCents={Math.abs(activity.amountCents)} kind={activity.amountCents >= 0 ? 'positive' : 'negative'} />
-                    </article>
-                  ))}
-                </div>
-              ) : <EmptyStateCard title={accessModel.summaryOnly ? 'Detailed activity is hidden' : 'No activity yet'} description={accessModel.summaryOnly ? 'Adults can open the full money workspace when they need line-by-line history.' : 'Add your first bill or transaction to start tracking activity here.'} />}
+            <FoundationBlock title="Month forecast" description="A plain-language snapshot of how this month may land.">
+              <div className="forecast-equation">
+                <div className="forecast-step"><span className="forecast-step-label">Opening Balance</span><span className="forecast-step-value">{formatCurrencyZAR(cashflowPlan.openingBalanceCents)}</span></div>
+                <span className="forecast-arrow">→</span>
+                <div className="forecast-step"><span className="forecast-step-label">+ Income</span><span className="forecast-step-value">{formatCurrencyZAR(cashflowPlan.recordedIncomeCents)}</span></div>
+                <span className="forecast-arrow">→</span>
+                <div className="forecast-step"><span className="forecast-step-label">− Expenses</span><span className="forecast-step-value">{formatCurrencyZAR(cashflowPlan.recordedOutflowCents)}</span></div>
+                <span className="forecast-arrow">→</span>
+                <div className="forecast-step"><span className="forecast-step-label">− Bills Due</span><span className="forecast-step-value">{formatCurrencyZAR(cashflowPlan.scheduledBillOutflowCents)}</span></div>
+                <span className="forecast-arrow">→</span>
+                <div className={`forecast-step is-result ${cashflowPlan.projectedClosingBalanceCents < 0 ? 'is-deficit' : ''}`}><span className="forecast-step-label">Expected Left</span><span className="forecast-step-value">{formatCurrencyZAR(cashflowPlan.projectedClosingBalanceCents)}</span></div>
+              </div>
+              <p className="muted">
+                {cashflowPlan.projectedClosingBalanceCents >= 0
+                  ? `At this pace you'll finish the month with ${formatCurrencyZAR(cashflowPlan.projectedClosingBalanceCents)} to spare.`
+                  : `At this pace the month may end ${formatCurrencyZAR(Math.abs(cashflowPlan.projectedClosingBalanceCents))} short — check your plan.`}
+              </p>
+              <button className="money-inline-btn" onClick={() => setTab('plan')}>See full plan →</button>
             </FoundationBlock>
-
-            <FoundationBlock title="Savings" description="Progress toward family goals without making it feel like a finance tool.">
-              {savingsGoals.length ? (
-                <div className="stack-sm">
+            <details>
+              <summary className="money-inline-btn">See full breakdown →</summary>
+              <div className="stack-md">
+                <FoundationBlock title="Budget check" description="Simple language, so you can tell if spending is still on plan.">
                   <div className="money-brief-grid">
-                    <MoneyStatCard label="Saved so far" value={<AmountText amountCents={savingsTotalSaved} kind="positive" />} />
-                    <MoneyStatCard label="Goal target" value={<AmountText amountCents={savingsTotalTarget} />} />
-                    <MoneyStatCard label="Active goals" value={<strong>{savingsGoals.length}</strong>} />
+                    <MoneyStatCard label="Planned" value={<AmountText amountCents={budgetStatus.totalLimitCents} />} />
+                    <MoneyStatCard label="Spent" value={<AmountText amountCents={budgetStatus.totalSpentCents} kind="negative" />} />
+                    <MoneyStatCard label="Left" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} />
                   </div>
-                  {savingsGoals.slice(0, 2).map((goal) => (
-                    <article key={goal.id} className="money-goal-card">
-                      <div className="budget-category-head">
-                        <div>
-                          <p className="budget-category-title">{goal.title}</p>
-                          <p className="muted">{formatCurrencyZAR(goal.remainingCents)} still to go</p>
-                        </div>
-                        <strong>{Math.round(goal.progress * 100)}%</strong>
-                      </div>
-                      <Progress value={Math.round(goal.progress * 100)} />
-                    </article>
-                  ))}
-                </div>
-              ) : <EmptyStateCard title="No savings goals yet" description="Add or sync savings goals to make this area more motivating for the household." />}
-            </FoundationBlock>
-          </div>
+                </FoundationBlock>
+                <FoundationBlock title="Recent activity" description="The latest money moves in one clean list.">
+                  {recentActivity.length && accessModel.canSeeDetails ? (
+                    <div className="stack-sm">
+                      {recentActivity.map((activity) => (
+                        <article key={activity.id} className="money-activity-item">
+                          <div><p className="money-activity-title">{activity.title}</p><p className="muted">{formatDueDateFriendly(activity.dateIso)}</p></div>
+                          <AmountText amountCents={Math.abs(activity.amountCents)} kind={activity.amountCents >= 0 ? 'positive' : 'negative'} />
+                        </article>
+                      ))}
+                    </div>
+                  ) : <EmptyStateCard title="No activity yet" description="Add your first bill or transaction to start tracking activity here." />}
+                </FoundationBlock>
+              </div>
+            </details>
+          </FoundationBlock>
         </div>
+      ) : null}
+      {tab === 'plan' ? (
+        <FoundationBlock title="Plan" description="Rolling cashflow planning for the next 12 months.">
+          <PlannerTab
+            money={money}
+            canEdit={canEditMoney}
+            onAddItem={onAddPlannerItem}
+            onUpdateItem={onUpdatePlannerItem}
+            onDeleteItem={onDeletePlannerItem}
+            onSetOpeningBalance={onSetPlannerOpeningBalance}
+            startMonth={month}
+          />
+        </FoundationBlock>
       ) : null}
       {tab === 'bills' ? (
         <FoundationBlock title="Bills" description="See upcoming due dates, overdue items, and paid bills without digging through details.">
@@ -570,69 +557,7 @@ export const MoneyScreen = ({
           ) : <EmptyStateCard title="No bills added yet" description="Add your regular household bills here so due dates are easy to spot." action={<button className="btn btn-primary" onClick={() => setBillComposerOpen(true)} disabled={!accessModel.canManage}>Add bill</button>} />}
         </FoundationBlock>
       ) : null}
-      {tab === 'budget' ? (
-        <FoundationBlock title="Budget" description="Keep category plans simple, visual, and easy for normal family life.">
-          <MoneySectionHeader title="Budget" subtitle="See what is on track, what is nearly used, and where pressure is building." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
-          <div className="money-kpi-grid money-kpi-grid--compact">
-            <MoneyStatCard label="Planned" value={<AmountText amountCents={budgetStatus.totalLimitCents} />} hint="Total budget for this month" />
-            <MoneyStatCard label="Spent" value={<AmountText amountCents={budgetStatus.totalSpentCents} kind="negative" />} hint="Tracked spending so far" />
-            <MoneyStatCard label="Left" value={<AmountText amountCents={budgetStatus.remainingCents} kind={budgetStatus.remainingCents >= 0 ? 'positive' : 'negative'} />} hint={budgetStatus.remainingCents >= 0 ? 'Still available to spend' : 'Already over the plan'} />
-            <MoneyStatCard label="Categories under pressure" value={<strong>{budgetStatus.overBudgetCount}</strong>} hint={topCategory ? `${topCategory[0]} is the biggest spend so far` : 'No spending categories yet'} />
-          </div>
-          <article className="money-editor stack-sm">
-            <div className="money-editor-head">
-              <div>
-                <p className="money-activity-title">Add or update a category budget</p>
-                <p className="muted">Use simple monthly limits for the categories your family cares about.</p>
-              </div>
-            </div>
-            <div className="money-editor-grid">
-              <select value={budgetDraft.category} onChange={(event) => setBudgetDraft((prev) => ({ ...prev, category: event.target.value }))}>{spendCategories.map((category) => <option key={category}>{category}</option>)}</select>
-              <input value={budgetDraft.amount} inputMode="decimal" placeholder="Monthly amount" onChange={(event) => setBudgetDraft((prev) => ({ ...prev, amount: event.target.value }))} />
-            </div>
-            <button className="btn btn-primary" onClick={() => {
-              const payload = buildBudgetPayload(budgetDraft, month);
-              if (!payload) return;
-              const existing = currentMonthBudgets.find((budget) => budget.category === payload.category);
-              if (existing) {
-                onUpdateBudget(existing.id, { limitCents: payload.limitCents });
-                push(`${payload.category} budget updated.`);
-              } else {
-                onAddBudget(payload);
-                push(`${payload.category} budget saved.`);
-              }
-              setBudgetDraft((prev) => ({ ...prev, amount: '' }));
-            }} disabled={!accessModel.canManage}>Save budget</button>
-          </article>
-          {starterBudgetSuggestions.length ? (
-            <article className="money-editor stack-sm">
-              <p className="muted">Need a faster start? Build a simple starter budget from categories you already spend in.</p>
-              <div className="money-payment-meta">
-                {starterBudgetSuggestions.slice(0, 3).map((item) => <span key={item.category} className="route-pill">{item.category} · {formatCurrencyZAR(item.limitCents)}</span>)}
-              </div>
-              <button className="btn btn-ghost" onClick={() => {
-                starterBudgetSuggestions.forEach((item) => onAddBudget({ monthIsoYYYYMM: month, category: item.category, limitCents: item.limitCents }));
-                push('Starter budgets created.');
-              }} disabled={!accessModel.canManage}>
-                Create starter budgets
-              </button>
-            </article>
-          ) : null}
-          <div className="budget-category-list">
-            {currentMonthBudgets.length ? budgetCards.map(({ budget, spentCents }) => (
-              <BudgetProgressCard
-                key={budget.id}
-                category={budget.category}
-                limitCents={budget.limitCents}
-                spentCents={spentCents}
-                onEdit={accessModel.canManage ? () => setBudgetDraft({ category: budget.category, amount: String(budget.limitCents / 100) }) : undefined}
-                onDelete={accessModel.canManage ? () => onDeleteBudget(budget.id) : undefined}
-              />
-            )) : <EmptyStateCard title="No budgets yet" description="Set a few category limits to make overspending easier to spot." />}
-          </div>
-        </FoundationBlock>
-      ) : null}
-      {tab === 'transactions' ? (
+      {tab === 'spending' ? (
         <FoundationBlock title="Transactions" description="A cleaner money history that is easy to scan on phone or desktop.">
           <MoneySectionHeader title="Transactions" subtitle="Filter by month, category, search, and money in or money out." action={<MonthSwitcher monthIsoYYYYMM={month} onChange={setMonth} />} />
           <div className="money-kpi-grid money-kpi-grid--compact">

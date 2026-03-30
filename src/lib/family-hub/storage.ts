@@ -76,11 +76,24 @@ export type Budget = {
 
 export type SavingsGoal = { id: string; title: string; targetCents: number; savedCents: number };
 
+export type PlannerLineItem = {
+  id: string;
+  category: string;
+  description: string;
+  kind: 'income' | 'expense';
+  isFixed: boolean;
+  monthlyOverrides: Record<string, number>;
+  defaultAmountCents: number;
+  isActive: boolean;
+};
+
 export type MoneyState = {
   bills: Bill[];
   transactions: MoneyTransaction[];
   budgets: Budget[];
   savingsGoals: SavingsGoal[];
+  plannerItems: PlannerLineItem[];
+  plannerOpeningBalance: number;
   settings: {
     currency: 'ZAR';
     monthlyStartDay?: number;
@@ -356,6 +369,25 @@ export const clearSetupArtifactsForUser = (money: MoneyState, userId: UserId): M
   budgets: money.budgets.filter((budget) => !budget.id.startsWith(`setup-budget-${userId}-`))
 });
 
+export const seedPlannerFromBills = (money: MoneyState): MoneyState => {
+  if (money.plannerItems.length > 0) return money;
+  const recurringBills = money.bills.filter((bill) => bill.recurrence === 'monthly');
+  if (!recurringBills.length) return money;
+  return {
+    ...money,
+    plannerItems: recurringBills.map((bill) => ({
+      id: `plan-seed-${bill.id}`,
+      category: bill.category || 'Bills',
+      description: bill.title,
+      kind: 'expense',
+      isFixed: true,
+      monthlyOverrides: {},
+      defaultAmountCents: bill.amountCents,
+      isActive: true
+    }))
+  };
+};
+
 const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }) : MoneyState => {
   const bills: Bill[] = Array.isArray(rawMoney.bills)
     ? rawMoney.bills
@@ -395,12 +427,31 @@ const migrateMoney = (rawMoney: Partial<MoneyState> & { payments?: any[]; actual
   const savingsGoals = Array.isArray((rawMoney as any).savingsGoals)
     ? (rawMoney as any).savingsGoals.filter((goal: any) => goal?.id && goal?.title).map((goal: any) => ({ id: goal.id, title: goal.title, targetCents: typeof goal.targetCents === 'number' ? goal.targetCents : 0, savedCents: typeof goal.savedCents === 'number' ? goal.savedCents : 0 }))
     : [];
+  const plannerItems = Array.isArray((rawMoney as any).plannerItems)
+    ? (rawMoney as any).plannerItems
+      .filter((item: any) => item?.id && item?.description && (item?.kind === 'income' || item?.kind === 'expense'))
+      .map((item: any): PlannerLineItem => ({
+        id: item.id,
+        category: typeof item.category === 'string' ? item.category : item.kind === 'income' ? 'Income' : 'Expenses',
+        description: item.description,
+        kind: item.kind,
+        isFixed: item.isFixed !== false,
+        monthlyOverrides: typeof item.monthlyOverrides === 'object' && item.monthlyOverrides ? Object.fromEntries(
+          Object.entries(item.monthlyOverrides).filter(([key, value]) => /^\d{4}-\d{2}$/.test(key) && typeof value === 'number')
+        ) as Record<string, number> : {},
+        defaultAmountCents: typeof item.defaultAmountCents === 'number' ? item.defaultAmountCents : 0,
+        isActive: item.isActive !== false
+      }))
+    : [];
+  const plannerOpeningBalance = typeof (rawMoney as any).plannerOpeningBalance === 'number' ? (rawMoney as any).plannerOpeningBalance : 0;
 
   return {
     bills: bills.map((bill) => ({ ...bill, recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none', recurrenceDay: typeof bill.recurrenceDay === 'number' ? bill.recurrenceDay : Number(bill.dueDateIso.slice(8, 10)), generatedFromBillId: typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined })),
     transactions,
     budgets,
     savingsGoals,
+    plannerItems,
+    plannerOpeningBalance,
     settings: {
       currency: 'ZAR',
       monthlyStartDay: typeof rawMoney.settings?.monthlyStartDay === 'number' ? rawMoney.settings.monthlyStartDay : undefined
@@ -578,6 +629,8 @@ export const createInitialState = (): FamilyHubState => ({
       { id: 'goal-emergency', title: 'Emergency cushion', targetCents: 1500000, savedCents: 0 },
       { id: 'goal-family-fun', title: 'Family fun day', targetCents: 350000, savedCents: 0 }
     ],
+    plannerItems: [],
+    plannerOpeningBalance: 0,
     settings: { currency: 'ZAR' }
   }
 });
