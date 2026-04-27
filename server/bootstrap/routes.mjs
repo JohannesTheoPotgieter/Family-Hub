@@ -19,6 +19,9 @@ import {
   listFamilyEvents,
   updateEvent
 } from '../calendar/eventStore.mjs';
+import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
+import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
+import { loadFamilyMembers } from '../auth/familyMembers.mjs';
 
 export const createRouteHandler = ({
   port,
@@ -273,6 +276,55 @@ export const createRouteHandler = ({
       eventId
     });
     sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/proposals' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const family = await loadFamilyMembers(ctx.member.familyId);
+    try {
+      const result = await proposeChange({
+        familyId: ctx.member.familyId,
+        proposer: { id: ctx.member.id, roleKey: ctx.member.roleKey, displayName: ctx.member.displayName },
+        family,
+        change: body?.change,
+        entityId: String(body?.entityId ?? ''),
+        threadId: body?.threadId ?? undefined
+      });
+      sendJson(res, clientOrigin, 201, result);
+    } catch (err) {
+      if (err.message === 'proposal_invalid') {
+        sendJson(res, clientOrigin, 400, { error: 'proposal_invalid', errors: err.errors });
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/proposals/') && url.pathname.endsWith('/decision') && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const segments = url.pathname.split('/');
+    const proposalId = decodeURIComponent(segments[segments.length - 2] ?? '');
+    const body = await readJsonBody(req);
+    const result = await decideOnProposal({
+      familyId: ctx.member.familyId,
+      proposalId,
+      memberId: ctx.member.id,
+      decision: body?.decision,
+      actorRoleKey: ctx.member.roleKey,
+      actorPermissions: ROLE_PERMISSIONS[ctx.member.roleKey] ?? []
+    });
+    sendJson(res, clientOrigin, 200, result);
     return;
   }
 
