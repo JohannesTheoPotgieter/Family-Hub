@@ -24,6 +24,8 @@ import { mirrorEventUpsert } from '../calendar/mirrorOutbound.mjs';
 import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
+import { findConnectionByChannelId } from '../calendar/syncState.mjs';
+import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
 export const createRouteHandler = ({
   port,
@@ -165,6 +167,48 @@ export const createRouteHandler = ({
   // family_member row) and checks a typed permission. These coexist with the
   // local-first prototype routes above; the prototype keeps working for dev
   // until Phase 1+ replaces it.
+
+  if (url.pathname === '/api/calendar/webhooks/google' && req.method === 'POST') {
+    // Google push notifications carry no body — all signal lives in the
+    // X-Goog-* headers. Validate the channel id matches a known connection,
+    // verify the token if we set one, then enqueue a delta-fetch job and
+    // 200 immediately. Google retries on non-200, so processing must stay
+    // out of band.
+    const channelId = req.headers['x-goog-channel-id'];
+    const channelToken = req.headers['x-goog-channel-token'];
+    const resourceState = req.headers['x-goog-resource-state'];
+
+    if (!channelId || typeof channelId !== 'string') {
+      sendJson(res, clientOrigin, 400, { error: 'missing_channel_id' });
+      return;
+    }
+    // Sync messages on channel creation come through with state='sync' — ack.
+    if (resourceState === 'sync') {
+      sendJson(res, clientOrigin, 200, { ok: true, ack: 'sync' });
+      return;
+    }
+
+    const connection = await findConnectionByChannelId(channelId);
+    if (!connection) {
+      sendJson(res, clientOrigin, 404, { error: 'unknown_channel' });
+      return;
+    }
+
+    const expectedToken = process.env.GOOGLE_WATCH_TOKEN ?? channelId;
+    if (channelToken !== expectedToken) {
+      sendJson(res, clientOrigin, 403, { error: 'token_mismatch' });
+      return;
+    }
+
+    await enqueueGooglePush({
+      familyId: connection.familyId,
+      memberId: connection.memberId,
+      channelId,
+      resourceId: req.headers['x-goog-resource-id'] ?? null
+    });
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
 
   if (url.pathname === '/api/webhooks/clerk' && req.method === 'POST') {
     const event = await verifyClerkWebhookRequest(req);
