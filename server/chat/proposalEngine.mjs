@@ -20,6 +20,18 @@ import {
 } from '../../src/domain/proposals.ts';
 import { ensureEventThread, updateEvent } from '../calendar/eventStore.mjs';
 import { ensureTaskThread, updateTask } from '../tasks/taskStore.mjs';
+import {
+  contributeToGoal,
+  createGoal,
+  ensureBillThread,
+  ensureBudgetThread,
+  ensureDebtThread,
+  ensureSavingsGoalThread,
+  insertOneOffTransaction,
+  recordBillExtraPayment,
+  setDebtAcceleration,
+  shiftBudgetCategory
+} from '../money/moneyStore.mjs';
 import { fanOutProposalPush } from './proposalPush.mjs';
 import { broadcast } from '../realtime/sse.mjs';
 
@@ -77,14 +89,45 @@ export const proposeChange = async ({
       // works without setup.
       let resolvedThreadId = threadId;
       if (!resolvedThreadId) {
-        if (entityKind === 'event') {
-          resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
-        } else if (entityKind === 'task') {
-          resolvedThreadId = await ensureTaskThread({ familyId, taskId: entityId });
+        switch (entityKind) {
+          case 'event':
+            resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
+            break;
+          case 'task':
+            resolvedThreadId = await ensureTaskThread({ familyId, taskId: entityId });
+            break;
+          case 'bill':
+            resolvedThreadId = await ensureBillThread({ familyId, entityId });
+            break;
+          case 'budget':
+            // For budget proposals the entityId is the YYYY-MM month — there
+            // may be no row yet. Fall through and require an explicit
+            // threadId in that case (typed via the family thread).
+            break;
+          case 'debt':
+            resolvedThreadId = await ensureDebtThread({ familyId, entityId });
+            break;
+          case 'savings_goal':
+            // goal_create has no entity yet; only goal_contribution does.
+            if (change.kind === 'goal_contribution') {
+              resolvedThreadId = await ensureSavingsGoalThread({ familyId, entityId });
+            }
+            break;
+          default:
+            break;
         }
       }
       if (!resolvedThreadId) {
-        const err = new Error('threadId is required for this entity kind in this build');
+        // Fall back to the family thread for proposals with no per-entity
+        // thread (e.g. goal_create, budget shifts on a brand-new month).
+        const { rows: famThread } = await client.query(
+          `SELECT id FROM threads WHERE family_id = $1 AND kind = 'family' LIMIT 1`,
+          [familyId]
+        );
+        resolvedThreadId = famThread[0]?.id ?? null;
+      }
+      if (!resolvedThreadId) {
+        const err = new Error('no thread available for this proposal');
         err.status = 400;
         throw err;
       }
@@ -380,6 +423,71 @@ const applyDiff = async (client, { familyId, actorMemberId, diff, proposalId }) 
       }
       return;
 
+    case 'budget_shift':
+      await shiftBudgetCategory({
+        familyId,
+        actorMemberId,
+        monthIso: diff.monthIso,
+        fromCategory: diff.fromCategory,
+        toCategory: diff.toCategory,
+        amountCents: diff.amountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'bill_extra_payment':
+      await recordBillExtraPayment({
+        familyId,
+        actorMemberId,
+        billId: diff.billId,
+        extraAmountCents: diff.extraAmountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'debt_acceleration_set':
+      await setDebtAcceleration({
+        familyId,
+        actorMemberId,
+        debtId: diff.debtId,
+        monthlyExtraCents: diff.monthlyExtraCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'goal_contribute':
+      await contributeToGoal({
+        familyId,
+        actorMemberId,
+        goalId: diff.goalId,
+        amountCents: diff.amountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'goal_create':
+      await createGoal({
+        familyId,
+        actorMemberId,
+        title: diff.title,
+        targetCents: diff.targetCents,
+        currency: diff.currency,
+        targetDate: diff.targetDate
+      });
+      return;
+
+    case 'transaction_insert':
+      await insertOneOffTransaction({
+        familyId,
+        actorMemberId,
+        title: diff.title,
+        amountCents: diff.amountCents,
+        currency: diff.currency,
+        dateIso: diff.dateIso,
+        flow: diff.flow
+      });
+      return;
+
     case 'event_attendees_update': {
       // We re-derive the new attendee set inside the transaction so a
       // concurrent invitation can't be silently overwritten.
@@ -436,6 +544,29 @@ const snapshotEntity = async (client, entityKind, entityId) => {
   if (entityKind === 'task') {
     const { rows } = await client.query(
       `SELECT id, title, owner_member_id, due_date, reward_points FROM tasks WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'bill') {
+    const { rows } = await client.query(
+      `SELECT id, title, amount_cents, currency, due_date FROM bills WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'debt') {
+    const { rows } = await client.query(
+      `SELECT id, title, principal_cents, apr_bps, min_payment_cents, currency
+         FROM debts WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'savings_goal') {
+    const { rows } = await client.query(
+      `SELECT id, title, target_cents, saved_cents, currency
+         FROM savings_goals WHERE id = $1`,
       [entityId]
     );
     return rows[0] ?? null;

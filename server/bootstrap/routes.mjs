@@ -56,6 +56,7 @@ import { reserveAiParse } from '../chat/aiParseQuota.mjs';
 import { verifyActionToken } from '../chat/actionTokens.mjs';
 import { broadcast, openSseStream } from '../realtime/sse.mjs';
 import { mintTicket, verifyTicket } from '../realtime/ticket.mjs';
+import { listNetWorthHistory, monthlyRollup, netWorth } from '../money/insights.mjs';
 import { findConnectionByChannelId } from '../calendar/syncState.mjs';
 import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
@@ -889,6 +890,35 @@ export const createRouteHandler = ({
       sendJson(res, clientOrigin, 200, { ok: true });
       return;
     }
+  }
+
+  // ----- Money insights + net worth (Phase 4.7 + 4.8) --------------------
+
+  if (url.pathname === '/api/v2/insights' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'money_view');
+    const monthIso = url.searchParams.get('month') ?? new Date().toISOString().slice(0, 7);
+    const displayCurrency = url.searchParams.get('currency') ?? 'ZAR';
+    sendJson(
+      res,
+      clientOrigin,
+      200,
+      await monthlyRollup({ familyId: ctx.member.familyId, monthIso, displayCurrency })
+    );
+    return;
+  }
+
+  if (url.pathname === '/api/v2/net-worth' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'money_view');
+    const displayCurrency = url.searchParams.get('currency') ?? 'ZAR';
+    const sinceIso = url.searchParams.get('since');
+    const [current, history] = await Promise.all([
+      netWorth({ familyId: ctx.member.familyId, displayCurrency }),
+      listNetWorthHistory({ familyId: ctx.member.familyId, sinceIso })
+    ]);
+    sendJson(res, clientOrigin, 200, { current, history });
+    return;
   }
 
   if (url.pathname === '/api/chat/parse' && req.method === 'POST') {
