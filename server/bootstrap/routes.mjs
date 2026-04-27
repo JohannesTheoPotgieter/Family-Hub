@@ -54,6 +54,8 @@ import { finalizeAttachment, listAttachments } from '../uploads/attachmentStore.
 import { parseProposalIntent } from '../chat/aiParse.mjs';
 import { reserveAiParse } from '../chat/aiParseQuota.mjs';
 import { verifyActionToken } from '../chat/actionTokens.mjs';
+import { broadcast, openSseStream } from '../realtime/sse.mjs';
+import { mintTicket, verifyTicket } from '../realtime/ticket.mjs';
 import { findConnectionByChannelId } from '../calendar/syncState.mjs';
 import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
@@ -638,6 +640,38 @@ export const createRouteHandler = ({
     return;
   }
 
+  // ----- Realtime (Phase 3.3) -------------------------------------------
+
+  if (url.pathname === '/api/v2/realtime/ticket' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(res, clientOrigin, 200, {
+      ticket: mintTicket({ familyId: ctx.member.familyId, memberId: ctx.member.id })
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/realtime' && req.method === 'GET') {
+    const ticket = url.searchParams.get('ticket') ?? '';
+    const verified = await verifyTicket(ticket);
+    if (!verified) {
+      sendJson(res, clientOrigin, 403, { error: 'invalid_ticket' });
+      return;
+    }
+    openSseStream({
+      req,
+      res,
+      clientOrigin,
+      familyId: verified.familyId,
+      memberId: verified.memberId,
+      lastEventId: req.headers['last-event-id']
+    });
+    return; // do NOT call sendJson — SSE owns the response
+  }
+
   // ----- Connective Chat (Phase 3) ---------------------------------------
 
   if (url.pathname === '/api/v2/threads' && req.method === 'GET') {
@@ -757,6 +791,15 @@ export const createRouteHandler = ({
         attachments: Array.isArray(body?.attachments) ? body.attachments : []
       });
 
+      // Realtime fan-out for already-connected clients (no app open
+      // required): broadcast the inserted row to every SSE client in the
+      // family. Push (slower path) is for offline / lock-screen.
+      broadcast({
+        type: 'message',
+        familyId: ctx.member.familyId,
+        threadId,
+        message
+      });
       // Best-effort push fan-out — never blocks the send.
       fanOutMessagePush({
         familyId: ctx.member.familyId,

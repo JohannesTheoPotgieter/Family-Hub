@@ -21,6 +21,7 @@ import {
 import { ensureEventThread, updateEvent } from '../calendar/eventStore.mjs';
 import { ensureTaskThread, updateTask } from '../tasks/taskStore.mjs';
 import { fanOutProposalPush } from './proposalPush.mjs';
+import { broadcast } from '../realtime/sse.mjs';
 
 const TTL_MS = 72 * 60 * 60 * 1000;
 
@@ -121,6 +122,17 @@ export const proposeChange = async ({
       );
 
       const result = { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
+
+      // Realtime fan-out — every connected client in the family sees the
+      // proposal land immediately, so the [Agree]/[Decline] card renders
+      // in the thread without a refresh.
+      broadcast({
+        type: 'proposal.created',
+        familyId,
+        threadId: resolvedThreadId,
+        proposal: result.proposal,
+        messageId: result.messageId
+      });
 
       // Push fan-out happens out-of-tx so a slow web-push provider doesn't
       // block the propose request. Best-effort.
@@ -292,6 +304,17 @@ export const decideOnProposal = async ({
         action: 'proposal.applied',
         entityKind: 'proposal',
         entityId: proposalId,
+        diff
+      });
+
+      // Realtime fan-out for the applied transition — connected clients
+      // flip the proposal card from 'open' → 'applied' instantly + can
+      // refresh the underlying entity via the diff payload.
+      broadcast({
+        type: 'proposal.applied',
+        familyId,
+        threadId: row.thread_id,
+        proposalId,
         diff
       });
 
