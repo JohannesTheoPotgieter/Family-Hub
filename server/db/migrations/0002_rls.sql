@@ -31,7 +31,6 @@ DECLARE
     'internal_events',
     'task_lists',
     'tasks',
-    'task_completions',
     'bills',
     'bank_accounts',
     'transactions',
@@ -84,6 +83,25 @@ CREATE POLICY event_attendees_via_event ON event_attendees
       SELECT 1 FROM internal_events e
       WHERE e.id = event_attendees.event_id
         AND e.family_id = current_family_id()
+    )
+  );
+
+-- `task_completions` mirrors event_attendees: tenant-scoped via parent task.
+ALTER TABLE task_completions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task_completions FORCE ROW LEVEL SECURITY;
+CREATE POLICY task_completions_via_task ON task_completions
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM tasks t
+      WHERE t.id = task_completions.task_id
+        AND t.family_id = current_family_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM tasks t
+      WHERE t.id = task_completions.task_id
+        AND t.family_id = current_family_id()
     )
   );
 

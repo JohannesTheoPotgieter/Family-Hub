@@ -362,8 +362,13 @@ export type ProposalsRow = {
 
 export const SCHEMA_VERSION = 2 as const;
 
-// Tables that carry `family_id` and live under RLS. Used by tenancy assertions
-// (e.g. test/rls.test.mjs) so it stays in sync with 0002_rls.sql.
+// Tables that carry `family_id` directly and live under RLS. Used by tenancy
+// assertions (src/test/migrations.test.mjs) so the list stays in sync with
+// 0002_rls.sql.
+//
+// `event_attendees` and `task_completions` are also tenant-scoped but reach
+// the family via their parent (internal_events / tasks) — they have their
+// own join-through policies in 0002_rls.sql, listed in JOIN_SCOPED_TABLES.
 export const TENANT_TABLES = [
   'family_members',
   'invites',
@@ -373,7 +378,6 @@ export const TENANT_TABLES = [
   'internal_events',
   'task_lists',
   'tasks',
-  'task_completions',
   'bills',
   'bank_accounts',
   'transactions',
@@ -386,4 +390,7 @@ export const TENANT_TABLES = [
   'messages'
 ] as const;
 
+export const JOIN_SCOPED_TABLES = ['event_attendees', 'task_completions'] as const;
+
 export type TenantTable = (typeof TENANT_TABLES)[number];
+export type JoinScopedTable = (typeof JOIN_SCOPED_TABLES)[number];
