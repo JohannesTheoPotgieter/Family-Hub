@@ -7,6 +7,12 @@ import {
   createHttpError,
   validateIcsSubscriptionUrl
 } from '../security.mjs';
+import { resolveRequestContext, requirePermissionOrFail } from '../auth/middleware.mjs';
+import { handleClerkUserCreated, verifyClerkWebhookRequest } from '../auth/clerkWebhook.mjs';
+import { importLocalState } from '../migrate/importLocalState.mjs';
+import { createInvite, acceptInvite } from '../invites/invites.mjs';
+import { handleStripeWebhook } from '../billing/webhook.mjs';
+import { savePushSubscription } from '../push/subscriptions.mjs';
 
 export const createRouteHandler = ({
   port,
@@ -116,6 +122,84 @@ export const createRouteHandler = ({
     storage.reset();
     icsService.clearAll();
     sendJson(res, clientOrigin, 200, { ok: true, maintenanceMode: true });
+    return;
+  }
+
+  // ----- Phase 0 SaaS routes (auth-gated, DB-backed) ---------------------
+  // Each route below resolves the active request context (Clerk session →
+  // family_member row) and checks a typed permission. These coexist with the
+  // local-first prototype routes above; the prototype keeps working for dev
+  // until Phase 1+ replaces it.
+
+  if (url.pathname === '/api/webhooks/clerk' && req.method === 'POST') {
+    const event = await verifyClerkWebhookRequest(req);
+    if (event?.type === 'user.created') await handleClerkUserCreated(event.data);
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/webhooks/stripe' && req.method === 'POST') {
+    await handleStripeWebhook(req);
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/migrate/local-state' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'data_export');
+    const body = await readJsonBody(req);
+    const counts = await importLocalState({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      localState: body?.state ?? body
+    });
+    sendJson(res, clientOrigin, 200, { ok: true, counts });
+    return;
+  }
+
+  if (url.pathname === '/api/invites' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'pin_manage');
+    const body = await readJsonBody(req);
+    const invite = await createInvite({
+      familyId: ctx.member.familyId,
+      invitedByMemberId: ctx.member.id,
+      email: String(body?.email ?? '').trim(),
+      roleKey: body?.roleKey
+    });
+    sendJson(res, clientOrigin, 201, { invite });
+    return;
+  }
+
+  if (url.pathname === '/api/invites/accept' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const member = await acceptInvite({
+      token: String(body?.token ?? ''),
+      userId: ctx.userId,
+      displayName: String(body?.displayName ?? '').trim()
+    });
+    sendJson(res, clientOrigin, 200, { member });
+    return;
+  }
+
+  if (url.pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    await savePushSubscription({
+      familyId: ctx.member.familyId,
+      memberId: ctx.member.id,
+      subscription: body
+    });
+    sendJson(res, clientOrigin, 201, { ok: true });
     return;
   }
 

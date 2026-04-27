@@ -358,50 +358,32 @@ export type ProposalsRow = {
   createdAt: IsoTimestamp;
 };
 
-// --- Runtime schema descriptor ------------------------------------------
-//
-// This object is the runtime view of the schema. It exists so a future
-// migration generator (or the LocalState → DB importer) can reflect on table
-// + column names without parsing SQL. Add a new table here when adding a row
-// type above.
+// --- Schema metadata ----------------------------------------------------
 
-export type ColumnDescriptor = {
-  name: string;
-  notNull?: boolean;
-  primaryKey?: boolean;
-  references?: { table: string; column: string };
-};
+export const SCHEMA_VERSION = 2 as const;
 
-export type TableDescriptor = {
-  name: string;
-  tenantScoped: boolean; // carries family_id + RLS
-  columns: readonly ColumnDescriptor[];
-};
+// Tables that carry `family_id` and live under RLS. Used by tenancy assertions
+// (e.g. test/rls.test.mjs) so it stays in sync with 0002_rls.sql.
+export const TENANT_TABLES = [
+  'family_members',
+  'invites',
+  'subscriptions',
+  'audit_log',
+  'calendar_connections',
+  'internal_events',
+  'task_lists',
+  'tasks',
+  'task_completions',
+  'bills',
+  'bank_accounts',
+  'transactions',
+  'budgets',
+  'savings_goals',
+  'planner_items',
+  'debts',
+  'threads',
+  'proposals',
+  'messages'
+] as const;
 
-export const SCHEMA_VERSION = 1 as const;
-
-export const tables = {
-  families: { name: 'families', tenantScoped: false, columns: [] },
-  familyMembers: { name: 'family_members', tenantScoped: true, columns: [] },
-  invites: { name: 'invites', tenantScoped: true, columns: [] },
-  subscriptions: { name: 'subscriptions', tenantScoped: true, columns: [] },
-  auditLog: { name: 'audit_log', tenantScoped: true, columns: [] },
-  calendarConnections: { name: 'calendar_connections', tenantScoped: true, columns: [] },
-  internalEvents: { name: 'internal_events', tenantScoped: true, columns: [] },
-  eventAttendees: { name: 'event_attendees', tenantScoped: true, columns: [] },
-  taskLists: { name: 'task_lists', tenantScoped: true, columns: [] },
-  tasks: { name: 'tasks', tenantScoped: true, columns: [] },
-  taskCompletions: { name: 'task_completions', tenantScoped: true, columns: [] },
-  bills: { name: 'bills', tenantScoped: true, columns: [] },
-  transactions: { name: 'transactions', tenantScoped: true, columns: [] },
-  budgets: { name: 'budgets', tenantScoped: true, columns: [] },
-  savingsGoals: { name: 'savings_goals', tenantScoped: true, columns: [] },
-  plannerItems: { name: 'planner_items', tenantScoped: true, columns: [] },
-  debts: { name: 'debts', tenantScoped: true, columns: [] },
-  bankAccounts: { name: 'bank_accounts', tenantScoped: true, columns: [] },
-  threads: { name: 'threads', tenantScoped: true, columns: [] },
-  messages: { name: 'messages', tenantScoped: true, columns: [] },
-  proposals: { name: 'proposals', tenantScoped: true, columns: [] }
-} as const satisfies Record<string, TableDescriptor>;
-
-export type TableKey = keyof typeof tables;
+export type TenantTable = (typeof TENANT_TABLES)[number];
