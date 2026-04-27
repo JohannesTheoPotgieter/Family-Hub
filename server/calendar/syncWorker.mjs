@@ -21,6 +21,7 @@ import {
   fetchGoogleDelta,
   fetchMicrosoftDelta
 } from './providerClients.mjs';
+import { listCalDavEvents } from './caldavClient.mjs';
 import { deleteExternalEvent, upsertExternalEvent } from './eventStore.mjs';
 import { getSyncToken, setSyncToken } from './syncState.mjs';
 import {
@@ -37,6 +38,16 @@ export const enqueueMicrosoftPoll = async ({ familyId, memberId }) => {
     'poll-microsoft',
     { familyId, memberId },
     { jobId: `ms-poll-${familyId}-${memberId}`, removeOnComplete: 50, removeOnFail: 100 }
+  );
+};
+
+export const enqueueCalDavPoll = async ({ familyId, memberId }) => {
+  const queue = getQueue(QUEUE);
+  if (!queue) return null;
+  return queue.add(
+    'poll-caldav',
+    { familyId, memberId },
+    { jobId: `caldav-poll-${familyId}-${memberId}`, removeOnComplete: 50, removeOnFail: 100 }
   );
 };
 
@@ -70,6 +81,9 @@ export const startCalendarSyncWorker = ({ logger = console } = {}) => {
     }
     if (job.name === 'handle-google-push') {
       return runGooglePush({ familyId, memberId, encKey, logger });
+    }
+    if (job.name === 'poll-caldav') {
+      return runCalDavPoll({ familyId, memberId, encKey, logger });
     }
     logger.warn?.(`[sync] unknown job kind: ${job.name}`);
   });
@@ -194,6 +208,54 @@ const runGooglePush = async ({ familyId, memberId, encKey, logger }) => {
     familyId,
     memberId,
     provider: 'google',
+    syncedAtIso: new Date().toISOString()
+  });
+  return { ok: true, processed };
+};
+
+const runCalDavPoll = async ({ familyId, memberId, encKey, logger }) => {
+  const connection = await getCalendarConnection({ familyId, memberId, provider: 'caldav', encKey });
+  if (!connection) {
+    logger.log?.(`[sync] no caldav connection for ${memberId}; skipping.`);
+    return { skipped: true };
+  }
+  const calendarUrl = connection.accountLabel ?? '';
+  if (!calendarUrl) {
+    logger.warn?.(`[sync] caldav connection ${connection.id} has no calendar URL; skipping.`);
+    return { skipped: true };
+  }
+
+  // CalDAV doesn't have a uniform delta primitive across servers; we
+  // re-list and let upsertExternalEvent dedupe. Acceptable cost for
+  // family-sized calendars (low hundreds of events).
+  let processed = 0;
+  const events = await listCalDavEvents({ tokens: connection.tokens, calendarUrl });
+  for (const raw of events) {
+    if (!raw.id || !raw.start?.iso) continue;
+    await upsertExternalEvent({
+      familyId,
+      calendarConnectionId: connection.id,
+      normalized: {
+        id: raw.id,
+        provider: 'caldav',
+        calendarId: connection.id,
+        title: raw.title,
+        description: raw.description,
+        location: raw.location,
+        start: raw.start,
+        end: raw.end,
+        rruleText: raw.rruleText ?? null,
+        etag: raw.etag ?? null,
+        source: 'external'
+      }
+    });
+    processed += 1;
+  }
+
+  await recordSyncedAt({
+    familyId,
+    memberId,
+    provider: 'caldav',
     syncedAtIso: new Date().toISOString()
   });
   return { ok: true, processed };

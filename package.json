@@ -17,6 +17,7 @@
     "@clerk/backend": "^3.4.1",
     "@clerk/clerk-react": "^5.61.6",
     "bullmq": "^5.76.2",
+    "ical.js": "^2.2.1",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
     "react": "^18.3.1",
@@ -25,6 +26,7 @@
     "rrule": "^2.8.1",
     "stripe": "^22.1.0",
     "svix": "^1.92.2",
+    "tsdav": "^2.1.8",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

@@ -143,6 +143,20 @@ fallback explicitly.
 
 ---
 
+## 4b. CalDAV (Apple / iCloud)
+
+CalDAV uses Basic auth + an app-specific password. iCloud's password page
+generates one per device; the user enters it during the connection
+wizard (Phase 5 client cutover). The connection's encrypted `tokens`
+blob carries `{ username, appPassword, serverUrl? }`.
+
+The `accountLabel` column doubles as the calendar URL — set when the
+wizard discovers the user's calendar-home-set via PROPFIND.
+
+There's nothing to provision per family; iCloud doesn't require app
+registration. Watch channels aren't supported, so the sync worker polls
+on a schedule (cron-driven `enqueueCalDavPoll`).
+
 ## 5. Web push (VAPID)
 
 Generate a VAPID keypair once:

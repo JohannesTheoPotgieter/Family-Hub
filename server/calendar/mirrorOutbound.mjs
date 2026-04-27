@@ -9,6 +9,7 @@ import {
   upsertGoogleEvent,
   upsertMicrosoftEvent
 } from './providerClients.mjs';
+import { deleteCalDavEvent, upsertCalDavEvent } from './caldavClient.mjs';
 import {
   getCalendarConnection,
   upsertCalendarConnection
@@ -70,8 +71,19 @@ export const mirrorEventUpsert = async ({ familyId, actorMemberId, memberId, eve
         etag: event.etag ?? null,
         onTokensRefreshed: handleRefresh
       });
+    } else if (provider === 'caldav') {
+      // accountLabel doubles as the CalDAV calendar URL — set during the
+      // connection wizard. Future: support multiple calendar URLs per
+      // connection via a side table.
+      const calendarUrl = connection.accountLabel ?? '';
+      result = await upsertCalDavEvent({
+        tokens: connection.tokens,
+        calendarUrl,
+        event,
+        etag: event.etag ?? null
+      });
     } else {
-      return null; // ics/caldav: read-only at this time
+      return null; // 'ics' is read-only by design (subscription URLs).
     }
   } catch (err) {
     // Best-effort. The next sync run reconciles.
@@ -130,13 +142,22 @@ export const mirrorEventDelete = async ({ familyId, memberId, provider, external
         etag,
         onTokensRefreshed: handleRefresh
       });
-    } else {
+    } else if (provider === 'microsoft') {
       await deleteMicrosoftEvent({
         tokens: connection.tokens,
         eventId: externalId,
         etag,
         onTokensRefreshed: handleRefresh
       });
+    } else if (provider === 'caldav') {
+      await deleteCalDavEvent({
+        tokens: connection.tokens,
+        calendarUrl: connection.accountLabel ?? '',
+        eventId: externalId,
+        etag
+      });
+    } else {
+      return null;
     }
     return { ok: true };
   } catch (err) {
