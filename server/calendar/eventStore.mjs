@@ -11,6 +11,7 @@
 // expandRecurrence over it without conversion.
 
 import { withFamilyContext, withTransaction } from '../db/pool.mjs';
+import { scheduleEventReminder, cancelEventReminder } from './reminders.mjs';
 
 const rowToEvent = (row) => ({
   id: row.id,
@@ -107,6 +108,20 @@ export const createEvent = async ({ familyId, actorMemberId, event }) =>
         entityId: row.id,
         diff: { title: event.title, startsAt: event.startsAt, endsAt: event.endsAt }
       });
+
+      // Schedule reminders for each attendee. Fail-soft: if BullMQ isn't
+      // configured (no REDIS_URL), the helpers return null and we move on.
+      // Reminders are best-effort — we never want a queue outage to block
+      // an event being created.
+      for (const attendeeId of attendees) {
+        await scheduleEventReminder({
+          familyId,
+          memberId: attendeeId,
+          eventId: row.id,
+          title: event.title,
+          startsAt: event.startsAt
+        }).catch(() => {});
+      }
 
       return rowToEvent({ ...row, attendee_ids: attendees });
     })
@@ -211,13 +226,37 @@ export const updateEvent = async ({ familyId, actorMemberId, eventId, patch, exp
         diff: patchDiff(current, updated, attendeeIds)
       });
 
+      // Re-schedule reminders if the start moved or attendee set changed.
+      const startMoved = current.starts_at !== updated.starts_at;
+      const attendeesChanged = Array.isArray(patch.attendeeMemberIds);
+      if (startMoved || attendeesChanged) {
+        for (const attendeeId of attendeeIds) {
+          await scheduleEventReminder({
+            familyId,
+            memberId: attendeeId,
+            eventId,
+            title: updated.title,
+            startsAt: updated.starts_at
+          }).catch(() => {});
+        }
+      }
+
       return rowToEvent({ ...updated, attendee_ids: attendeeIds });
     })
   );
 
 export const deleteEvent = async ({ familyId, actorMemberId, eventId }) =>
-  withFamilyContext(familyId, (client) =>
-    withTransaction(client, async () => {
+  withFamilyContext(familyId, async (client) => {
+    // Read attendees before delete so we can cancel their reminders. Done
+    // outside the transaction since DELETE … RETURNING with FK cascade
+    // doesn't return removed attendee rows.
+    const { rows: attendeeRows } = await client.query(
+      `SELECT member_id FROM event_attendees WHERE event_id = $1`,
+      [eventId]
+    );
+    const attendeeIds = attendeeRows.map((r) => r.member_id);
+
+    const result = await withTransaction(client, async () => {
       const { rowCount, rows } = await client.query(
         `DELETE FROM internal_events WHERE id = $1 RETURNING id, calendar_connection_id, etag`,
         [eventId]
@@ -236,8 +275,13 @@ export const deleteEvent = async ({ familyId, actorMemberId, eventId }) =>
         diff: {}
       });
       return rows[0];
-    })
-  );
+    });
+
+    for (const attendeeId of attendeeIds) {
+      await cancelEventReminder({ eventId, memberId: attendeeId }).catch(() => {});
+    }
+    return result;
+  });
 
 /**
  * Lazily attach (or fetch) the object thread for an event. Keeping the
