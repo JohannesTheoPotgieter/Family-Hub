@@ -83,3 +83,12 @@ jobs:
             echo "::error::Pending migrations remain after run."
             exit 1
           fi
+
+      - name: Run integration tests against Postgres
+        env:
+          # The CI Postgres role is superuser, which bypasses RLS — that's
+          # the right posture for the integration suite (we test query
+          # logic, not RLS itself).
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/family_hub_ci?sslmode=disable
+          PGSSLMODE: disable
+        run: npm test

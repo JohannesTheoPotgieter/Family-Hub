@@ -13,6 +13,12 @@ import { importLocalState } from '../migrate/importLocalState.mjs';
 import { createInvite, acceptInvite } from '../invites/invites.mjs';
 import { handleStripeWebhook } from '../billing/webhook.mjs';
 import { savePushSubscription } from '../push/subscriptions.mjs';
+import {
+  createEvent,
+  deleteEvent,
+  listFamilyEvents,
+  updateEvent
+} from '../calendar/eventStore.mjs';
 
 export const createRouteHandler = ({
   port,
@@ -184,6 +190,89 @@ export const createRouteHandler = ({
       displayName: String(body?.displayName ?? '').trim()
     });
     sendJson(res, clientOrigin, 200, { member });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/events' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const fromIso = url.searchParams.get('from');
+    const toIso = url.searchParams.get('to');
+    if (!fromIso || !toIso) throw createHttpError(400, 'from and to query params required.');
+    const events = await listFamilyEvents({ familyId: ctx.member.familyId, fromIso, toIso });
+    sendJson(res, clientOrigin, 200, { events });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/events' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const body = await readJsonBody(req);
+    const event = await createEvent({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      event: {
+        title: String(body?.title ?? '').trim() || 'Untitled',
+        description: body?.description ?? null,
+        location: body?.location ?? null,
+        startsAt: String(body?.startsAt ?? ''),
+        endsAt: String(body?.endsAt ?? ''),
+        allDay: Boolean(body?.allDay),
+        rruleText: body?.rruleText ?? null,
+        calendarConnectionId: body?.calendarConnectionId ?? null,
+        attendeeMemberIds: Array.isArray(body?.attendeeMemberIds) ? body.attendeeMemberIds : []
+      }
+    });
+    sendJson(res, clientOrigin, 201, { event });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/events/') && req.method === 'PATCH') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const eventId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    const body = await readJsonBody(req);
+    try {
+      const event = await updateEvent({
+        familyId: ctx.member.familyId,
+        actorMemberId: ctx.member.id,
+        eventId,
+        patch: {
+          title: body?.title,
+          description: body?.description,
+          location: body?.location,
+          startsAt: body?.startsAt,
+          endsAt: body?.endsAt,
+          allDay: body?.allDay,
+          rruleText: body?.rruleText,
+          attendeeMemberIds: body?.attendeeMemberIds
+        },
+        expectedEtag: body?.expectedEtag ?? null
+      });
+      sendJson(res, clientOrigin, 200, { event });
+    } catch (err) {
+      if (err.message === 'concurrent_modification') {
+        sendJson(res, clientOrigin, 409, { error: 'concurrent_modification', detail: err.detail });
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/events/') && req.method === 'DELETE') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const eventId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    await deleteEvent({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      eventId
+    });
+    sendJson(res, clientOrigin, 200, { ok: true });
     return;
   }
 
