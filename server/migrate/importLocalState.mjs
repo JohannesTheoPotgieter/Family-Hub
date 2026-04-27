@@ -13,6 +13,7 @@ import {
   sanitizeMoneyState,
   sanitizeCalendarState
 } from '../../src/domain/sanitize.ts';
+import { ensureFamilyThread } from '../chat/threadStore.mjs';
 
 /**
  * @param {{
@@ -34,6 +35,10 @@ export const importLocalState = async ({ familyId, actorMemberId, localState }) 
   const money = sanitizeMoneyState(localState?.money ?? {});
   const calendar = sanitizeCalendarState(localState?.calendar ?? {});
   const tasks = Array.isArray(localState?.tasks?.items) ? localState.tasks.items : [];
+
+  // Belt-and-braces: imported families that didn't go through the Clerk
+  // user.created webhook may not have a family thread yet. Idempotent.
+  await ensureFamilyThread({ familyId }).catch(() => {});
 
   return withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {

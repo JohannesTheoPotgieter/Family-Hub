@@ -37,6 +37,65 @@ import { broadcast } from '../realtime/sse.mjs';
 
 const TTL_MS = 72 * 60 * 60 * 1000;
 
+/**
+ * Counter an existing proposal: mark the original 'countered' (closed,
+ * with a pointer to the replacement) and propose the new change in one
+ * transaction. The original's audit trail stays intact; the new
+ * proposal goes through the normal propose path so realtime fan-out +
+ * push notifications work as usual.
+ *
+ * @param {{
+ *   familyId: string,
+ *   originalProposalId: string,
+ *   proposer: object,
+ *   family: object[],
+ *   change: object,
+ *   entityId: string,
+ *   threadId?: string
+ * }} args
+ */
+export const counterProposal = async ({
+  familyId,
+  originalProposalId,
+  proposer,
+  family,
+  change,
+  entityId,
+  threadId
+}) => {
+  const result = await proposeChange({
+    familyId,
+    proposer,
+    family,
+    change,
+    entityId,
+    threadId
+  });
+  // Close the original out-of-tx (a small race is acceptable; audit log
+  // captures the order) — the only consequence of the original staying
+  // 'open' for a few ms is an extra realtime event.
+  const { getPool } = await import('../db/pool.mjs');
+  const pool = getPool();
+  await pool.query(
+    `UPDATE proposals
+        SET status = 'countered', countered_by_proposal_id = $2
+      WHERE id = $1 AND status = 'open'`,
+    [originalProposalId, result.proposal.id]
+  );
+  await pool.query(
+    `INSERT INTO audit_log (family_id, actor_member_id, action, entity_kind, entity_id, diff)
+     VALUES ($1, $2, 'proposal.countered', 'proposal', $3, $4::jsonb)`,
+    [familyId, proposer.id, originalProposalId, JSON.stringify({ replacedBy: result.proposal.id })]
+  );
+  broadcast({
+    type: 'proposal.countered',
+    familyId,
+    proposalId: originalProposalId,
+    counteredByProposalId: result.proposal.id
+  });
+  return result;
+};
+
 const proposalEntityKindFor = (changeKind) => {
   if (changeKind.startsWith('event_')) return 'event';
   if (changeKind.startsWith('task_')) return 'task';

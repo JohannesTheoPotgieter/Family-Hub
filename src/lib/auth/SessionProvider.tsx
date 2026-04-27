@@ -77,6 +77,27 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         import('../crypto/familyKey.ts')
           .then(({ consumeFamilyKeyFromUrl }) => consumeFamilyKeyFromUrl(me.member.familyId))
           .catch(() => {});
+      } else if (me.member.roleKey === 'parent_admin') {
+        // First-session bootstrap for the family owner: if we don't already
+        // have a family key in IndexedDB, mint one. This is the only
+        // surface that ever creates a key — invitees receive it via the
+        // #fkey fragment in their invite URL. The recovery code shown in
+        // Settings (Phase 5 UI) is read back from the same IndexedDB row.
+        import('../crypto/familyKey.ts')
+          .then(async ({ generateFamilyKey, loadFamilyKey, storeFamilyKey }) => {
+            const existing = await loadFamilyKey(me.member.familyId);
+            if (existing) return;
+            const key = await generateFamilyKey();
+            await storeFamilyKey(me.member.familyId, key);
+            // One-time event so a banner/modal can prompt "save your
+            // recovery code". Settings (Phase 5) listens for this.
+            window.dispatchEvent(
+              new CustomEvent('familyhub:family-key-minted', {
+                detail: { familyId: me.member.familyId }
+              })
+            );
+          })
+          .catch(() => {});
       }
     } catch (err) {
       // 401 / network → fall back to guest. Caller can re-trigger after

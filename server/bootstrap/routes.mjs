@@ -33,7 +33,7 @@ import {
   updateTask
 } from '../tasks/taskStore.mjs';
 import { completeTask, getMemberPoints } from '../tasks/completion.mjs';
-import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
+import { counterProposal, decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
 import {
@@ -57,6 +57,7 @@ import { verifyActionToken } from '../chat/actionTokens.mjs';
 import { broadcast, openSseStream } from '../realtime/sse.mjs';
 import { mintTicket, verifyTicket } from '../realtime/ticket.mjs';
 import { listNetWorthHistory, monthlyRollup, netWorth } from '../money/insights.mjs';
+import { buildInbox, inboxCounts, searchAuditLog } from '../inbox/inbox.mjs';
 import { findConnectionByChannelId } from '../calendar/syncState.mjs';
 import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
@@ -892,6 +893,69 @@ export const createRouteHandler = ({
     }
   }
 
+  // ----- Decision Inbox + audit search (Phase 4.5 aggregators) ----------
+
+  if (url.pathname === '/api/v2/inbox' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const horizonDays = Number(url.searchParams.get('horizonDays') ?? 7);
+    sendJson(
+      res,
+      clientOrigin,
+      200,
+      await buildInbox({
+        familyId: ctx.member.familyId,
+        memberId: ctx.member.id,
+        roleKey: ctx.member.roleKey,
+        horizonDays
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === '/api/v2/me/inbox-counts' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(
+      res,
+      clientOrigin,
+      200,
+      await inboxCounts({
+        familyId: ctx.member.familyId,
+        memberId: ctx.member.id,
+        roleKey: ctx.member.roleKey
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === '/api/v2/search' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(
+      res,
+      clientOrigin,
+      200,
+      await searchAuditLog({
+        familyId: ctx.member.familyId,
+        memberId: ctx.member.id,
+        roleKey: ctx.member.roleKey,
+        q: url.searchParams.get('q') ?? '',
+        limit: Number(url.searchParams.get('limit') ?? 30)
+      })
+    );
+    return;
+  }
+
   // ----- Money insights + net worth (Phase 4.7 + 4.8) --------------------
 
   if (url.pathname === '/api/v2/insights' && req.method === 'GET') {
@@ -1006,6 +1070,37 @@ export const createRouteHandler = ({
       actorPermissions: ROLE_PERMISSIONS[ctx.member.roleKey] ?? []
     });
     sendJson(res, clientOrigin, 200, result);
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/proposals/') && url.pathname.endsWith('/counter') && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const segments = url.pathname.split('/');
+    const originalProposalId = decodeURIComponent(segments[segments.length - 2] ?? '');
+    const body = await readJsonBody(req);
+    const family = await loadFamilyMembers(ctx.member.familyId);
+    try {
+      const result = await counterProposal({
+        familyId: ctx.member.familyId,
+        originalProposalId,
+        proposer: { id: ctx.member.id, roleKey: ctx.member.roleKey, displayName: ctx.member.displayName },
+        family,
+        change: body?.change,
+        entityId: String(body?.entityId ?? ''),
+        threadId: body?.threadId ?? undefined
+      });
+      sendJson(res, clientOrigin, 201, result);
+    } catch (err) {
+      if (err.message === 'proposal_invalid') {
+        sendJson(res, clientOrigin, 400, { error: 'proposal_invalid', errors: err.errors });
+        return;
+      }
+      throw err;
+    }
     return;
   }
 

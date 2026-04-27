@@ -26,6 +26,31 @@ export const getThread = async ({ familyId, threadId }) =>
   });
 
 /**
+ * Idempotently ensure the singleton family thread exists. Clerk webhook
+ * creates one for fresh signups; families seeded via the migration
+ * endpoint or imported from a legacy data.json don't go through that
+ * path. This helper closes the gap so any code that assumes a family
+ * thread exists (push fan-out, decisions digest, audit-card rendering)
+ * is safe to call after it.
+ */
+export const ensureFamilyThread = async ({ familyId }) =>
+  withFamilyContext(familyId, (client) =>
+    withTransaction(client, async () => {
+      const { rows: existing } = await client.query(
+        `SELECT * FROM threads WHERE family_id = $1 AND kind = 'family' LIMIT 1`,
+        [familyId]
+      );
+      if (existing.length) return rowToThread(existing[0]);
+      const { rows } = await client.query(
+        `INSERT INTO threads (family_id, kind, e2e_encrypted) VALUES ($1, 'family', true)
+         RETURNING *`,
+        [familyId]
+      );
+      return rowToThread(rows[0]);
+    })
+  );
+
+/**
  * Threads the active member should see, with `last_read_at` joined in so the
  * client can compute unread counts.
  *
