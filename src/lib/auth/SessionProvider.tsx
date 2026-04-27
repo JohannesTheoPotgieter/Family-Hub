@@ -27,6 +27,7 @@ import {
   type SessionPayload
 } from '../api/client.ts';
 import { setEntitlements } from '../../hooks/useEntitlement.ts';
+import { connectRealtime, type RealtimeEvent } from '../realtime/client.ts';
 
 type ClerkBundle = typeof import('@clerk/clerk-react');
 
@@ -68,6 +69,36 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       const me = await fetchMe();
       setEntitlements(me.entitlements);
       setStatus({ kind: 'authenticated', session: me });
+      // Consume family key from invite-acceptance fragment if present.
+      // libsodium is heavy — code-split via dynamic import so guests +
+      // returning members who already have the key in IndexedDB never
+      // pay for it on first paint.
+      if (typeof window !== 'undefined' && window.location.hash.includes('fkey=')) {
+        import('../crypto/familyKey.ts')
+          .then(({ consumeFamilyKeyFromUrl }) => consumeFamilyKeyFromUrl(me.member.familyId))
+          .catch(() => {});
+      } else if (me.member.roleKey === 'parent_admin') {
+        // First-session bootstrap for the family owner: if we don't already
+        // have a family key in IndexedDB, mint one. This is the only
+        // surface that ever creates a key — invitees receive it via the
+        // #fkey fragment in their invite URL. The recovery code shown in
+        // Settings (Phase 5 UI) is read back from the same IndexedDB row.
+        import('../crypto/familyKey.ts')
+          .then(async ({ generateFamilyKey, loadFamilyKey, storeFamilyKey }) => {
+            const existing = await loadFamilyKey(me.member.familyId);
+            if (existing) return;
+            const key = await generateFamilyKey();
+            await storeFamilyKey(me.member.familyId, key);
+            // One-time event so a banner/modal can prompt "save your
+            // recovery code". Settings (Phase 5) listens for this.
+            window.dispatchEvent(
+              new CustomEvent('familyhub:family-key-minted', {
+                detail: { familyId: me.member.familyId }
+              })
+            );
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       // 401 / network → fall back to guest. Caller can re-trigger after
       // signing in.
@@ -94,6 +125,21 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
       cancelled = true;
     };
   }, []);
+
+  // Open the SSE stream once we're authenticated. The client minted ticket
+  // via /api/v2/realtime/ticket inside connectRealtime; auth resolution
+  // happens through the same API client + Clerk bearer.
+  useEffect(() => {
+    if (status.kind !== 'authenticated') return;
+    const onEvent = (event: RealtimeEvent) => {
+      // Re-broadcast on a window event so feature stores can listen
+      // without each importing the realtime module directly. Phase 5
+      // ThreadView reads this stream to flip proposal cards live.
+      window.dispatchEvent(new CustomEvent('familyhub:realtime', { detail: event }));
+    };
+    const disconnect = connectRealtime(onEvent);
+    return disconnect;
+  }, [status.kind, status.kind === 'authenticated' ? status.session.member.id : null]);
 
   const value = useMemo<SessionContextValue>(() => ({ ...status, refresh }), [status, refresh]);
 

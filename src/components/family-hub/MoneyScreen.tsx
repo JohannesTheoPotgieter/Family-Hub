@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { MoneyServerPanel } from './MoneyServerPanel';
 import { FoundationBlock, ScreenIntro } from './BaselineScaffold';
 import { AmountText } from './money/AmountText';
 import { BillStatusBadge } from './money/BillStatusBadge';
@@ -383,6 +384,7 @@ export const MoneyScreen = ({
   return (
     <section className="stack-md">
       <ScreenIntro title="Money" subtitle="A calm household money view that shows what is coming in, what is going out, and what needs attention next." badge="Money" />
+      <MoneyServerPanel />
       {accessModel.summaryOnly ? <div className="status-banner">This profile can view a household summary only. Parents can unlock the full money workspace from Family settings when needed.</div> : null}
       <MoneyFilterBar options={visibleTabOptions} value={tab} onChange={(next) => setTab(next as MoneyTab)} />
       <div className="money-month-bar glass-panel">

@@ -14,11 +14,15 @@
     "maintenance:reset-server-state": "node server/maintenance/reset-server-state.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@aws-sdk/client-s3": "^3.1037.0",
+    "@aws-sdk/s3-request-presigner": "^3.1037.0",
     "@clerk/backend": "^3.4.1",
     "@clerk/clerk-react": "^5.61.6",
     "bullmq": "^5.76.2",
     "ical.js": "^2.2.1",
     "ioredis": "^5.10.1",
+    "libsodium-wrappers": "^0.8.4",
     "pg": "^8.20.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

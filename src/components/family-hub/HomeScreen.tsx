@@ -4,6 +4,7 @@ import type { AuditEntry, Bill, FamilyHubState, TaskItem } from '../../lib/famil
 import { formatCurrencyZAR, getMonthIncomeTotal, getMonthSpendingTotal, getNetBalance, getSafeToSpend } from '../../lib/family-hub/money';
 import { getTodayIso } from '../../lib/family-hub/date';
 import { buildHomeInsights } from '../../lib/family-hub/homeInsights';
+import { DecisionInbox } from './DecisionInbox';
 
 type CareAction = 'feed' | 'play' | 'clean' | 'rest' | 'pet' | 'story';
 
@@ -230,6 +231,7 @@ export const HomeScreen = ({ state, onCareAction, onLock }: HomeScreenProps) => 
 
   return (
     <section className="home-screen home-command-center stack-lg">
+      <DecisionInbox />
       <header className={`glass-panel command-hero command-hero--${priorityTone}`}>
         <div className="command-hero-top">
           <div className="today-hero-badge-row">

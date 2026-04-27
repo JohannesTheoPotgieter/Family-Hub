@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { FamilyChatPanel } from './FamilyChatPanel';
 import type { User, UserId } from '../../lib/family-hub/constants';
 import type { AppSettings, CalendarEvent, PlaceItem, TaskItem } from '../../lib/family-hub/storage';
 import type { PinStore } from '../../lib/family-hub/pin';
@@ -178,6 +179,7 @@ export const MoreScreen = ({
   return (
     <section className="stack-lg">
       <ScreenIntro badge="Family" title="Family space" subtitle="See your household at a glance, manage people and places, and handle settings with clear safety guardrails." />
+      <FamilyChatPanel />
 
       <div className="more-tab-row">
         {SECTION_TABS.map(({ key, icon, label, blurb }) => (

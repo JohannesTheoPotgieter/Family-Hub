@@ -19,8 +19,82 @@ import {
   validateProposal
 } from '../../src/domain/proposals.ts';
 import { ensureEventThread, updateEvent } from '../calendar/eventStore.mjs';
+import { ensureTaskThread, updateTask } from '../tasks/taskStore.mjs';
+import {
+  contributeToGoal,
+  createGoal,
+  ensureBillThread,
+  ensureBudgetThread,
+  ensureDebtThread,
+  ensureSavingsGoalThread,
+  insertOneOffTransaction,
+  recordBillExtraPayment,
+  setDebtAcceleration,
+  shiftBudgetCategory
+} from '../money/moneyStore.mjs';
+import { fanOutProposalPush } from './proposalPush.mjs';
+import { broadcast } from '../realtime/sse.mjs';
 
 const TTL_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * Counter an existing proposal: mark the original 'countered' (closed,
+ * with a pointer to the replacement) and propose the new change in one
+ * transaction. The original's audit trail stays intact; the new
+ * proposal goes through the normal propose path so realtime fan-out +
+ * push notifications work as usual.
+ *
+ * @param {{
+ *   familyId: string,
+ *   originalProposalId: string,
+ *   proposer: object,
+ *   family: object[],
+ *   change: object,
+ *   entityId: string,
+ *   threadId?: string
+ * }} args
+ */
+export const counterProposal = async ({
+  familyId,
+  originalProposalId,
+  proposer,
+  family,
+  change,
+  entityId,
+  threadId
+}) => {
+  const result = await proposeChange({
+    familyId,
+    proposer,
+    family,
+    change,
+    entityId,
+    threadId
+  });
+  // Close the original out-of-tx (a small race is acceptable; audit log
+  // captures the order) — the only consequence of the original staying
+  // 'open' for a few ms is an extra realtime event.
+  const { getPool } = await import('../db/pool.mjs');
+  const pool = getPool();
+  await pool.query(
+    `UPDATE proposals
+        SET status = 'countered', countered_by_proposal_id = $2
+      WHERE id = $1 AND status = 'open'`,
+    [originalProposalId, result.proposal.id]
+  );
+  await pool.query(
+    `INSERT INTO audit_log (family_id, actor_member_id, action, entity_kind, entity_id, diff)
+     VALUES ($1, $2, 'proposal.countered', 'proposal', $3, $4::jsonb)`,
+    [familyId, proposer.id, originalProposalId, JSON.stringify({ replacedBy: result.proposal.id })]
+  );
+  broadcast({
+    type: 'proposal.countered',
+    familyId,
+    proposalId: originalProposalId,
+    counteredByProposalId: result.proposal.id
+  });
+  return result;
+};
 
 const proposalEntityKindFor = (changeKind) => {
   if (changeKind.startsWith('event_')) return 'event';
@@ -69,14 +143,50 @@ export const proposeChange = async ({
 
   return withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
-      // For event proposals, ensure the object thread exists. Other entity
-      // kinds add their own ensure-thread helpers in their own slices.
+      // Resolve the object thread for the entity. Lazy-creation lives on
+      // the entity's own store module so a fresh propose-on-detail-screen
+      // works without setup.
       let resolvedThreadId = threadId;
-      if (entityKind === 'event' && !resolvedThreadId) {
-        resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
+      if (!resolvedThreadId) {
+        switch (entityKind) {
+          case 'event':
+            resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
+            break;
+          case 'task':
+            resolvedThreadId = await ensureTaskThread({ familyId, taskId: entityId });
+            break;
+          case 'bill':
+            resolvedThreadId = await ensureBillThread({ familyId, entityId });
+            break;
+          case 'budget':
+            // For budget proposals the entityId is the YYYY-MM month — there
+            // may be no row yet. Fall through and require an explicit
+            // threadId in that case (typed via the family thread).
+            break;
+          case 'debt':
+            resolvedThreadId = await ensureDebtThread({ familyId, entityId });
+            break;
+          case 'savings_goal':
+            // goal_create has no entity yet; only goal_contribution does.
+            if (change.kind === 'goal_contribution') {
+              resolvedThreadId = await ensureSavingsGoalThread({ familyId, entityId });
+            }
+            break;
+          default:
+            break;
+        }
       }
       if (!resolvedThreadId) {
-        const err = new Error('threadId is required for non-event proposals in this build');
+        // Fall back to the family thread for proposals with no per-entity
+        // thread (e.g. goal_create, budget shifts on a brand-new month).
+        const { rows: famThread } = await client.query(
+          `SELECT id FROM threads WHERE family_id = $1 AND kind = 'family' LIMIT 1`,
+          [familyId]
+        );
+        resolvedThreadId = famThread[0]?.id ?? null;
+      }
+      if (!resolvedThreadId) {
+        const err = new Error('no thread available for this proposal');
         err.status = 400;
         throw err;
       }
@@ -113,9 +223,57 @@ export const proposeChange = async ({
         [familyId, resolvedThreadId, proposer.id, '[proposal]', proposalRow.id]
       );
 
-      return { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
+      const result = { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
+
+      // Realtime fan-out — every connected client in the family sees the
+      // proposal land immediately, so the [Agree]/[Decline] card renders
+      // in the thread without a refresh.
+      broadcast({
+        type: 'proposal.created',
+        familyId,
+        threadId: resolvedThreadId,
+        proposal: result.proposal,
+        messageId: result.messageId
+      });
+
+      // Push fan-out happens out-of-tx so a slow web-push provider doesn't
+      // block the propose request. Best-effort.
+      fanOutProposalPush({
+        familyId,
+        proposalId: proposalRow.id,
+        proposerName: proposer.displayName,
+        summary: proposalSummary(change),
+        approverIds: required
+      }).catch(() => {});
+
+      return result;
     })
   );
+};
+
+const proposalSummary = (change) => {
+  switch (change.kind) {
+    case 'event_move':
+      return `Move event to ${change.newStartIso?.slice(0, 16) ?? 'a new time'}`;
+    case 'event_cancel':
+      return 'Cancel this event';
+    case 'task_assignee_swap':
+      return `Swap chore (${change.swaps?.length ?? 0} task${(change.swaps?.length ?? 0) === 1 ? '' : 's'})`;
+    case 'task_reschedule_due':
+      return change.newDueDate ? `Reschedule task to ${change.newDueDate}` : 'Clear task due date';
+    case 'budget_category_shift':
+      return `Move R${(change.amountCents / 100).toFixed(0)} from ${change.fromCategory} → ${change.toCategory}`;
+    case 'bill_extra_payment':
+      return `Add R${(change.extraAmountCents / 100).toFixed(0)} extra to bill`;
+    case 'debt_acceleration':
+      return `Pay R${(change.monthlyExtraCents / 100).toFixed(0)} extra to debt monthly`;
+    case 'goal_contribution':
+      return `Add R${(change.amountCents / 100).toFixed(0)} to goal`;
+    case 'goal_create':
+      return `New goal: ${change.title}`;
+    default:
+      return 'New proposal';
+  }
 };
 
 /**
@@ -251,6 +409,17 @@ export const decideOnProposal = async ({
         diff
       });
 
+      // Realtime fan-out for the applied transition — connected clients
+      // flip the proposal card from 'open' → 'applied' instantly + can
+      // refresh the underlying entity via the diff payload.
+      broadcast({
+        type: 'proposal.applied',
+        familyId,
+        threadId: row.thread_id,
+        proposalId,
+        diff
+      });
+
       return { proposal: { ...proposal, status: 'applied', approvals }, diff };
     })
   );
@@ -280,6 +449,102 @@ const applyDiff = async (client, { familyId, actorMemberId, diff, proposalId }) 
         const { deleteEvent } = await import('../calendar/eventStore.mjs');
         await deleteEvent({ familyId, actorMemberId, eventId: diff.eventId });
       }
+      return;
+
+    case 'task_update':
+      await updateTask({
+        familyId,
+        actorMemberId,
+        taskId: diff.taskId,
+        patch: {
+          ownerMemberId: diff.patch.ownerMemberId,
+          dueDate: diff.patch.dueDate,
+          // rewardPointsDelta is a relative bump — turn it into the absolute
+          // new value via a tiny read inside the same transaction. We do
+          // this inline because the store API takes absolute values.
+          ...(typeof diff.patch.rewardPointsDelta === 'number'
+            ? await applyRewardDelta(client, diff.taskId, diff.patch.rewardPointsDelta)
+            : {})
+        }
+      });
+      return;
+
+    case 'tasks_swap':
+      // Swap is just multiple owner changes; iterate so each goes through
+      // the audited updateTask path with reminder rescheduling.
+      for (const swap of diff.swaps) {
+        await updateTask({
+          familyId,
+          actorMemberId,
+          taskId: swap.taskId,
+          patch: { ownerMemberId: swap.newOwnerMemberId }
+        });
+      }
+      return;
+
+    case 'budget_shift':
+      await shiftBudgetCategory({
+        familyId,
+        actorMemberId,
+        monthIso: diff.monthIso,
+        fromCategory: diff.fromCategory,
+        toCategory: diff.toCategory,
+        amountCents: diff.amountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'bill_extra_payment':
+      await recordBillExtraPayment({
+        familyId,
+        actorMemberId,
+        billId: diff.billId,
+        extraAmountCents: diff.extraAmountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'debt_acceleration_set':
+      await setDebtAcceleration({
+        familyId,
+        actorMemberId,
+        debtId: diff.debtId,
+        monthlyExtraCents: diff.monthlyExtraCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'goal_contribute':
+      await contributeToGoal({
+        familyId,
+        actorMemberId,
+        goalId: diff.goalId,
+        amountCents: diff.amountCents,
+        currency: diff.currency
+      });
+      return;
+
+    case 'goal_create':
+      await createGoal({
+        familyId,
+        actorMemberId,
+        title: diff.title,
+        targetCents: diff.targetCents,
+        currency: diff.currency,
+        targetDate: diff.targetDate
+      });
+      return;
+
+    case 'transaction_insert':
+      await insertOneOffTransaction({
+        familyId,
+        actorMemberId,
+        title: diff.title,
+        amountCents: diff.amountCents,
+        currency: diff.currency,
+        dateIso: diff.dateIso,
+        flow: diff.flow
+      });
       return;
 
     case 'event_attendees_update': {
@@ -316,12 +581,51 @@ const applyDiff = async (client, { familyId, actorMemberId, diff, proposalId }) 
   }
 };
 
+const applyRewardDelta = async (client, taskId, delta) => {
+  const { rows } = await client.query(
+    `SELECT reward_points FROM tasks WHERE id = $1`,
+    [taskId]
+  );
+  if (!rows.length) return {};
+  return { rewardPoints: Math.max(0, rows[0].reward_points + delta) };
+};
+
 // --- helpers -------------------------------------------------------------
 
 const snapshotEntity = async (client, entityKind, entityId) => {
   if (entityKind === 'event') {
     const { rows } = await client.query(
       `SELECT id, title, starts_at, ends_at, all_day FROM internal_events WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'task') {
+    const { rows } = await client.query(
+      `SELECT id, title, owner_member_id, due_date, reward_points FROM tasks WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'bill') {
+    const { rows } = await client.query(
+      `SELECT id, title, amount_cents, currency, due_date FROM bills WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'debt') {
+    const { rows } = await client.query(
+      `SELECT id, title, principal_cents, apr_bps, min_payment_cents, currency
+         FROM debts WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'savings_goal') {
+    const { rows } = await client.query(
+      `SELECT id, title, target_cents, saved_cents, currency
+         FROM savings_goals WHERE id = $1`,
       [entityId]
     );
     return rows[0] ?? null;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ServerCalendarPanel } from './ServerCalendarPanel';
 import type { CalendarEvent } from '../../lib/family-hub/storage';
 import { getCalendarMode, getCalendarProviderClients, hasCalendarOAuthConfig } from '../../integrations/calendar';
 import type { Provider, NormalizedCalendar, NormalizedEvent } from '../../domain/calendar';
@@ -426,6 +427,7 @@ export const CalendarScreen = ({
   return (
     <section className="stack-lg">
       <Confetti active={celebrate} />
+      <ServerCalendarPanel />
 
       <Card className="stack-md calendar-hero calendar-planner-shell">
         <div className="calendar-hero-top">

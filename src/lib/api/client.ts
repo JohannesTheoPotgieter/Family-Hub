@@ -131,3 +131,63 @@ export type PublicConfig = {
 
 export const fetchPublicConfig = () => apiGet<PublicConfig>('/api/public-config');
 export const fetchMe = () => apiGet<SessionPayload>('/api/me');
+
+/**
+ * Take the bare acceptUrl returned by createInvite and append the
+ * `#fkey=...` fragment so the invitee can decrypt the family thread.
+ *
+ * The server NEVER sees the family key, so this happens entirely client-
+ * side. Resend's transactional email goes out with the bare URL (still
+ * usable — the invitee can accept and join the family without the key,
+ * they just won't see encrypted threads). The inviter's UI shows a
+ * separate copy-with-key button so the key can be shared via a more
+ * private channel (Signal / WhatsApp / in person).
+ *
+ * Returns the original acceptUrl unchanged when no family key is on
+ * this device — better to share something useful than nothing.
+ */
+export const appendFamilyKeyFragment = async (acceptUrl: string, familyId: string): Promise<string> => {
+  if (typeof window === 'undefined') return acceptUrl;
+  try {
+    const { loadFamilyKey, encodeShareableSecret } = await import('../crypto/familyKey.ts');
+    const key = await loadFamilyKey(familyId);
+    if (!key) return acceptUrl;
+    const encoded = await encodeShareableSecret(key);
+    const separator = acceptUrl.includes('#') ? '&' : '#';
+    return `${acceptUrl}${separator}fkey=${encodeURIComponent(encoded)}`;
+  } catch {
+    return acceptUrl;
+  }
+};
+
+export type CreateInviteResponse = {
+  invite: {
+    id: string;
+    familyId: string;
+    email: string;
+    roleKey: 'adult_editor' | 'child_limited';
+    status: 'pending';
+    expiresAt: string;
+    acceptUrl: string;
+    emailSent: boolean;
+  };
+};
+
+/**
+ * Create an invite + return both the bare acceptUrl (sent via email)
+ * and the shareUrl with the family key fragment (must be shared
+ * out-of-band).
+ */
+export const createInviteShare = async ({
+  email,
+  roleKey,
+  familyId
+}: {
+  email: string;
+  roleKey: 'adult_editor' | 'child_limited';
+  familyId: string;
+}): Promise<{ invite: CreateInviteResponse['invite']; shareUrl: string }> => {
+  const result = await apiSend<CreateInviteResponse>('/api/invites', 'POST', { email, roleKey });
+  const shareUrl = await appendFamilyKeyFragment(result.invite.acceptUrl, familyId);
+  return { invite: result.invite, shareUrl };
+};
