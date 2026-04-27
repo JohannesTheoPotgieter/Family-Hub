@@ -198,34 +198,15 @@ export const importLocalState = async ({ familyId, actorMemberId, localState }) 
   );
 };
 
-// Postgres' uuid type rejects strings that aren't 36-char canonical uuids.
-// Legacy localStorage ids look like `bill-rent` or `setup-bill-johannes-...`,
-// so we hash them deterministically into a v5-style namespace UUID. Two runs
-// of the importer with the same input produce the same row id.
-const NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'; // RFC 4122 example NS
+// Legacy localStorage ids look like `bill-rent` or `setup-bill-johannes-...`.
+// We mint a fresh v4 UUID for every imported row; the original id ends up in
+// the audit_log diff so an operator can trace back if a follow-up sync needs
+// to dedupe. Re-running the importer with the same JSON inserts a new row
+// set rather than upserting — that matches the documented one-shot intent
+// of POST /api/migrate/local-state.
 const asUuid = (raw) => {
-  if (typeof raw !== 'string') return randomUUID();
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) return raw;
-  return uuidV5Like(raw, NAMESPACE);
-};
-
-// Tiny deterministic UUID-shape from a string. Not RFC-5 compliant but good
-// enough as a per-family stable id and identifiable as version 8 (custom).
-const uuidV5Like = (input, namespace) => {
-  // FNV-1a 128 bit (split as 4×32) — stable, no deps.
-  const seed = `${namespace}|${input}`;
-  let h1 = 0x811c9dc5,
-    h2 = 0x811c9dc5,
-    h3 = 0x811c9dc5,
-    h4 = 0x811c9dc5;
-  for (let i = 0; i < seed.length; i++) {
-    const c = seed.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01000193);
-    h2 = Math.imul(h2 ^ ((c * 7) | 0), 0x01000193);
-    h3 = Math.imul(h3 ^ ((c * 13) | 0), 0x01000193);
-    h4 = Math.imul(h4 ^ ((c * 31) | 0), 0x01000193);
+  if (typeof raw === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+    return raw;
   }
-  const hex = (n) => (n >>> 0).toString(16).padStart(8, '0');
-  const all = `${hex(h1)}${hex(h2)}${hex(h3)}${hex(h4)}`;
-  return `${all.slice(0, 8)}-${all.slice(8, 12)}-8${all.slice(13, 16)}-${all.slice(16, 20)}-${all.slice(20, 32)}`;
+  return randomUUID();
 };

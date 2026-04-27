@@ -200,7 +200,46 @@ The CORS allow-list now includes `Authorization`, `svix-*`, and
 
 ---
 
-## 8. Things deliberately not in Phase 0
+## 8. Public config + session hydration
+
+Two endpoints power the client bootstrap and don't require any auth header:
+
+- `GET /api/public-config` — returns Clerk + VAPID + Stripe publishable
+  keys plus `PUBLIC_APP_URL`. The PWA reads this on first load to know
+  which Clerk app to authenticate against and which VAPID key to use
+  when subscribing to push.
+- `GET /api/me` — authenticated; returns
+  `{ member, family, entitlements, publicConfig }`. The client calls
+  this once a Clerk session is available; the entitlements snapshot
+  drives the `useEntitlement` hook + `<Paywall />`. Cache locally and
+  re-fetch on focus.
+
+## 9. Legacy → /api/v2 deprecation
+
+The original prototype exposes `/api/calendars`, `/api/events`,
+`/api/ics/...`, etc. backed by the local `data.json` provider account
+store. Phase 0 + Phase 1 add a parallel `/api/v2/...` and `/api/v2/events`
+backed by Postgres + Clerk. Both stacks coexist:
+
+- **Local-first prototype routes:** keep working for dev and any
+  pre-cutover users who still run the SPA against `localStorage`.
+- **`/api/v2/*` routes:** require a Clerk session and operate on
+  Postgres. These are the production routes.
+
+Cutover plan (tracked under Phase 5 Polish):
+
+1. Land a client cutover PR that swaps the React app's data source from
+   `useFamilyHubController` (localStorage) to a server-backed query
+   layer pointing at `/api/v2/*`.
+2. Once the staging env runs the cutover for a release cycle, remove the
+   legacy routes from `server/bootstrap/routes.mjs` and `server/storage.mjs`.
+3. Drop `data.json` in favour of `calendar_connections` everywhere; the
+   legacy crypto path in `server/storage.mjs` retires alongside.
+
+Until that PR ships, treat the v2 routes as the canonical surface and the
+legacy ones as developer-only.
+
+## 10. Things deliberately not in Phase 0
 
 These are tracked in their respective phases — the foundation does not
 include them so this PR stays reviewable.

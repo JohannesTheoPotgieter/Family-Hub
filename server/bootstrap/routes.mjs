@@ -8,6 +8,7 @@ import {
   validateIcsSubscriptionUrl
 } from '../security.mjs';
 import { resolveRequestContext, requirePermissionOrFail } from '../auth/middleware.mjs';
+import { buildMePayload } from '../auth/me.mjs';
 import { handleClerkUserCreated, verifyClerkWebhookRequest } from '../auth/clerkWebhook.mjs';
 import { importLocalState } from '../migrate/importLocalState.mjs';
 import { createInvite, acceptInvite } from '../invites/invites.mjs';
@@ -132,6 +133,30 @@ export const createRouteHandler = ({
     storage.reset();
     icsService.clearAll();
     sendJson(res, clientOrigin, 200, { ok: true, maintenanceMode: true });
+    return;
+  }
+
+  // ----- Public config + session payload --------------------------------
+
+  if (url.pathname === '/api/public-config' && req.method === 'GET') {
+    // Unauthenticated; the UI uses this on first load to learn the Clerk
+    // publishable key + VAPID public key without exposing secrets.
+    sendJson(res, clientOrigin, 200, {
+      clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? null,
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? null,
+      stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+      publicAppUrl: process.env.PUBLIC_APP_URL ?? null
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/me' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(res, clientOrigin, 200, await buildMePayload(ctx));
     return;
   }
 

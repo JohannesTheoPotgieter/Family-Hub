@@ -289,6 +289,40 @@ export const deleteEvent = async ({ familyId, actorMemberId, eventId }) =>
  * the connective-chat layer (Phase 3) needs to render the thread for the
  * first time — same transaction, no race.
  */
+/**
+ * Persist provider-sync metadata (etag, lastModifiedRemote, externalId)
+ * without writing an audit row or rescheduling reminders. Used by
+ * mirrorOutbound + syncWorker so a successful provider call doesn't
+ * pollute the audit log with "event.updated" noise that wasn't a user
+ * action.
+ *
+ * @param {{
+ *   familyId: string,
+ *   eventId: string,
+ *   etag?: string | null,
+ *   lastModifiedRemote?: string | null,
+ *   externalId?: string | null
+ * }} args
+ */
+export const recordEventSyncMetadata = async ({ familyId, eventId, etag, lastModifiedRemote, externalId }) =>
+  withFamilyContext(familyId, async (client) => {
+    const set = [];
+    const values = [];
+    const push = (column, value) => {
+      values.push(value);
+      set.push(`${column} = $${values.length}`);
+    };
+    if (etag !== undefined) push('etag', etag);
+    if (lastModifiedRemote !== undefined) push('last_modified_remote', lastModifiedRemote);
+    if (externalId !== undefined) push('external_id', externalId);
+    if (!set.length) return;
+    values.push(eventId);
+    await client.query(
+      `UPDATE internal_events SET ${set.join(', ')} WHERE id = $${values.length}`,
+      values
+    );
+  });
+
 export const ensureEventThread = async ({ familyId, eventId }) =>
   withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {

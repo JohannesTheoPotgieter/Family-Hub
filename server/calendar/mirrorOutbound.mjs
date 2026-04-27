@@ -13,7 +13,7 @@ import {
   getCalendarConnection,
   upsertCalendarConnection
 } from './connectionStore.mjs';
-import { updateEvent } from './eventStore.mjs';
+import { recordEventSyncMetadata } from './eventStore.mjs';
 
 const ENC_KEY = () => process.env.TOKEN_ENC_KEY;
 
@@ -78,15 +78,15 @@ export const mirrorEventUpsert = async ({ familyId, actorMemberId, memberId, eve
     return { ok: false, error: err.message, status: err.status };
   }
 
-  // Persist the new etag so subsequent edits send the right If-Match.
-  await updateEvent({
+  // Persist the new etag + remote id without writing an audit row. The
+  // user-visible audit entry was the original 'event.created' /
+  // 'event.updated' from eventStore; this is plumbing.
+  await recordEventSyncMetadata({
     familyId,
-    actorMemberId,
     eventId: event.id,
-    patch: {
-      newEtag: result.etag ?? null,
-      lastModifiedRemote: result.lastModifiedRemote ?? null
-    }
+    etag: result.etag ?? null,
+    lastModifiedRemote: result.lastModifiedRemote ?? null,
+    externalId: result.remoteId ?? null
   }).catch(() => {});
 
   return { ok: true, remoteId: result.remoteId };
