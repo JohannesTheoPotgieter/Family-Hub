@@ -19,6 +19,7 @@ import {
   validateProposal
 } from '../../src/domain/proposals.ts';
 import { ensureEventThread, updateEvent } from '../calendar/eventStore.mjs';
+import { ensureTaskThread, updateTask } from '../tasks/taskStore.mjs';
 
 const TTL_MS = 72 * 60 * 60 * 1000;
 
@@ -69,14 +70,19 @@ export const proposeChange = async ({
 
   return withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
-      // For event proposals, ensure the object thread exists. Other entity
-      // kinds add their own ensure-thread helpers in their own slices.
+      // Resolve the object thread for the entity. Lazy-creation lives on
+      // the entity's own store module so a fresh propose-on-detail-screen
+      // works without setup.
       let resolvedThreadId = threadId;
-      if (entityKind === 'event' && !resolvedThreadId) {
-        resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
+      if (!resolvedThreadId) {
+        if (entityKind === 'event') {
+          resolvedThreadId = await ensureEventThread({ familyId, eventId: entityId });
+        } else if (entityKind === 'task') {
+          resolvedThreadId = await ensureTaskThread({ familyId, taskId: entityId });
+        }
       }
       if (!resolvedThreadId) {
-        const err = new Error('threadId is required for non-event proposals in this build');
+        const err = new Error('threadId is required for this entity kind in this build');
         err.status = 400;
         throw err;
       }
@@ -282,6 +288,37 @@ const applyDiff = async (client, { familyId, actorMemberId, diff, proposalId }) 
       }
       return;
 
+    case 'task_update':
+      await updateTask({
+        familyId,
+        actorMemberId,
+        taskId: diff.taskId,
+        patch: {
+          ownerMemberId: diff.patch.ownerMemberId,
+          dueDate: diff.patch.dueDate,
+          // rewardPointsDelta is a relative bump — turn it into the absolute
+          // new value via a tiny read inside the same transaction. We do
+          // this inline because the store API takes absolute values.
+          ...(typeof diff.patch.rewardPointsDelta === 'number'
+            ? await applyRewardDelta(client, diff.taskId, diff.patch.rewardPointsDelta)
+            : {})
+        }
+      });
+      return;
+
+    case 'tasks_swap':
+      // Swap is just multiple owner changes; iterate so each goes through
+      // the audited updateTask path with reminder rescheduling.
+      for (const swap of diff.swaps) {
+        await updateTask({
+          familyId,
+          actorMemberId,
+          taskId: swap.taskId,
+          patch: { ownerMemberId: swap.newOwnerMemberId }
+        });
+      }
+      return;
+
     case 'event_attendees_update': {
       // We re-derive the new attendee set inside the transaction so a
       // concurrent invitation can't be silently overwritten.
@@ -316,12 +353,28 @@ const applyDiff = async (client, { familyId, actorMemberId, diff, proposalId }) 
   }
 };
 
+const applyRewardDelta = async (client, taskId, delta) => {
+  const { rows } = await client.query(
+    `SELECT reward_points FROM tasks WHERE id = $1`,
+    [taskId]
+  );
+  if (!rows.length) return {};
+  return { rewardPoints: Math.max(0, rows[0].reward_points + delta) };
+};
+
 // --- helpers -------------------------------------------------------------
 
 const snapshotEntity = async (client, entityKind, entityId) => {
   if (entityKind === 'event') {
     const { rows } = await client.query(
       `SELECT id, title, starts_at, ends_at, all_day FROM internal_events WHERE id = $1`,
+      [entityId]
+    );
+    return rows[0] ?? null;
+  }
+  if (entityKind === 'task') {
+    const { rows } = await client.query(
+      `SELECT id, title, owner_member_id, due_date, reward_points FROM tasks WHERE id = $1`,
       [entityId]
     );
     return rows[0] ?? null;

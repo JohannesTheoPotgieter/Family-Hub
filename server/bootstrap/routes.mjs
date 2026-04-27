@@ -23,6 +23,16 @@ import {
 import { mirrorEventUpsert } from '../calendar/mirrorOutbound.mjs';
 import { expandRecurrence } from '../../src/domain/recurrence.ts';
 import { findConflicts } from '../../src/domain/calendar.ts';
+import {
+  createTask,
+  createTaskList,
+  deleteTask,
+  deleteTaskList,
+  listTasks,
+  listTaskLists,
+  updateTask
+} from '../tasks/taskStore.mjs';
+import { completeTask, getMemberPoints } from '../tasks/completion.mjs';
 import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
@@ -386,6 +396,154 @@ export const createRouteHandler = ({
       eventId
     });
     sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/task-lists' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(res, clientOrigin, 200, { lists: await listTaskLists(ctx.member.familyId) });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/task-lists' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'task_edit');
+    const body = await readJsonBody(req);
+    const list = await createTaskList({
+      familyId: ctx.member.familyId,
+      name: String(body?.name ?? '').trim() || 'Untitled list',
+      ordinal: Number(body?.ordinal ?? 0)
+    });
+    sendJson(res, clientOrigin, 201, { list });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/task-lists/') && req.method === 'DELETE') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'task_edit');
+    const listId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    await deleteTaskList({ familyId: ctx.member.familyId, listId });
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/tasks' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const tasks = await listTasks({
+      familyId: ctx.member.familyId,
+      listId: url.searchParams.get('listId') || undefined,
+      ownerMemberId: url.searchParams.get('ownerMemberId') || undefined,
+      includeArchived: url.searchParams.get('includeArchived') === 'true'
+    });
+    sendJson(res, clientOrigin, 200, { tasks });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/tasks' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'task_edit');
+    const body = await readJsonBody(req);
+    const task = await createTask({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      task: {
+        title: String(body?.title ?? '').trim() || 'Untitled task',
+        notes: body?.notes ?? null,
+        listId: body?.listId ?? null,
+        parentTaskId: body?.parentTaskId ?? null,
+        ownerMemberId: body?.ownerMemberId ?? ctx.member.id,
+        shared: Boolean(body?.shared),
+        dueDate: body?.dueDate ?? null,
+        recurrence: body?.recurrence,
+        rruleText: body?.rruleText ?? null,
+        priority: body?.priority,
+        rewardPoints: Number(body?.rewardPoints ?? 0)
+      }
+    });
+    sendJson(res, clientOrigin, 201, { task });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/tasks/') && url.pathname.endsWith('/complete') && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const segments = url.pathname.split('/');
+    const taskId = decodeURIComponent(segments[segments.length - 2] ?? '');
+    const result = await completeTask({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      taskId
+    });
+    sendJson(res, clientOrigin, 200, result);
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/tasks/') && req.method === 'PATCH') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'task_edit');
+    const taskId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    const body = await readJsonBody(req);
+    const task = await updateTask({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      taskId,
+      patch: {
+        title: body?.title,
+        notes: body?.notes,
+        listId: body?.listId,
+        parentTaskId: body?.parentTaskId,
+        ownerMemberId: body?.ownerMemberId,
+        shared: body?.shared,
+        dueDate: body?.dueDate,
+        recurrence: body?.recurrence,
+        rruleText: body?.rruleText,
+        priority: body?.priority,
+        rewardPoints: body?.rewardPoints,
+        archived: body?.archived
+      }
+    });
+    sendJson(res, clientOrigin, 200, { task });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/tasks/') && req.method === 'DELETE') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'task_edit');
+    const taskId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    await deleteTask({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      taskId
+    });
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/avatar/points' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const memberId = url.searchParams.get('memberId') ?? ctx.member.id;
+    const sinceIso = url.searchParams.get('since') ?? null;
+    const total = await getMemberPoints({
+      familyId: ctx.member.familyId,
+      memberId,
+      sinceIso
+    });
+    sendJson(res, clientOrigin, 200, { memberId, total, since: sinceIso });
     return;
   }
 

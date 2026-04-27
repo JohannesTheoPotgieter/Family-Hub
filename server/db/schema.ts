@@ -362,9 +362,11 @@ export type ProposalsRow = {
 
 export const SCHEMA_VERSION = 2 as const;
 
-// Tables that carry `family_id` directly and live under RLS. Used by tenancy
-// assertions (src/test/migrations.test.mjs) so the list stays in sync with
-// 0002_rls.sql.
+// Tables that carry `family_id` directly and live under RLS. The migration
+// parity test (src/test/migrations.test.mjs) verifies every entry here is
+// RLS-enabled in some migration file. Some tables (push_subscriptions,
+// avatar_points_ledger) are enabled inline in their creating migration
+// rather than in the 0002 sweep — both are valid.
 //
 // `event_attendees` and `task_completions` are also tenant-scoped but reach
 // the family via their parent (internal_events / tasks) — they have their
@@ -387,7 +389,9 @@ export const TENANT_TABLES = [
   'debts',
   'threads',
   'proposals',
-  'messages'
+  'messages',
+  'push_subscriptions',
+  'avatar_points_ledger'
 ] as const;
 
 export const JOIN_SCOPED_TABLES = ['event_attendees', 'task_completions'] as const;

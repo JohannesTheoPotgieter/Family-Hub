@@ -40,10 +40,18 @@ test('every migration is wrapped in BEGIN/COMMIT', () => {
   }
 });
 
-test('0002_rls.sql enables RLS on every table listed in TENANT_TABLES', async () => {
-  const sql = readFileSync(join(MIGRATIONS_DIR, '0002_rls.sql'), 'utf8');
+test('every TENANT_TABLES entry is RLS-enabled somewhere', async () => {
+  // Concatenate all migrations so tables RLS-enabled inline (inside the
+  // migration that created them, e.g. push_subscriptions, avatar_points_
+  // ledger) count as covered alongside the 0002_rls.sql sweep.
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  const allSql = files
+    .map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))
+    .join('\n');
   const { TENANT_TABLES } = await import('../../server/db/schema.ts');
   for (const table of TENANT_TABLES) {
-    assert.ok(sql.includes(`'${table}'`) || sql.includes(`${table} `), `${table} not referenced in 0002_rls.sql`);
+    const enabled = new RegExp(`ALTER\\s+TABLE\\s+${table}\\s+ENABLE\\s+ROW\\s+LEVEL\\s+SECURITY`, 'i').test(allSql) ||
+      new RegExp(`'${table}'`).test(allSql);
+    assert.ok(enabled, `${table} is not RLS-enabled in any migration`);
   }
 });

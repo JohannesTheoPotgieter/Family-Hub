@@ -4,6 +4,7 @@
 import { getPool } from '../db/pool.mjs';
 import { verifyClerkWebhook } from './clerk.mjs';
 import { readRawBody } from '../http.mjs';
+import { seedDefaultTaskLists } from '../tasks/taskStore.mjs';
 
 export const verifyClerkWebhookRequest = async (req) => {
   // svix needs the raw body (not the parsed JSON) to validate the signature.
@@ -76,6 +77,10 @@ export const handleClerkUserCreated = async (clerkUser) => {
     );
 
     await client.query('COMMIT');
+
+    // Seed default task lists in a separate transaction. Non-fatal — a
+    // re-run of family.created.audit logic isn't required if this fails.
+    await seedDefaultTaskLists(familyId).catch(() => {});
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
