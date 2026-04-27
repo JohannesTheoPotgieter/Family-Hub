@@ -20,6 +20,7 @@ import {
 } from '../../src/domain/proposals.ts';
 import { ensureEventThread, updateEvent } from '../calendar/eventStore.mjs';
 import { ensureTaskThread, updateTask } from '../tasks/taskStore.mjs';
+import { fanOutProposalPush } from './proposalPush.mjs';
 
 const TTL_MS = 72 * 60 * 60 * 1000;
 
@@ -119,9 +120,46 @@ export const proposeChange = async ({
         [familyId, resolvedThreadId, proposer.id, '[proposal]', proposalRow.id]
       );
 
-      return { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
+      const result = { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
+
+      // Push fan-out happens out-of-tx so a slow web-push provider doesn't
+      // block the propose request. Best-effort.
+      fanOutProposalPush({
+        familyId,
+        proposalId: proposalRow.id,
+        proposerName: proposer.displayName,
+        summary: proposalSummary(change),
+        approverIds: required
+      }).catch(() => {});
+
+      return result;
     })
   );
+};
+
+const proposalSummary = (change) => {
+  switch (change.kind) {
+    case 'event_move':
+      return `Move event to ${change.newStartIso?.slice(0, 16) ?? 'a new time'}`;
+    case 'event_cancel':
+      return 'Cancel this event';
+    case 'task_assignee_swap':
+      return `Swap chore (${change.swaps?.length ?? 0} task${(change.swaps?.length ?? 0) === 1 ? '' : 's'})`;
+    case 'task_reschedule_due':
+      return change.newDueDate ? `Reschedule task to ${change.newDueDate}` : 'Clear task due date';
+    case 'budget_category_shift':
+      return `Move R${(change.amountCents / 100).toFixed(0)} from ${change.fromCategory} → ${change.toCategory}`;
+    case 'bill_extra_payment':
+      return `Add R${(change.extraAmountCents / 100).toFixed(0)} extra to bill`;
+    case 'debt_acceleration':
+      return `Pay R${(change.monthlyExtraCents / 100).toFixed(0)} extra to debt monthly`;
+    case 'goal_contribution':
+      return `Add R${(change.amountCents / 100).toFixed(0)} to goal`;
+    case 'goal_create':
+      return `New goal: ${change.title}`;
+    default:
+      return 'New proposal';
+  }
 };
 
 /**

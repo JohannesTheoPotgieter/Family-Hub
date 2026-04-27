@@ -36,6 +36,24 @@ import { completeTask, getMemberPoints } from '../tasks/completion.mjs';
 import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
+import {
+  addReaction,
+  hideMessage,
+  insertMessage,
+  listMessages,
+  markThreadRead,
+  removeReaction,
+  setThreadKidVisibility,
+  setThreadMute
+} from '../chat/messageStore.mjs';
+import { ensureDirectThread, getThread, listVisibleThreads } from '../chat/threadStore.mjs';
+import { fanOutMessagePush } from '../chat/messagePush.mjs';
+import { moderateText } from '../chat/moderation.mjs';
+import { buildAttachmentReadUrl, createUploadUrl } from '../uploads/r2.mjs';
+import { finalizeAttachment, listAttachments } from '../uploads/attachmentStore.mjs';
+import { parseProposalIntent } from '../chat/aiParse.mjs';
+import { reserveAiParse } from '../chat/aiParseQuota.mjs';
+import { verifyActionToken } from '../chat/actionTokens.mjs';
 import { findConnectionByChannelId } from '../calendar/syncState.mjs';
 import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
@@ -547,6 +565,328 @@ export const createRouteHandler = ({
     return;
   }
 
+  // ----- Attachments (Phase 3.4 + 3.11) ---------------------------------
+
+  if (url.pathname === '/api/v2/uploads/sign' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const mimeType = String(body?.mimeType ?? '').trim();
+    const byteSize = Number(body?.byteSize ?? 0);
+    if (!mimeType || !byteSize) throw createHttpError(400, 'mimeType and byteSize required');
+    if (byteSize > 50 * 1024 * 1024) throw createHttpError(413, 'attachment exceeds 50MB limit');
+
+    const result = await createUploadUrl({
+      familyId: ctx.member.familyId,
+      memberId: ctx.member.id,
+      mimeType,
+      byteSize
+    });
+    sendJson(res, clientOrigin, 200, result);
+    return;
+  }
+
+  if (url.pathname === '/api/v2/attachments' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    if (!body?.storageKey || !body?.mimeType || !body?.byteSize) {
+      throw createHttpError(400, 'storageKey, mimeType, byteSize required');
+    }
+    const attachment = await finalizeAttachment({
+      familyId: ctx.member.familyId,
+      uploaderId: ctx.member.id,
+      storageKey: body.storageKey,
+      mimeType: body.mimeType,
+      byteSize: Number(body.byteSize),
+      width: body.width ?? null,
+      height: body.height ?? null,
+      caption: body.caption ?? null,
+      messageId: body.messageId ?? null,
+      eventId: body.eventId ?? null,
+      transactionId: body.transactionId ?? null,
+      billId: body.billId ?? null
+    });
+    const readUrl = await buildAttachmentReadUrl(attachment.storageKey);
+    sendJson(res, clientOrigin, 201, { attachment, readUrl });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/attachments' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const list = await listAttachments({
+      familyId: ctx.member.familyId,
+      kind: url.searchParams.get('kind') || undefined,
+      limit: Number(url.searchParams.get('limit') ?? 50),
+      beforeIso: url.searchParams.get('before') || undefined
+    });
+    // Attach a read URL per row so the client can <img src=...> immediately.
+    const withUrls = await Promise.all(
+      list.map(async (att) => ({ ...att, readUrl: await buildAttachmentReadUrl(att.storageKey) }))
+    );
+    sendJson(res, clientOrigin, 200, { attachments: withUrls });
+    return;
+  }
+
+  // ----- Connective Chat (Phase 3) ---------------------------------------
+
+  if (url.pathname === '/api/v2/threads' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(res, clientOrigin, 200, {
+      threads: await listVisibleThreads({
+        familyId: ctx.member.familyId,
+        memberId: ctx.member.id,
+        roleKey: ctx.member.roleKey
+      })
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/threads/direct' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const otherMemberId = String(body?.memberId ?? '');
+    if (!otherMemberId) throw createHttpError(400, 'memberId required');
+    const thread = await ensureDirectThread({
+      familyId: ctx.member.familyId,
+      memberA: ctx.member.id,
+      memberB: otherMemberId
+    });
+    sendJson(res, clientOrigin, 200, { thread });
+    return;
+  }
+
+  // /api/v2/threads/:threadId/messages
+  // /api/v2/threads/:threadId/settings
+  // /api/v2/threads/:threadId/read
+  if (url.pathname.startsWith('/api/v2/threads/')) {
+    const segments = url.pathname.split('/');
+    const threadId = decodeURIComponent(segments[4] ?? '');
+    const sub = segments[5];
+
+    if (sub === 'messages' && req.method === 'GET') {
+      const ctx = await resolveRequestContext(req);
+      if (!ctx) {
+        sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+        return;
+      }
+      sendJson(res, clientOrigin, 200, {
+        messages: await listMessages({
+          familyId: ctx.member.familyId,
+          threadId,
+          limit: Number(url.searchParams.get('limit') ?? 50),
+          beforeIso: url.searchParams.get('before')
+        })
+      });
+      return;
+    }
+
+    if (sub === 'messages' && req.method === 'POST') {
+      const ctx = await resolveRequestContext(req);
+      if (!ctx) {
+        sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const thread = await getThread({ familyId: ctx.member.familyId, threadId });
+      if (!thread) throw createHttpError(404, 'thread not found');
+
+      // E2E threads: client must send body_ciphertext (base64). Object/
+      // family-plaintext threads: bodyText. Server enforces the choice
+      // matches threads.e2e_encrypted so a misbehaving client can't write
+      // plaintext into a thread the family expects to be encrypted.
+      const bodyText = thread.e2eEncrypted ? null : (body?.bodyText ?? null);
+      const bodyCiphertext = thread.e2eEncrypted && body?.bodyCiphertextBase64
+        ? Buffer.from(body.bodyCiphertextBase64, 'base64')
+        : null;
+
+      if (thread.e2eEncrypted) {
+        if (!bodyCiphertext) throw createHttpError(400, 'bodyCiphertextBase64 required for E2E thread');
+      } else {
+        if (!bodyText || !bodyText.trim()) throw createHttpError(400, 'bodyText required');
+        const moderation = await moderateText(bodyText);
+        if (!moderation.ok) {
+          // Insert as the user wrote it but immediately hide so parent_admin
+          // can review. Audit trail captures provenance.
+          const inserted = await insertMessage({
+            familyId: ctx.member.familyId,
+            threadId,
+            authorMemberId: ctx.member.id,
+            kind: 'text',
+            bodyText
+          });
+          await hideMessage({
+            familyId: ctx.member.familyId,
+            messageId: inserted.id,
+            reasons: moderation.reasons
+          });
+          sendJson(res, clientOrigin, 202, {
+            moderated: true,
+            reasons: moderation.reasons,
+            messageId: inserted.id
+          });
+          return;
+        }
+      }
+
+      const message = await insertMessage({
+        familyId: ctx.member.familyId,
+        threadId,
+        authorMemberId: ctx.member.id,
+        kind: 'text',
+        bodyText,
+        bodyCiphertext,
+        attachments: Array.isArray(body?.attachments) ? body.attachments : []
+      });
+
+      // Best-effort push fan-out — never blocks the send.
+      fanOutMessagePush({
+        familyId: ctx.member.familyId,
+        threadId,
+        threadKind: thread.kind,
+        e2eEncrypted: thread.e2eEncrypted,
+        authorMemberId: ctx.member.id,
+        authorDisplayName: ctx.member.displayName,
+        bodyPreview: bodyText ? bodyText.slice(0, 80) : null,
+        messageId: message.id
+      }).catch(() => {});
+
+      sendJson(res, clientOrigin, 201, { message });
+      return;
+    }
+
+    if (sub === 'read' && req.method === 'POST') {
+      const ctx = await resolveRequestContext(req);
+      if (!ctx) {
+        sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      await markThreadRead({
+        familyId: ctx.member.familyId,
+        threadId,
+        memberId: ctx.member.id,
+        atIso: body?.atIso ?? new Date().toISOString()
+      });
+      sendJson(res, clientOrigin, 200, { ok: true });
+      return;
+    }
+
+    if (sub === 'settings' && req.method === 'POST') {
+      const ctx = await resolveRequestContext(req);
+      if (!ctx) {
+        sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      // Mute applies to the active member; kid_visibility is a
+      // parent_admin tool that targets a different member.
+      if (body?.mutedUntilIso !== undefined) {
+        await setThreadMute({
+          familyId: ctx.member.familyId,
+          threadId,
+          memberId: ctx.member.id,
+          mutedUntilIso: body.mutedUntilIso
+        });
+      }
+      if (body?.kidVisibility) {
+        if (ctx.member.roleKey !== 'parent_admin' && ctx.member.roleKey !== 'adult_editor') {
+          throw createHttpError(403, 'only parents can set kid visibility');
+        }
+        await setThreadKidVisibility({
+          familyId: ctx.member.familyId,
+          threadId,
+          memberId: body.kidVisibility.memberId,
+          kidVisible: Boolean(body.kidVisibility.visible)
+        });
+      }
+      sendJson(res, clientOrigin, 200, { ok: true });
+      return;
+    }
+  }
+
+  // /api/v2/messages/:messageId/reactions
+  if (url.pathname.startsWith('/api/v2/messages/') && url.pathname.endsWith('/reactions')) {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const segments = url.pathname.split('/');
+    const messageId = decodeURIComponent(segments[4] ?? '');
+    const body = await readJsonBody(req);
+    const emoji = String(body?.emoji ?? '').trim();
+    if (!emoji) throw createHttpError(400, 'emoji required');
+
+    if (req.method === 'POST') {
+      await addReaction({ familyId: ctx.member.familyId, messageId, memberId: ctx.member.id, emoji });
+      sendJson(res, clientOrigin, 201, { ok: true });
+      return;
+    }
+    if (req.method === 'DELETE') {
+      await removeReaction({ familyId: ctx.member.familyId, messageId, memberId: ctx.member.id, emoji });
+      sendJson(res, clientOrigin, 200, { ok: true });
+      return;
+    }
+  }
+
+  if (url.pathname === '/api/chat/parse' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const text = String(body?.text ?? '').trim();
+    const threadId = String(body?.threadId ?? '');
+    if (!text || !threadId) throw createHttpError(400, 'threadId and text required');
+
+    // Pull plan via family lookup so the quota matches the active tier.
+    const { getPool } = await import('../db/pool.mjs');
+    const { rows: planRows } = await getPool().query(
+      `SELECT plan FROM families WHERE id = $1 LIMIT 1`,
+      [ctx.member.familyId]
+    );
+    const plan = planRows[0]?.plan ?? 'free';
+
+    const reservation = await reserveAiParse({ familyId: ctx.member.familyId, plan });
+    if (!reservation.allowed) {
+      sendJson(res, clientOrigin, 429, {
+        error: 'quota_exceeded',
+        used: reservation.used,
+        limit: reservation.limit
+      });
+      return;
+    }
+
+    const result = await parseProposalIntent({
+      familyId: ctx.member.familyId,
+      threadId,
+      plan,
+      text
+    });
+    sendJson(res, clientOrigin, 200, { ...result, quota: reservation });
+    return;
+  }
+
   if (url.pathname === '/api/proposals' && req.method === 'POST') {
     const ctx = await resolveRequestContext(req);
     if (!ctx) {
@@ -591,6 +931,44 @@ export const createRouteHandler = ({
       decision: body?.decision,
       actorRoleKey: ctx.member.roleKey,
       actorPermissions: ROLE_PERMISSIONS[ctx.member.roleKey] ?? []
+    });
+    sendJson(res, clientOrigin, 200, result);
+    return;
+  }
+
+  if (url.pathname === '/api/push/action' && req.method === 'POST') {
+    // Stateless: the SW POSTs from the lock screen with no Clerk session.
+    // Authentication is the signed action token itself (Phase 3.9).
+    const body = await readJsonBody(req);
+    const token = String(body?.actionToken ?? '');
+    const decision = body?.decision === 'agree' ? 'agree' : body?.decision === 'decline' ? 'decline' : null;
+    const proposalId = String(body?.proposalId ?? '');
+    if (!token || !decision || !proposalId) throw createHttpError(400, 'token, decision, proposalId required');
+
+    const verified = verifyActionToken(token);
+    if (!verified || verified.proposalId !== proposalId) {
+      sendJson(res, clientOrigin, 403, { error: 'invalid_action_token' });
+      return;
+    }
+
+    // Look up the member's role + permissions inline since we don't have
+    // a Clerk session.
+    const { getPool } = await import('../db/pool.mjs');
+    const { rows } = await getPool().query(
+      `SELECT family_id, role_key FROM family_members WHERE id = $1 LIMIT 1`,
+      [verified.memberId]
+    );
+    if (!rows.length || rows[0].family_id !== verified.familyId) {
+      sendJson(res, clientOrigin, 403, { error: 'member_not_in_family' });
+      return;
+    }
+    const result = await decideOnProposal({
+      familyId: verified.familyId,
+      proposalId,
+      memberId: verified.memberId,
+      decision,
+      actorRoleKey: rows[0].role_key,
+      actorPermissions: ROLE_PERMISSIONS[rows[0].role_key] ?? []
     });
     sendJson(res, clientOrigin, 200, result);
     return;

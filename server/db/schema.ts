@@ -391,7 +391,11 @@ export const TENANT_TABLES = [
   'proposals',
   'messages',
   'push_subscriptions',
-  'avatar_points_ledger'
+  'avatar_points_ledger',
+  'attachments',
+  'reactions',
+  'thread_member_settings',
+  'ai_parse_quota'
 ] as const;
 
 export const JOIN_SCOPED_TABLES = ['event_attendees', 'task_completions'] as const;
