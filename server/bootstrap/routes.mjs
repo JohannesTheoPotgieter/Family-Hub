@@ -19,6 +19,7 @@ import {
   listFamilyEvents,
   updateEvent
 } from '../calendar/eventStore.mjs';
+import { mirrorEventUpsert } from '../calendar/mirrorOutbound.mjs';
 import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
@@ -229,6 +230,16 @@ export const createRouteHandler = ({
         attendeeMemberIds: Array.isArray(body?.attendeeMemberIds) ? body.attendeeMemberIds : []
       }
     });
+    // Best-effort outbound mirror; logs but never fails the request — the
+    // sync worker reconciles on the next poll.
+    if (event.calendarId && event.calendarId !== 'internal') {
+      await mirrorEventUpsert({
+        familyId: ctx.member.familyId,
+        actorMemberId: ctx.member.id,
+        memberId: ctx.member.id,
+        event
+      }).catch(() => {});
+    }
     sendJson(res, clientOrigin, 201, { event });
     return;
   }
@@ -255,6 +266,14 @@ export const createRouteHandler = ({
         },
         expectedEtag: body?.expectedEtag ?? null
       });
+      if (event.calendarId && event.calendarId !== 'internal') {
+        await mirrorEventUpsert({
+          familyId: ctx.member.familyId,
+          actorMemberId: ctx.member.id,
+          memberId: ctx.member.id,
+          event
+        }).catch(() => {});
+      }
       sendJson(res, clientOrigin, 200, { event });
     } catch (err) {
       if (err.message === 'concurrent_modification') {
