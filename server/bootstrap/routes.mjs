@@ -21,6 +21,8 @@ import {
   updateEvent
 } from '../calendar/eventStore.mjs';
 import { mirrorEventUpsert } from '../calendar/mirrorOutbound.mjs';
+import { expandRecurrence } from '../../src/domain/recurrence.ts';
+import { findConflicts } from '../../src/domain/calendar.ts';
 import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
 import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
 import { loadFamilyMembers } from '../auth/familyMembers.mjs';
@@ -263,6 +265,26 @@ export const createRouteHandler = ({
       displayName: String(body?.displayName ?? '').trim()
     });
     sendJson(res, clientOrigin, 200, { member });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/conflicts' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const fromIso = url.searchParams.get('from');
+    const toIso = url.searchParams.get('to');
+    if (!fromIso || !toIso) throw createHttpError(400, 'from and to query params required.');
+
+    const events = await listFamilyEvents({ familyId: ctx.member.familyId, fromIso, toIso });
+    // Expand recurrence into concrete occurrences so the conflict finder
+    // catches Wed-soccer-vs-Wed-meeting clashes, not just first-instance
+    // overlaps.
+    const expanded = expandRecurrence(events, fromIso, toIso);
+    const conflicts = findConflicts(expanded);
+    sendJson(res, clientOrigin, 200, { conflicts });
     return;
   }
 

@@ -15,13 +15,21 @@
 import rrulePkg from 'rrule';
 import type { NormalizedEvent } from './calendar.ts';
 
-const { rrulestr } = rrulePkg as unknown as { rrulestr: (s: string, opts?: { dtstart?: Date }) => { between: (a: Date, b: Date, inclusive?: boolean) => Date[] } };
+const { rrulestr } = rrulePkg as unknown as {
+  rrulestr: (s: string, opts?: { dtstart?: Date; tzid?: string }) => {
+    between: (a: Date, b: Date, inclusive?: boolean) => Date[];
+  };
+};
 
 export type ExpandableEvent = NormalizedEvent & {
   rruleText?: string | null;
   // Override durations for specific occurrences. Map keyed by the occurrence's
   // ISO start. Phase 2 wires this via internal_events.recurrence_parent_id.
   exceptions?: Record<string, { startsAtIso: string; endsAtIso: string } | 'cancelled'>;
+  // Optional IANA tz id (e.g. 'Africa/Johannesburg'). When set, the rule is
+  // anchored to wall-clock time in that zone — DST shifts and zone-local
+  // semantics like "every Mon at 8am" come for free via rrule's tzid.
+  tzid?: string | null;
 };
 
 const startMs = (event: ExpandableEvent) => Date.parse(event.start.iso);
@@ -62,7 +70,9 @@ export const expandRecurrence = (
     let rule;
     try {
       const rruleBody = stripDtstartLine(event.rruleText);
-      rule = rrulestr(rruleBody, { dtstart: new Date(event.start.iso) });
+      const opts: { dtstart?: Date; tzid?: string } = { dtstart: new Date(event.start.iso) };
+      if (event.tzid) opts.tzid = event.tzid;
+      rule = rrulestr(rruleBody, opts);
     } catch {
       // Bad RRULE — fall back to the seed occurrence so we never silently
       // drop the event.

@@ -117,3 +117,39 @@ test('toRRuleText renders interval and until', () => {
 test('toRRuleText returns null for kind=none', () => {
   assert.equal(toRRuleText({ kind: 'none' }), null);
 });
+
+test('expandRecurrence respects tzid for wall-clock weekly recurrence', () => {
+  // With tzid set, rrule interprets the wall-clock parts of dtstart as
+  // local time in the named zone and emits subsequent occurrences at the
+  // same wall-clock time. The invariant we want is "every occurrence has
+  // the same wall-clock hour in Africa/Johannesburg" — the UTC offset
+  // matters only for transport.
+  const result = expandRecurrence(
+    [
+      {
+        id: 'soccer',
+        provider: 'google',
+        calendarId: 'cal-1',
+        title: 'Soccer practice',
+        start: { iso: '2026-05-06T16:00:00.000Z', allDay: false },
+        end: { iso: '2026-05-06T17:00:00.000Z', allDay: false },
+        source: 'internal',
+        tzid: 'Africa/Johannesburg',
+        rruleText: 'RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=3'
+      }
+    ],
+    '2026-05-01T00:00:00Z',
+    '2026-05-31T23:59:59Z'
+  );
+  assert.equal(result.length, 3);
+  // Africa/Johannesburg has no DST, so every occurrence's wall-clock hour
+  // should match. We use Intl.DateTimeFormat to read the local hour back.
+  const fmt = new Intl.DateTimeFormat('en-ZA', {
+    timeZone: 'Africa/Johannesburg',
+    hour: '2-digit',
+    hour12: false
+  });
+  const hours = result.map((occ) => fmt.format(new Date(occ.start.iso)));
+  // All three occurrences should land on the same wall-clock hour.
+  assert.equal(new Set(hours).size, 1, `expected one unique hour, got ${[...new Set(hours)]}`);
+});
