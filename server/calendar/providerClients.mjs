@@ -125,6 +125,136 @@ export const upsertGoogleEvent = async ({ tokens, calendarId, event, etag, onTok
   );
 };
 
+/**
+ * Fetch a delta page from Google Calendar.
+ *
+ * Google's `events.list` accepts `syncToken` for incremental sync. On the
+ * first run we omit it (and pass `singleEvents=false&showDeleted=true` so
+ * we get cancelled-event tombstones). The returned `nextSyncToken` is what
+ * the caller persists for the next round.
+ *
+ * @param {{
+ *   tokens: object,
+ *   calendarId: string,
+ *   syncToken?: string | null,
+ *   pageToken?: string | null,
+ *   onTokensRefreshed?: (tokens: object) => void
+ * }} args
+ * @returns {Promise<{
+ *   items: any[],
+ *   nextPageToken: string | null,
+ *   nextSyncToken: string | null,
+ *   resyncRequired: boolean
+ * }>}
+ */
+export const fetchGoogleDelta = async ({ tokens, calendarId, syncToken, pageToken, onTokensRefreshed }) => {
+  const params = new URLSearchParams();
+  if (syncToken) {
+    params.set('syncToken', syncToken);
+  } else {
+    params.set('showDeleted', 'true');
+    params.set('singleEvents', 'false');
+    // Bound the initial scan: 60 days back, 365 days forward. Subsequent
+    // syncs use the syncToken so this only matters once per connection.
+    const now = Date.now();
+    params.set('timeMin', new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString());
+    params.set('timeMax', new Date(now + 365 * 24 * 60 * 60 * 1000).toISOString());
+  }
+  if (pageToken) params.set('pageToken', pageToken);
+  params.set('maxResults', '250');
+
+  return withGoogleRefresh(
+    tokens,
+    async (currentTokens) => {
+      const url = `${GOOGLE_API}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`;
+      try {
+        const { body } = await fetchJson(url, { headers: googleAuthHeaders(currentTokens) });
+        return {
+          items: body.items ?? [],
+          nextPageToken: body.nextPageToken ?? null,
+          nextSyncToken: body.nextSyncToken ?? null,
+          resyncRequired: false
+        };
+      } catch (err) {
+        // 410 Gone means the syncToken expired (typically >7d idle). Caller
+        // drops the token and re-runs without one to re-establish.
+        if (err.status === 410) {
+          return { items: [], nextPageToken: null, nextSyncToken: null, resyncRequired: true };
+        }
+        throw err;
+      }
+    },
+    onTokensRefreshed
+  );
+};
+
+/**
+ * Register a Google Calendar watch channel so updates push to our webhook.
+ * Channels expire after 7 days max — the sync worker re-establishes via
+ * cron.
+ *
+ * @param {{
+ *   tokens: object,
+ *   calendarId: string,
+ *   webhookUrl: string,
+ *   channelId: string,
+ *   token?: string,
+ *   ttlSeconds?: number,
+ *   onTokensRefreshed?: (tokens: object) => void
+ * }} args
+ */
+export const watchGoogleCalendar = async ({
+  tokens,
+  calendarId,
+  webhookUrl,
+  channelId,
+  token,
+  ttlSeconds = 604800,
+  onTokensRefreshed
+}) => {
+  return withGoogleRefresh(
+    tokens,
+    async (currentTokens) => {
+      const url = `${GOOGLE_API}/calendars/${encodeURIComponent(calendarId)}/events/watch`;
+      const { body } = await fetchJson(url, {
+        method: 'POST',
+        headers: googleAuthHeaders(currentTokens),
+        body: JSON.stringify({
+          id: channelId,
+          type: 'web_hook',
+          address: webhookUrl,
+          token,
+          params: { ttl: String(ttlSeconds) }
+        })
+      });
+      return {
+        channelId: body.id,
+        resourceId: body.resourceId,
+        expiration: body.expiration ? Number(body.expiration) : null
+      };
+    },
+    onTokensRefreshed
+  );
+};
+
+/**
+ * Stop a Google watch channel — called when a connection is removed or a
+ * channel is being rotated.
+ */
+export const stopGoogleChannel = async ({ tokens, channelId, resourceId, onTokensRefreshed }) =>
+  withGoogleRefresh(
+    tokens,
+    async (currentTokens) => {
+      await fetchJson(`${GOOGLE_API}/channels/stop`, {
+        method: 'POST',
+        headers: googleAuthHeaders(currentTokens),
+        body: JSON.stringify({ id: channelId, resourceId })
+      });
+      return { ok: true };
+    },
+    onTokensRefreshed
+  );
+
 export const deleteGoogleEvent = async ({ tokens, calendarId, eventId, etag, onTokensRefreshed }) => {
   const url = `${GOOGLE_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
   return withGoogleRefresh(
@@ -211,6 +341,48 @@ export const upsertMicrosoftEvent = async ({ tokens, event, etag, onTokensRefres
         etag: nextEtag ?? body['@odata.etag'] ?? null,
         lastModifiedRemote: body.lastModifiedDateTime,
         raw: body
+      };
+    },
+    onTokensRefreshed
+  );
+};
+
+/**
+ * Fetch a delta page from Microsoft Graph using `/me/calendarView/delta`.
+ *
+ * @param {{
+ *   tokens: object,
+ *   deltaLink?: string | null,
+ *   onTokensRefreshed?: (tokens: object) => void
+ * }} args
+ * @returns {Promise<{
+ *   items: any[],
+ *   nextLink: string | null,
+ *   deltaLink: string | null
+ * }>}
+ */
+export const fetchMicrosoftDelta = async ({ tokens, deltaLink, onTokensRefreshed }) => {
+  let url;
+  if (deltaLink) {
+    url = deltaLink;
+  } else {
+    const now = new Date();
+    const start = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const end = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    url = `${GRAPH_API}/me/calendarView/delta?startDateTime=${encodeURIComponent(start)}&endDateTime=${encodeURIComponent(end)}`;
+  }
+
+  return withMicrosoftRefresh(
+    tokens,
+    async (currentTokens) => {
+      const headers = msAuthHeaders(currentTokens);
+      // Graph returns up to 1000 entries per page by default; we leave
+      // pagination to the caller via @odata.nextLink.
+      const { body } = await fetchJson(url, { headers });
+      return {
+        items: body.value ?? [],
+        nextLink: body['@odata.nextLink'] ?? null,
+        deltaLink: body['@odata.deltaLink'] ?? null
       };
     },
     onTokensRefreshed

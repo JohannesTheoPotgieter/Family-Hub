@@ -323,6 +323,127 @@ export const recordEventSyncMetadata = async ({ familyId, eventId, etag, lastMod
     );
   });
 
+/**
+ * Inbound reconcile: provider → Family-Hub. Used by the sync worker to
+ * apply a remote change (insert or update) without writing through to
+ * the same provider (no echo). Audit row is written so the activity
+ * card can show "Synced from Google" provenance.
+ *
+ * Matches existing rows by (calendar_connection_id, external_id). Returns
+ * `{ inserted, updated, eventId }`.
+ *
+ * @param {{
+ *   familyId: string,
+ *   calendarConnectionId: string,
+ *   normalized: import('../../src/domain/calendar.ts').NormalizedEvent & {
+ *     etag?: string | null,
+ *     lastModifiedRemote?: string | null,
+ *     rruleText?: string | null
+ *   }
+ * }} args
+ */
+export const upsertExternalEvent = async ({ familyId, calendarConnectionId, normalized }) =>
+  withFamilyContext(familyId, (client) =>
+    withTransaction(client, async () => {
+      const externalId = normalized.id;
+      const { rows: existing } = await client.query(
+        `SELECT id FROM internal_events
+          WHERE calendar_connection_id = $1 AND external_id = $2 LIMIT 1`,
+        [calendarConnectionId, externalId]
+      );
+
+      if (existing.length) {
+        const eventId = existing[0].id;
+        await client.query(
+          `UPDATE internal_events
+             SET title = $2, description = $3, location = $4,
+                 starts_at = $5, ends_at = $6, all_day = $7,
+                 rrule_text = $8, etag = $9, last_modified_remote = $10,
+                 updated_at = now()
+           WHERE id = $1`,
+          [
+            eventId,
+            normalized.title,
+            normalized.description ?? null,
+            normalized.location ?? null,
+            normalized.start.iso,
+            normalized.end.iso,
+            Boolean(normalized.start.allDay && normalized.end.allDay),
+            normalized.rruleText ?? null,
+            normalized.etag ?? null,
+            normalized.lastModifiedRemote ?? null
+          ]
+        );
+        await audit(client, {
+          familyId,
+          actorMemberId: null,
+          action: 'event.synced_in',
+          entityKind: 'event',
+          entityId: eventId,
+          diff: { externalId, source: 'provider_delta' }
+        });
+        return { inserted: false, updated: true, eventId };
+      }
+
+      const { rows: inserted } = await client.query(
+        `INSERT INTO internal_events (
+            family_id, calendar_connection_id, external_id, title, description,
+            location, starts_at, ends_at, all_day, rrule_text, etag,
+            last_modified_remote
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         RETURNING id`,
+        [
+          familyId,
+          calendarConnectionId,
+          externalId,
+          normalized.title,
+          normalized.description ?? null,
+          normalized.location ?? null,
+          normalized.start.iso,
+          normalized.end.iso,
+          Boolean(normalized.start.allDay && normalized.end.allDay),
+          normalized.rruleText ?? null,
+          normalized.etag ?? null,
+          normalized.lastModifiedRemote ?? null
+        ]
+      );
+      await audit(client, {
+        familyId,
+        actorMemberId: null,
+        action: 'event.synced_in',
+        entityKind: 'event',
+        entityId: inserted[0].id,
+        diff: { externalId, source: 'provider_delta' }
+      });
+      return { inserted: true, updated: false, eventId: inserted[0].id };
+    })
+  );
+
+/**
+ * Inbound delete: provider says this event is gone. Drops the local row.
+ */
+export const deleteExternalEvent = async ({ familyId, calendarConnectionId, externalId }) =>
+  withFamilyContext(familyId, (client) =>
+    withTransaction(client, async () => {
+      const { rows } = await client.query(
+        `DELETE FROM internal_events
+          WHERE calendar_connection_id = $1 AND external_id = $2
+        RETURNING id`,
+        [calendarConnectionId, externalId]
+      );
+      if (!rows.length) return { deleted: false };
+      await audit(client, {
+        familyId,
+        actorMemberId: null,
+        action: 'event.synced_out',
+        entityKind: 'event',
+        entityId: rows[0].id,
+        diff: { externalId, source: 'provider_delta' }
+      });
+      return { deleted: true, eventId: rows[0].id };
+    })
+  );
+
 export const ensureEventThread = async ({ familyId, eventId }) =>
   withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
