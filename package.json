@@ -14,12 +14,26 @@
     "maintenance:reset-server-state": "node server/maintenance/reset-server-state.mjs"
   },
   "dependencies": {
+    "@clerk/backend": "^3.4.1",
+    "@clerk/clerk-react": "^5.61.6",
+    "bullmq": "^5.76.2",
+    "ical.js": "^2.2.1",
+    "ioredis": "^5.10.1",
+    "pg": "^8.20.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "resend": "^6.12.2",
+    "rrule": "^2.8.1",
+    "stripe": "^22.1.0",
+    "svix": "^1.92.2",
+    "tsdav": "^2.1.8",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^9.2.1",
     "typescript": "^5.5.4",

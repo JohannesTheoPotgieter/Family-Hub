@@ -12,7 +12,15 @@ export type PermissionKey =
   | 'pin_manage'
   | 'setup_restart'
   | 'data_export'
-  | 'data_reset';
+  | 'data_reset'
+  // Connective-chat proposal capabilities (Phase 0.11). Mirror in server/auth/permissions.mjs.
+  | 'proposal_create_event'
+  | 'proposal_create_task'
+  | 'proposal_create_money'
+  | 'proposal_approve_event'
+  | 'proposal_approve_task'
+  | 'proposal_approve_money'
+  | 'proposal_approve_member';
 
 export type PermissionSettings = Pick<AppSettings, 'hideMoneyForKids' | 'requireParentForReset'>;
 
@@ -23,9 +31,25 @@ const roleMap: Record<LegacyRole, FamilyRole> = {
 };
 
 const rolePermissions: Record<FamilyRole, PermissionKey[]> = {
-  parent_admin: ['money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign', 'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset'],
-  adult_editor: ['money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign', 'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset'],
-  child_limited: ['calendar_edit', 'task_edit', 'places_edit', 'pin_manage']
+  parent_admin: [
+    'money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign',
+    'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset',
+    'proposal_create_event', 'proposal_create_task', 'proposal_create_money',
+    'proposal_approve_event', 'proposal_approve_task', 'proposal_approve_money', 'proposal_approve_member'
+  ],
+  adult_editor: [
+    'money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign',
+    'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset',
+    'proposal_create_event', 'proposal_create_task', 'proposal_create_money',
+    'proposal_approve_event', 'proposal_approve_task', 'proposal_approve_money'
+  ],
+  // Kids can propose changes to events + tasks (including their own chore swaps)
+  // but cannot propose or approve money or member changes by default.
+  child_limited: [
+    'calendar_edit', 'task_edit', 'places_edit', 'pin_manage',
+    'proposal_create_event', 'proposal_create_task',
+    'proposal_approve_task'
+  ]
 };
 
 const roleTabAccess: Record<FamilyRole, Tab[]> = {

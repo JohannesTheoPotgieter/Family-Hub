@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Family-Hub">
+  <!-- Placeholder app icon — designed-system replacement lands with the
+       Bold + Joyful palette. Maskable safe area is the inner 80% circle. -->
+  <rect width="512" height="512" rx="96" fill="#1a1a1a"/>
+  <circle cx="256" cy="256" r="200" fill="#fdfbf6"/>
+  <g fill="#1a1a1a" font-family="system-ui, sans-serif" font-weight="700" text-anchor="middle">
+    <text x="256" y="285" font-size="120">F·H</text>
+  </g>
+</svg>

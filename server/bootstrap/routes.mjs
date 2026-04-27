@@ -7,6 +7,27 @@ import {
   createHttpError,
   validateIcsSubscriptionUrl
 } from '../security.mjs';
+import { resolveRequestContext, requirePermissionOrFail } from '../auth/middleware.mjs';
+import { buildMePayload } from '../auth/me.mjs';
+import { handleClerkUserCreated, verifyClerkWebhookRequest } from '../auth/clerkWebhook.mjs';
+import { importLocalState } from '../migrate/importLocalState.mjs';
+import { createInvite, acceptInvite } from '../invites/invites.mjs';
+import { handleStripeWebhook } from '../billing/webhook.mjs';
+import { savePushSubscription } from '../push/subscriptions.mjs';
+import {
+  createEvent,
+  deleteEvent,
+  listFamilyEvents,
+  updateEvent
+} from '../calendar/eventStore.mjs';
+import { mirrorEventUpsert } from '../calendar/mirrorOutbound.mjs';
+import { expandRecurrence } from '../../src/domain/recurrence.ts';
+import { findConflicts } from '../../src/domain/calendar.ts';
+import { decideOnProposal, proposeChange } from '../chat/proposalEngine.mjs';
+import { ROLE_PERMISSIONS } from '../auth/permissions.mjs';
+import { loadFamilyMembers } from '../auth/familyMembers.mjs';
+import { findConnectionByChannelId } from '../calendar/syncState.mjs';
+import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
 
 export const createRouteHandler = ({
   port,
@@ -116,6 +137,320 @@ export const createRouteHandler = ({
     storage.reset();
     icsService.clearAll();
     sendJson(res, clientOrigin, 200, { ok: true, maintenanceMode: true });
+    return;
+  }
+
+  // ----- Public config + session payload --------------------------------
+
+  if (url.pathname === '/api/public-config' && req.method === 'GET') {
+    // Unauthenticated; the UI uses this on first load to learn the Clerk
+    // publishable key + VAPID public key without exposing secrets.
+    sendJson(res, clientOrigin, 200, {
+      clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY ?? null,
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? null,
+      stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY ?? null,
+      publicAppUrl: process.env.PUBLIC_APP_URL ?? null
+    });
+    return;
+  }
+
+  if (url.pathname === '/api/me' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    sendJson(res, clientOrigin, 200, await buildMePayload(ctx));
+    return;
+  }
+
+  // ----- Phase 0 SaaS routes (auth-gated, DB-backed) ---------------------
+  // Each route below resolves the active request context (Clerk session →
+  // family_member row) and checks a typed permission. These coexist with the
+  // local-first prototype routes above; the prototype keeps working for dev
+  // until Phase 1+ replaces it.
+
+  if (url.pathname === '/api/calendar/webhooks/google' && req.method === 'POST') {
+    // Google push notifications carry no body — all signal lives in the
+    // X-Goog-* headers. Validate the channel id matches a known connection,
+    // verify the token if we set one, then enqueue a delta-fetch job and
+    // 200 immediately. Google retries on non-200, so processing must stay
+    // out of band.
+    const channelId = req.headers['x-goog-channel-id'];
+    const channelToken = req.headers['x-goog-channel-token'];
+    const resourceState = req.headers['x-goog-resource-state'];
+
+    if (!channelId || typeof channelId !== 'string') {
+      sendJson(res, clientOrigin, 400, { error: 'missing_channel_id' });
+      return;
+    }
+    // Sync messages on channel creation come through with state='sync' — ack.
+    if (resourceState === 'sync') {
+      sendJson(res, clientOrigin, 200, { ok: true, ack: 'sync' });
+      return;
+    }
+
+    const connection = await findConnectionByChannelId(channelId);
+    if (!connection) {
+      sendJson(res, clientOrigin, 404, { error: 'unknown_channel' });
+      return;
+    }
+
+    const expectedToken = process.env.GOOGLE_WATCH_TOKEN ?? channelId;
+    if (channelToken !== expectedToken) {
+      sendJson(res, clientOrigin, 403, { error: 'token_mismatch' });
+      return;
+    }
+
+    await enqueueGooglePush({
+      familyId: connection.familyId,
+      memberId: connection.memberId,
+      channelId,
+      resourceId: req.headers['x-goog-resource-id'] ?? null
+    });
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/webhooks/clerk' && req.method === 'POST') {
+    const event = await verifyClerkWebhookRequest(req);
+    if (event?.type === 'user.created') await handleClerkUserCreated(event.data);
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/webhooks/stripe' && req.method === 'POST') {
+    await handleStripeWebhook(req);
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/migrate/local-state' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'data_export');
+    const body = await readJsonBody(req);
+    const counts = await importLocalState({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      localState: body?.state ?? body
+    });
+    sendJson(res, clientOrigin, 200, { ok: true, counts });
+    return;
+  }
+
+  if (url.pathname === '/api/invites' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'pin_manage');
+    const body = await readJsonBody(req);
+    const invite = await createInvite({
+      familyId: ctx.member.familyId,
+      invitedByMemberId: ctx.member.id,
+      email: String(body?.email ?? '').trim(),
+      roleKey: body?.roleKey
+    });
+    sendJson(res, clientOrigin, 201, { invite });
+    return;
+  }
+
+  if (url.pathname === '/api/invites/accept' && req.method === 'POST') {
+    const body = await readJsonBody(req);
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const member = await acceptInvite({
+      token: String(body?.token ?? ''),
+      userId: ctx.userId,
+      displayName: String(body?.displayName ?? '').trim()
+    });
+    sendJson(res, clientOrigin, 200, { member });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/conflicts' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const fromIso = url.searchParams.get('from');
+    const toIso = url.searchParams.get('to');
+    if (!fromIso || !toIso) throw createHttpError(400, 'from and to query params required.');
+
+    const events = await listFamilyEvents({ familyId: ctx.member.familyId, fromIso, toIso });
+    // Expand recurrence into concrete occurrences so the conflict finder
+    // catches Wed-soccer-vs-Wed-meeting clashes, not just first-instance
+    // overlaps.
+    const expanded = expandRecurrence(events, fromIso, toIso);
+    const conflicts = findConflicts(expanded);
+    sendJson(res, clientOrigin, 200, { conflicts });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/events' && req.method === 'GET') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const fromIso = url.searchParams.get('from');
+    const toIso = url.searchParams.get('to');
+    if (!fromIso || !toIso) throw createHttpError(400, 'from and to query params required.');
+    const events = await listFamilyEvents({ familyId: ctx.member.familyId, fromIso, toIso });
+    sendJson(res, clientOrigin, 200, { events });
+    return;
+  }
+
+  if (url.pathname === '/api/v2/events' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const body = await readJsonBody(req);
+    const event = await createEvent({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      event: {
+        title: String(body?.title ?? '').trim() || 'Untitled',
+        description: body?.description ?? null,
+        location: body?.location ?? null,
+        startsAt: String(body?.startsAt ?? ''),
+        endsAt: String(body?.endsAt ?? ''),
+        allDay: Boolean(body?.allDay),
+        rruleText: body?.rruleText ?? null,
+        calendarConnectionId: body?.calendarConnectionId ?? null,
+        attendeeMemberIds: Array.isArray(body?.attendeeMemberIds) ? body.attendeeMemberIds : []
+      }
+    });
+    // Best-effort outbound mirror; logs but never fails the request — the
+    // sync worker reconciles on the next poll.
+    if (event.calendarId && event.calendarId !== 'internal') {
+      await mirrorEventUpsert({
+        familyId: ctx.member.familyId,
+        actorMemberId: ctx.member.id,
+        memberId: ctx.member.id,
+        event
+      }).catch(() => {});
+    }
+    sendJson(res, clientOrigin, 201, { event });
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/events/') && req.method === 'PATCH') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const eventId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    const body = await readJsonBody(req);
+    try {
+      const event = await updateEvent({
+        familyId: ctx.member.familyId,
+        actorMemberId: ctx.member.id,
+        eventId,
+        patch: {
+          title: body?.title,
+          description: body?.description,
+          location: body?.location,
+          startsAt: body?.startsAt,
+          endsAt: body?.endsAt,
+          allDay: body?.allDay,
+          rruleText: body?.rruleText,
+          attendeeMemberIds: body?.attendeeMemberIds
+        },
+        expectedEtag: body?.expectedEtag ?? null
+      });
+      if (event.calendarId && event.calendarId !== 'internal') {
+        await mirrorEventUpsert({
+          familyId: ctx.member.familyId,
+          actorMemberId: ctx.member.id,
+          memberId: ctx.member.id,
+          event
+        }).catch(() => {});
+      }
+      sendJson(res, clientOrigin, 200, { event });
+    } catch (err) {
+      if (err.message === 'concurrent_modification') {
+        sendJson(res, clientOrigin, 409, { error: 'concurrent_modification', detail: err.detail });
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/v2/events/') && req.method === 'DELETE') {
+    const ctx = await resolveRequestContext(req);
+    requirePermissionOrFail(ctx, 'calendar_edit');
+    const eventId = decodeURIComponent(url.pathname.split('/').pop() ?? '');
+    await deleteEvent({
+      familyId: ctx.member.familyId,
+      actorMemberId: ctx.member.id,
+      eventId
+    });
+    sendJson(res, clientOrigin, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === '/api/proposals' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    const family = await loadFamilyMembers(ctx.member.familyId);
+    try {
+      const result = await proposeChange({
+        familyId: ctx.member.familyId,
+        proposer: { id: ctx.member.id, roleKey: ctx.member.roleKey, displayName: ctx.member.displayName },
+        family,
+        change: body?.change,
+        entityId: String(body?.entityId ?? ''),
+        threadId: body?.threadId ?? undefined
+      });
+      sendJson(res, clientOrigin, 201, result);
+    } catch (err) {
+      if (err.message === 'proposal_invalid') {
+        sendJson(res, clientOrigin, 400, { error: 'proposal_invalid', errors: err.errors });
+        return;
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/api/proposals/') && url.pathname.endsWith('/decision') && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const segments = url.pathname.split('/');
+    const proposalId = decodeURIComponent(segments[segments.length - 2] ?? '');
+    const body = await readJsonBody(req);
+    const result = await decideOnProposal({
+      familyId: ctx.member.familyId,
+      proposalId,
+      memberId: ctx.member.id,
+      decision: body?.decision,
+      actorRoleKey: ctx.member.roleKey,
+      actorPermissions: ROLE_PERMISSIONS[ctx.member.roleKey] ?? []
+    });
+    sendJson(res, clientOrigin, 200, result);
+    return;
+  }
+
+  if (url.pathname === '/api/push/subscribe' && req.method === 'POST') {
+    const ctx = await resolveRequestContext(req);
+    if (!ctx) {
+      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
+      return;
+    }
+    const body = await readJsonBody(req);
+    await savePushSubscription({
+      familyId: ctx.member.familyId,
+      memberId: ctx.member.id,
+      subscription: body
+    });
+    sendJson(res, clientOrigin, 201, { ok: true });
     return;
   }
 

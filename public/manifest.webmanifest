@@ -1,0 +1,26 @@
+{
+  "name": "Family-Hub",
+  "short_name": "Family-Hub",
+  "description": "Calendar, tasks, chat, and family money — built for South African families.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fdfbf6",
+  "theme_color": "#1a1a1a",
+  "lang": "en-ZA",
+  "categories": ["productivity", "lifestyle", "finance"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Today", "url": "/?tab=Home", "short_name": "Today" },
+    { "name": "Calendar", "url": "/?tab=Calendar", "short_name": "Calendar" },
+    { "name": "Tasks", "url": "/?tab=Tasks", "short_name": "Tasks" }
+  ]
+}
