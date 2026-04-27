@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^3.4.1",
+    "@clerk/clerk-react": "^5.61.6",
     "bullmq": "^5.76.2",
     "ioredis": "^5.10.1",
     "pg": "^8.20.0",
