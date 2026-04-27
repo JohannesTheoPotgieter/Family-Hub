@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { MyChoresPanel } from './MyChoresPanel';
 import { USERS, type UserId } from '../../lib/family-hub/constants';
 import type { TaskItem } from '../../lib/family-hub/storage';
 import type { AvatarGameState } from '../../domain/avatarTypes.ts';
@@ -187,6 +188,7 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, avatarGame, on
   return (
     <section className="tasks-screen stack-lg">
       <ScreenIntro badge="Tasks" title="Family to-dos" subtitle="Fast, friendly task lists for what needs attention now, later, and together." />
+      <MyChoresPanel />
 
       <section className="glass-panel tasks-toolbar" aria-label="Task filters and actions">
         <div className="tasks-toolbar-top">
