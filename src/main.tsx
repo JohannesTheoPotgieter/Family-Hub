@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { FamilyHubApp } from './FamilyHubApp';
 import { SessionProvider } from './lib/auth/SessionProvider';
+import { AuthGate } from './components/auth/AuthGate';
 import { registerServiceWorker } from './lib/pwa/registerServiceWorker';
 import './styles.css';
 import './theme.css';
@@ -15,7 +16,9 @@ if (typeof window !== 'undefined') {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <SessionProvider>
-      <FamilyHubApp />
+      <AuthGate>
+        <FamilyHubApp />
+      </AuthGate>
     </SessionProvider>
   </React.StrictMode>
 );
