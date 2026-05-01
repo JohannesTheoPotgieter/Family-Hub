@@ -5,6 +5,7 @@ import { createRuntimeServices } from './bootstrap/runtime-services.mjs';
 import { createSessionBootstrap } from './bootstrap/session.mjs';
 import { createStartupEnvironment, startServerIfEntrypoint } from './bootstrap/startup-maintenance.mjs';
 import { isPrivateIpAddress, validateIcsSubscriptionUrl } from './security.mjs';
+import { autoMigrateIfEnabled } from './db/autoMigrate.mjs';
 
 // Startup sequence is intentionally explicit:
 // 1) resolve environment/runtime flags
@@ -42,5 +43,10 @@ export const sanitizeReturnToPublic = sanitizeReturnTo;
 export { sanitizeReturnToPublic as sanitizeReturnTo };
 
 export const server = createHttpServer({ clientOrigin, handleRequest });
+
+// Run pending migrations on boot so a fresh Replit / dev clone doesn't
+// need a separate `node server/db/migrate.mjs` step. Idempotent — already-
+// applied files are skipped. Disable via AUTO_MIGRATE=false.
+autoMigrateIfEnabled().catch(() => {});
 
 startServerIfEntrypoint({ moduleUrl: import.meta.url, server, port });

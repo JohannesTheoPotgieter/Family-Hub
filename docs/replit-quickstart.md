@@ -61,27 +61,37 @@ Optional but useful:
 Each integration is **fail-soft** — the app still runs without these, those
 features just degrade gracefully.
 
-## 3. Apply database migrations
+## 3. Apply database migrations (automatic on boot)
 
-Open the Replit shell and run:
+The API server runs all pending migrations on startup when `DATABASE_URL`
+is set — you don't have to run anything manually. Watch the Replit
+console for `[migrate] applying 0001_init.sql` etc.
+
+To opt out (for production deploys where migrations should be deliberate),
+set `AUTO_MIGRATE=false` in Secrets and run:
 
 ```bash
 node server/db/migrate.mjs
 ```
 
-You should see all seven migrations apply (`0001_init` → `0007_money_currency_rates`).
-
-Confirm with:
+To check status:
 
 ```bash
 node server/db/migrate.mjs --status
 # expects: { "applied": [...], "pending": [] }
 ```
 
-## 4. Configure the Clerk webhook
+## 4. Configure the Clerk webhook (optional for dev)
 
-The `user.created` webhook seeds the family + parent_admin member + family
-thread + default task lists when someone signs up.
+In production the `user.created` webhook is the right path — Clerk pushes
+the event to your server, which provisions the family + parent_admin +
+family thread + default task lists.
+
+For Replit dev where Clerk can't reach localhost, the **server falls back**
+to provisioning the family inline on the first `/api/me` request (using
+the same code path). So sign-up works without configuring a webhook.
+
+When you DO want the production path:
 
 1. In Clerk Dashboard → **Webhooks** → **Add Endpoint**
 2. URL: `<your-public-app-url>/api/webhooks/clerk`

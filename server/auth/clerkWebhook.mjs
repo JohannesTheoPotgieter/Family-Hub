@@ -28,42 +28,50 @@ const pickDisplayName = (clerkUser) => {
 };
 
 /**
- * @param {object} clerkUser - the `data` field from a Clerk webhook event.
+ * Idempotently provision a family + parent_admin member + family thread +
+ * default task lists for a Clerk user. Called from two places:
+ *
+ *   1. The user.created webhook (the production / "right" path).
+ *   2. The /api/me request flow (the fallback path that handles
+ *      webhook-not-configured-yet, webhook-races-the-first-request, and
+ *      Replit-dev where Clerk can't reach the dev URL).
+ *
+ * No-op if a `family_members` row already exists for `userId`.
+ *
+ * @param {{ userId: string, displayName: string, source: string }} args
  */
-export const handleClerkUserCreated = async (clerkUser) => {
-  if (!clerkUser?.id) throw new Error('clerk webhook missing user id');
+export const provisionFamily = async ({ userId, displayName, source }) => {
+  if (!userId) throw new Error('userId required');
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Idempotency: if a member already exists for this user, no-op.
     const { rows: existing } = await client.query(
-      'SELECT id FROM family_members WHERE user_id = $1 LIMIT 1',
-      [clerkUser.id]
+      'SELECT family_id FROM family_members WHERE user_id = $1 LIMIT 1',
+      [userId]
     );
     if (existing.length) {
       await client.query('COMMIT');
-      return;
+      return { familyId: existing[0].family_id, created: false };
     }
 
-    const displayName = pickDisplayName(clerkUser);
+    const name = displayName?.trim() || 'New member';
 
     const { rows: families } = await client.query(
       `INSERT INTO families (name, owner_user_id, locale, tax_year_start_month, plan, trial_ends_at)
        VALUES ($1, $2, 'GLOBAL', 1, 'free', now() + interval '14 days')
        RETURNING id`,
-      [`${displayName}'s family`, clerkUser.id]
+      [`${name}'s family`, userId]
     );
     const familyId = families[0].id;
 
     await client.query(
       `INSERT INTO family_members (family_id, user_id, display_name, role_key, status)
        VALUES ($1, $2, $3, 'parent_admin', 'active')`,
-      [familyId, clerkUser.id, displayName]
+      [familyId, userId, name]
     );
 
-    // Seed the always-on family thread for connective chat.
     await client.query(
       `INSERT INTO threads (family_id, kind, e2e_encrypted)
        VALUES ($1, 'family', true)`,
@@ -73,18 +81,31 @@ export const handleClerkUserCreated = async (clerkUser) => {
     await client.query(
       `INSERT INTO audit_log (family_id, action, entity_kind, diff)
        VALUES ($1, 'family.created', 'family', $2::jsonb)`,
-      [familyId, JSON.stringify({ source: 'clerk_webhook', userId: clerkUser.id })]
+      [familyId, JSON.stringify({ source, userId })]
     );
 
     await client.query('COMMIT');
 
-    // Seed default task lists in a separate transaction. Non-fatal — a
-    // re-run of family.created.audit logic isn't required if this fails.
+    // Seed default task lists in a separate transaction. Non-fatal.
     await seedDefaultTaskLists(familyId).catch(() => {});
+
+    return { familyId, created: true };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     client.release();
   }
+};
+
+/**
+ * @param {object} clerkUser - the `data` field from a Clerk webhook event.
+ */
+export const handleClerkUserCreated = async (clerkUser) => {
+  if (!clerkUser?.id) throw new Error('clerk webhook missing user id');
+  return provisionFamily({
+    userId: clerkUser.id,
+    displayName: pickDisplayName(clerkUser),
+    source: 'clerk_webhook'
+  });
 };

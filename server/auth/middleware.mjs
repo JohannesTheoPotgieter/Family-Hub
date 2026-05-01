@@ -13,8 +13,9 @@
 // async helpers that take/return a `RequestContext` so they're trivial to
 // test and reuse.
 
-import { verifyRequestSession } from './clerk.mjs';
+import { fetchClerkUser, verifyRequestSession } from './clerk.mjs';
 import { memberHasPermission } from './permissions.mjs';
+import { provisionFamily } from './clerkWebhook.mjs';
 import { getPool, isPoolConfigured } from '../db/pool.mjs';
 
 /**
@@ -53,13 +54,33 @@ export const resolveRequestContext = async (req) => {
   // The `app_admin` role bypasses RLS; a stricter setup would temporarily
   // SET LOCAL ROLE. For now assume the connection is the trusted app role
   // configured per docs/phase-0-runbook.md.
-  const { rows } = await pool.query(
-    `SELECT id, family_id, role_key, display_name
-       FROM family_members
-      WHERE user_id = $1 AND status = 'active'
-      LIMIT 1`,
-    [session.userId]
-  );
+  const memberQuery = `
+    SELECT id, family_id, role_key, display_name
+      FROM family_members
+     WHERE user_id = $1 AND status = 'active'
+     LIMIT 1`;
+  let { rows } = await pool.query(memberQuery, [session.userId]);
+
+  // Auto-provision fallback: the Clerk webhook is the production path, but
+  // it may race the first /api/me request, may not be configured at all
+  // (Replit dev / localhost), or may have been disabled. If we have a
+  // valid Clerk session but no family_member row, seed one inline using
+  // the same provisionFamily helper the webhook uses. Idempotent.
+  if (!rows.length) {
+    try {
+      const clerkUser = await fetchClerkUser(session.userId).catch(() => null);
+      const displayName =
+        clerkUser?.firstName || clerkUser?.first_name || session.primaryEmail || 'New member';
+      await provisionFamily({
+        userId: session.userId,
+        displayName,
+        source: 'request_fallback'
+      });
+      ({ rows } = await pool.query(memberQuery, [session.userId]));
+    } catch {
+      // Fall through; return null so the caller responds 401 / 503.
+    }
+  }
   if (!rows.length) return null;
   const member = rows[0];
   return {
