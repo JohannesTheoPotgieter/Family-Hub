@@ -155,6 +155,18 @@ test('completion: non-recurring tasks are marked done and credit points', skip, 
 
     const total = await completion.getMemberPoints({ familyId, memberId: liamId });
     assert.equal(total, 3);
+
+    // Repeat completion is an idempotent no-op — no double points.
+    const again = await completion.completeTask({
+      familyId,
+      actorMemberId: liamId,
+      taskId: task.id
+    });
+    assert.equal(again.alreadyCompleted, true);
+    assert.equal(again.pointsAwarded, 0);
+    assert.equal(again.task.completionCount, 1);
+    const totalAfter = await completion.getMemberPoints({ familyId, memberId: liamId });
+    assert.equal(totalAfter, 3);
   } finally {
     await cleanup(pool, familyId);
     await closePool();

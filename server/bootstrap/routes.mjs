@@ -272,7 +272,10 @@ export const createRouteHandler = ({
 
   if (url.pathname === '/api/invites' && req.method === 'POST') {
     const ctx = await resolveRequestContext(req);
-    requirePermissionOrFail(ctx, 'pin_manage');
+    // member_invite is adult-only. (This was previously gated on
+    // pin_manage, which kids hold — a child account could invite a new
+    // adult_editor into the family.)
+    requirePermissionOrFail(ctx, 'member_invite');
     const body = await readJsonBody(req);
     const invite = await createInvite({
       familyId: ctx.member.familyId,
@@ -496,10 +499,7 @@ export const createRouteHandler = ({
 
   if (url.pathname.startsWith('/api/v2/tasks/') && url.pathname.endsWith('/complete') && req.method === 'POST') {
     const ctx = await resolveRequestContext(req);
-    if (!ctx) {
-      sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
-      return;
-    }
+    requirePermissionOrFail(ctx, 'task_edit');
     const segments = url.pathname.split('/');
     const taskId = decodeURIComponent(segments[segments.length - 2] ?? '');
     const result = await completeTask({

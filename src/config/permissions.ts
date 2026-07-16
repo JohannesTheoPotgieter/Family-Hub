@@ -10,6 +10,7 @@ export type PermissionKey =
   | 'task_assign'
   | 'places_edit'
   | 'pin_manage'
+  | 'member_invite'
   | 'setup_restart'
   | 'data_export'
   | 'data_reset'
@@ -33,13 +34,13 @@ const roleMap: Record<LegacyRole, FamilyRole> = {
 const rolePermissions: Record<FamilyRole, PermissionKey[]> = {
   parent_admin: [
     'money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign',
-    'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset',
+    'places_edit', 'pin_manage', 'member_invite', 'setup_restart', 'data_export', 'data_reset',
     'proposal_create_event', 'proposal_create_task', 'proposal_create_money',
     'proposal_approve_event', 'proposal_approve_task', 'proposal_approve_money', 'proposal_approve_member'
   ],
   adult_editor: [
     'money_view', 'money_edit', 'calendar_connect', 'calendar_edit', 'task_edit', 'task_assign',
-    'places_edit', 'pin_manage', 'setup_restart', 'data_export', 'data_reset',
+    'places_edit', 'pin_manage', 'member_invite', 'setup_restart', 'data_export', 'data_reset',
     'proposal_create_event', 'proposal_create_task', 'proposal_create_money',
     'proposal_approve_event', 'proposal_approve_task', 'proposal_approve_money'
   ],
