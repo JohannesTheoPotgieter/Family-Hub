@@ -79,3 +79,17 @@ export const startFxWorker = ({ logger = console } = {}) => {
   });
   return worker;
 };
+
+// Standalone worker entry point, matching syncWorker.mjs and
+// decisionsDigest.mjs: `node server/money/jobs.mjs`. Without this block the
+// net-worth and FX schedules could never actually run.
+const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  ensureNetWorthSchedule().catch(() => {});
+  ensureFxSchedule().catch(() => {});
+  const workers = [startNetWorthWorker(), startFxWorker()].filter(Boolean);
+  if (!workers.length) process.exit(0);
+  const shutdown = () => Promise.all(workers.map((worker) => worker.close()));
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
