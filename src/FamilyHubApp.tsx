@@ -126,6 +126,7 @@ const AppInner = () => {
               externalEvents={state.calendar.externalEvents}
               tasks={state.tasks.items}
               auditLog={state.auditLog}
+              familyMode={state.settings.familyMode}
               onCareAction={controller.onCareAction}
               onChangePin={controller.changePin}
               onAddPlace={controller.addPlace}
