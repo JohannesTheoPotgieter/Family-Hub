@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { UserId } from '../../lib/family-hub/constants';
 import type { AuditEntry, Bill, FamilyHubState, TaskItem } from '../../lib/family-hub/storage';
 import { formatCurrencyZAR, getMonthIncomeTotal, getMonthSpendingTotal, getNetBalance, getSafeToSpend } from '../../lib/family-hub/money';
-import { getTodayIso } from '../../lib/family-hub/date';
+import { getTodayIso, parseLocalDateIso, toLocalDateIso } from '../../lib/family-hub/date';
 import { buildHomeInsights } from '../../lib/family-hub/homeInsights';
 import { DecisionInbox } from './DecisionInbox';
 
@@ -71,9 +71,9 @@ const getTodayLabel = () =>
 
 const getDueSoonBills = (state: FamilyHubState) => {
   const todayIso = getTodayIso();
-  const endDate = new Date(`${todayIso}T12:00:00`);
+  const endDate = parseLocalDateIso(todayIso);
   endDate.setDate(endDate.getDate() + 7);
-  const endIso = endDate.toISOString().slice(0, 10);
+  const endIso = toLocalDateIso(endDate);
   return state.money.bills.filter((bill) => !bill.paid && bill.dueDateIso >= todayIso && bill.dueDateIso <= endIso);
 };
 

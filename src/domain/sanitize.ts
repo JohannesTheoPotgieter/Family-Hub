@@ -141,6 +141,13 @@ export const sanitizeAvatar = (
     : fallback.inventory
 });
 
+// Local calendar day, not toISOString()'s UTC day (off by one east of UTC).
+const todayLocalIso = () => {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
 export const sanitizeMoneyState = (
   rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }
 ): MoneyState => {
@@ -156,7 +163,7 @@ export const sanitizeMoneyState = (
             ? payment.dueDateIso
             : typeof payment.dueDate === 'string'
               ? payment.dueDate
-              : new Date().toISOString().slice(0, 10),
+              : todayLocalIso(),
         category: typeof payment.category === 'string' ? payment.category : 'Other',
         paid: Boolean(payment.paid),
         paidDateIso:
@@ -183,7 +190,7 @@ export const sanitizeMoneyState = (
             ? tx.dateIso
             : typeof tx.date === 'string'
               ? tx.date
-              : new Date().toISOString().slice(0, 10),
+              : todayLocalIso(),
         kind: (tx.kind === 'inflow' ? 'inflow' : 'outflow') as 'inflow' | 'outflow',
         category: typeof tx.category === 'string' ? tx.category : 'Other',
         notes: typeof tx.notes === 'string' ? tx.notes : undefined,

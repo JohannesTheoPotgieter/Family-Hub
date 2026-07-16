@@ -15,11 +15,14 @@ import { useState } from 'react';
 import { useSession } from '../../lib/auth/SessionProvider.tsx';
 import { useInbox } from '../../hooks/useInbox.ts';
 import { decideOnProposal, type InboxProposal } from '../../lib/api/inbox.ts';
+import { getTodayIso, toLocalDateIso } from '../../lib/family-hub/date.ts';
 
 const formatRelative = (iso: string | null) => {
   if (!iso) return 'no due date';
-  const day = iso.slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
+  // Timestamps convert to the viewer's local day; date-only strings are
+  // already local days and must not round-trip through UTC.
+  const day = iso.length > 10 ? toLocalDateIso(new Date(iso)) : iso;
+  const today = getTodayIso();
   if (day === today) return 'today';
   if (day < today) return 'overdue';
   return new Date(iso).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });

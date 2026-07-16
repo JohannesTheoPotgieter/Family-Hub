@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MyChoresPanel } from './MyChoresPanel';
 import { USERS, type UserId } from '../../lib/family-hub/constants';
+import { parseLocalDateIso } from '../../lib/family-hub/date';
 import type { TaskItem } from '../../lib/family-hub/storage';
 import type { AvatarGameState } from '../../domain/avatarTypes.ts';
 import { ScreenIntro } from './BaselineScaffold';
@@ -39,7 +40,7 @@ const startOfDay = (date: Date) => {
 
 const labelForTask = (task: TaskItem) => {
   if (!task.dueDate) return 'No date';
-  const due = startOfDay(new Date(task.dueDate));
+  const due = parseLocalDateIso(task.dueDate);
   const today = startOfDay(new Date());
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
@@ -52,7 +53,7 @@ const belongsToGroup = (task: TaskItem, group: GroupKey) => {
   if (group === 'done') return task.completed;
   if (task.completed) return false;
   if (!task.dueDate) return group === 'waiting';
-  const due = startOfDay(new Date(task.dueDate));
+  const due = parseLocalDateIso(task.dueDate);
   const today = startOfDay(new Date());
   if (group === 'overdue') return due < today;
   if (group === 'today') return due.getTime() === today.getTime();

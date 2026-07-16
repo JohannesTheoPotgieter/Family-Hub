@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { formatCurrency } from '../../lib/family-hub/format';
+import { parseAmountInput } from '../../lib/family-hub/money';
 import type { User } from '../../lib/family-hub/constants';
 import type { UserSetupProfile } from '../../lib/family-hub/storage';
 
@@ -27,7 +28,7 @@ type InputRow = {
 };
 
 const createRow = () => ({ id: crypto.randomUUID(), label: '', value: '' });
-const parseMoney = (value: string) => Number.parseFloat(value.replace(',', '.'));
+const parseMoney = (value: string) => parseAmountInput(value) ?? Number.NaN;
 
 const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'] as const;
 

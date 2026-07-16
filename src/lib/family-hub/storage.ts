@@ -199,7 +199,8 @@ const SETUP_IMPORT_NOTE = 'Imported from setup wizard';
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 const getMonthEndIso = (monthIsoYYYYMM: string) => {
   const [year, month] = monthIsoYYYYMM.split('-').map(Number);
-  return new Date(year, month, 0).toISOString().slice(0, 10);
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${monthIsoYYYYMM}-${String(lastDay).padStart(2, '0')}`;
 };
 
 export const seedMoneyFromSetupProfiles = (

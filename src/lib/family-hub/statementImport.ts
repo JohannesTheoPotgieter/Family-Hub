@@ -1,4 +1,5 @@
 import type { MoneyTransaction } from './storage';
+import { toLocalDateIso } from './date.ts';
 
 export type StatementFormat = 'csv' | 'tsv' | 'ofx';
 export type StatementMappingConfidence = 'high' | 'medium' | 'low';
@@ -355,13 +356,13 @@ const parseDateCell = (value: string) => {
   if (verbose) {
     const parsed = new Date(`${verbose[1]} ${verbose[2]} ${verbose[3]} 00:00:00`);
     if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString().slice(0, 10);
+      return toLocalDateIso(parsed);
     }
   }
 
   const fallback = new Date(trimmed);
   if (Number.isNaN(fallback.getTime())) return null;
-  return fallback.toISOString().slice(0, 10);
+  return toLocalDateIso(fallback);
 };
 
 const normalizeNumberText = (value: string) => {
@@ -501,7 +502,8 @@ const bestExistingCategoryMatch = (
 
 const chooseAvailableCategory = (desired: string, availableCategories: string[]) => {
   if (!availableCategories.length) return desired;
-  return availableCategories.includes(desired) ? desired : desired;
+  if (availableCategories.includes(desired)) return desired;
+  return availableCategories.includes('Other') ? 'Other' : availableCategories[0];
 };
 
 const inferCategory = (

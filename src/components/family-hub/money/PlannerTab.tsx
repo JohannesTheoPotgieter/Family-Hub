@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { formatCurrencyZAR } from '../../../lib/family-hub/money';
+import { formatCurrencyZAR, parseAmountInput } from '../../../lib/family-hub/money';
 import { buildRollingPlannerSummary, getLineItemAmount, getPlannerCategories } from '../../../lib/family-hub/planner';
 import { seedPlannerFromBills, type MoneyState, type PlannerLineItem } from '../../../lib/family-hub/storage';
 
@@ -14,10 +14,34 @@ type Props = {
 };
 
 const fromInputToCents = (value: string) => {
-  const parsed = Number(value.replace(/,/g, ''));
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+  const parsed = parseAmountInput(value);
+  return parsed === null ? null : Math.round(parsed * 100);
 };
 const fromCents = (cents: number) => String((cents / 100).toFixed(2));
+
+// Cents-backed amount input. Keeps the raw string local while focused so a
+// keystroke like "1500." isn't re-formatted (or zeroed) mid-typing by the
+// cents round-trip; commits on blur and reverts unparseable input.
+const CentsInput = ({ cents, onCommit, disabled, className }: { cents: number; onCommit: (next: number) => void; disabled?: boolean; className?: string }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      className={className}
+      value={draft ?? fromCents(cents)}
+      onFocus={() => setDraft(fromCents(cents))}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== null) {
+          const next = fromInputToCents(draft);
+          if (next !== null && next !== cents) onCommit(next);
+        }
+        setDraft(null);
+      }}
+      inputMode="decimal"
+      disabled={disabled}
+    />
+  );
+};
 const monthLabel = (monthIso: string) => {
   const [year, month] = monthIso.split('-').map(Number);
   return new Intl.DateTimeFormat('en-ZA', { month: 'short', year: 'numeric' }).format(new Date(year, month - 1, 1));
@@ -56,10 +80,9 @@ export const PlannerTab = ({ money, canEdit, onAddItem, onUpdateItem, onDeleteIt
       <article className="money-editor stack-sm">
         <label className="task-field">
           <span>Opening Account Balance</span>
-          <input
-            value={fromCents(money.plannerOpeningBalance)}
-            onChange={(event) => onSetOpeningBalance(fromInputToCents(event.target.value))}
-            inputMode="decimal"
+          <CentsInput
+            cents={money.plannerOpeningBalance}
+            onCommit={onSetOpeningBalance}
             disabled={!canEdit}
           />
         </label>
@@ -124,7 +147,7 @@ export const PlannerTab = ({ money, canEdit, onAddItem, onUpdateItem, onDeleteIt
                       <label className="task-shared-toggle"><input type="checkbox" checked={item.isFixed} onChange={(event) => onUpdateItem(item.id, { isFixed: event.target.checked })} disabled={!canEdit} />Fixed</label>
                       <label className="task-shared-toggle"><input type="checkbox" checked={item.isActive} onChange={(event) => onUpdateItem(item.id, { isActive: event.target.checked })} disabled={!canEdit} />Active</label>
                     </div>
-                    <input value={fromCents(item.defaultAmountCents)} onChange={(event) => onUpdateItem(item.id, { defaultAmountCents: fromInputToCents(event.target.value) })} inputMode="decimal" disabled={!canEdit} />
+                    <CentsInput cents={item.defaultAmountCents} onCommit={(next) => onUpdateItem(item.id, { defaultAmountCents: next })} disabled={!canEdit} />
                     <div className="planner-override-grid">
                       {months.map((month) => {
                         const value = item.monthlyOverrides[month] ?? item.defaultAmountCents;
@@ -132,17 +155,15 @@ export const PlannerTab = ({ money, canEdit, onAddItem, onUpdateItem, onDeleteIt
                         return (
                           <label key={month} className="stack-sm" style={{ gap: 4 }}>
                             <span className="muted" style={{ fontSize: '0.72rem' }}>{month.slice(5)}</span>
-                            <input
+                            <CentsInput
                               className={`planner-month-input ${isOverride ? 'is-override' : ''}`}
-                              value={fromCents(value)}
-                              onChange={(event) => {
-                                const nextValue = fromInputToCents(event.target.value);
+                              cents={value}
+                              onCommit={(nextValue) => {
                                 const nextOverrides = { ...item.monthlyOverrides };
                                 if (nextValue === item.defaultAmountCents) delete nextOverrides[month];
                                 else nextOverrides[month] = nextValue;
                                 onUpdateItem(item.id, { monthlyOverrides: nextOverrides });
                               }}
-                              inputMode="decimal"
                               disabled={!canEdit}
                             />
                           </label>
@@ -171,7 +192,7 @@ export const PlannerTab = ({ money, canEdit, onAddItem, onUpdateItem, onDeleteIt
             </div>
             <div className="money-action-row">
               <button className="btn btn-primary" onClick={() => {
-                onAddItem({ description: composer.description, category: composer.category || (kindTab === 'income' ? 'Income' : 'Expenses'), kind: kindTab, isFixed: composer.isFixed, monthlyOverrides: {}, defaultAmountCents: fromInputToCents(composer.amount), isActive: true });
+                onAddItem({ description: composer.description, category: composer.category || (kindTab === 'income' ? 'Income' : 'Expenses'), kind: kindTab, isFixed: composer.isFixed, monthlyOverrides: {}, defaultAmountCents: fromInputToCents(composer.amount) ?? 0, isActive: true });
                 setComposerOpen(false);
                 setComposer({ description: '', category: kindTab === 'income' ? 'Income' : 'Housing', isFixed: true, amount: '' });
               }} disabled={!canEdit || !composer.description.trim()}>Save</button>
