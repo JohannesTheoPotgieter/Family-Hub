@@ -369,14 +369,17 @@ export type ApplyResult =
   | { ok: true; diff: EntityDiff }
   | { ok: false; errors: ValidationError[] };
 
-export const applyProposal = (proposal: Proposal): ApplyResult => {
+export const applyProposal = (
+  proposal: Proposal,
+  nowIso: string = new Date().toISOString()
+): ApplyResult => {
   if (!isApprovalComplete(proposal)) {
     return { ok: false, errors: [err('approval_incomplete', 'Proposal does not have all required approvals yet.')] };
   }
   if (proposal.status !== 'open') {
     return { ok: false, errors: [err('not_open', `Proposal status is ${proposal.status}, not open.`)] };
   }
-  if (Date.now() > Date.parse(proposal.expiresAtIso)) {
+  if (Date.parse(nowIso) > Date.parse(proposal.expiresAtIso)) {
     return { ok: false, errors: [err('expired', 'Proposal has expired.')] };
   }
 

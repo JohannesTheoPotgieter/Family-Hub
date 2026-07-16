@@ -155,6 +155,10 @@ test('event_move with end before start fails validation', () => {
 
 // --- applyProposal -------------------------------------------------------
 
+// Fixed "now" inside the fixtures' validity window so tests stay
+// deterministic instead of expiring in real time.
+const NOW_ISO = '2026-04-28T09:00:00Z';
+
 test('applyProposal refuses to apply an incomplete proposal', () => {
   const change = {
     kind: 'event_move',
@@ -162,7 +166,7 @@ test('applyProposal refuses to apply an incomplete proposal', () => {
     newEndIso: '2026-05-02T11:00:00Z'
   };
   const proposal = buildProposal(change, mom, ['dad']); // dad still pending
-  const result = applyProposal(proposal);
+  const result = applyProposal(proposal, NOW_ISO);
   assert.equal(result.ok, false);
   assert.equal(result.errors[0].code, 'approval_incomplete');
 });
@@ -174,7 +178,7 @@ test('applyProposal produces an event_update diff once approved', () => {
     newEndIso: '2026-05-02T11:00:00Z'
   };
   const proposal = buildProposal(change, mom, ['dad'], { dad: 'agree' });
-  const result = applyProposal(proposal);
+  const result = applyProposal(proposal, NOW_ISO);
   assert.equal(result.ok, true);
   assert.equal(result.diff.kind, 'event_update');
   assert.equal(result.diff.patch.startsAt, '2026-05-02T10:00:00Z');
@@ -190,7 +194,7 @@ test('applyProposal turns budget_category_shift into a budget_shift diff', () =>
     currency: 'ZAR'
   };
   const proposal = buildProposal(change, mom, ['dad'], { dad: 'agree' });
-  const result = applyProposal(proposal);
+  const result = applyProposal(proposal, NOW_ISO);
   assert.equal(result.ok, true);
   assert.equal(result.diff.kind, 'budget_shift');
   assert.equal(result.diff.amountCents, 50000);
@@ -202,7 +206,7 @@ test('applyProposal refuses an expired proposal even if fully approved', () => {
     ...buildProposal(change, mom, ['dad'], { dad: 'agree' }),
     expiresAtIso: '2020-01-01T00:00:00Z'
   };
-  const result = applyProposal(proposal);
+  const result = applyProposal(proposal, NOW_ISO);
   assert.equal(result.ok, false);
   assert.equal(result.errors[0].code, 'expired');
 });
