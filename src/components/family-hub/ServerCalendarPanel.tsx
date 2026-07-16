@@ -67,11 +67,20 @@ export const ServerCalendarPanel = () => {
     return <PanelShell tone="ok">No events in the next two weeks.</PanelShell>;
   }
 
+  // datetime-local inputs hold LOCAL wall time; slicing the UTC ISO string
+  // would prefill UTC wall time, silently shifting the event by the user's
+  // UTC offset on submit even when nothing was edited.
+  const toDatetimeLocal = (iso: string) => {
+    const date = new Date(iso);
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
   const onProposeMove = async (event: EventRow) => {
     setMoveForm({
       eventId: event.id,
-      newStartIso: event.start.iso.slice(0, 16),
-      newEndIso: event.end.iso.slice(0, 16)
+      newStartIso: toDatetimeLocal(event.start.iso),
+      newEndIso: toDatetimeLocal(event.end.iso)
     });
     setFeedback(null);
   };

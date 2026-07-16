@@ -1,4 +1,5 @@
-import type { NormalizedEvent } from '../../domain/calendar';
+import type { NormalizedEvent } from '../../domain/calendar.ts';
+import { zonedDateTimeToIso } from '../../domain/calendar.ts';
 
 type ParsedLine = {
   name: string;
@@ -21,7 +22,8 @@ const parseIcsValueLine = (line: string): ParsedLine => {
     params: Object.fromEntries(
       params.map((part) => {
         const [key, rawValue = ''] = part.split('=');
-        return [key.toUpperCase(), rawValue.toUpperCase()];
+        // Preserve the value's case: TZID values are IANA zone ids.
+        return [key.toUpperCase(), rawValue];
       })
     ),
     value
@@ -29,7 +31,7 @@ const parseIcsValueLine = (line: string): ParsedLine => {
 };
 
 const parseIcsDate = (value: string, params: Record<string, string>): ParsedDate => {
-  const isAllDay = params.VALUE === 'DATE' || /^\d{8}$/.test(value);
+  const isAllDay = params.VALUE?.toUpperCase() === 'DATE' || /^\d{8}$/.test(value);
   if (isAllDay) {
     const year = Number(value.slice(0, 4));
     const month = Number(value.slice(4, 6));
@@ -44,10 +46,18 @@ const parseIcsDate = (value: string, params: Record<string, string>): ParsedDate
   const hour = Number(raw.slice(9, 11));
   const minute = Number(raw.slice(11, 13));
   const second = Number(raw.slice(13, 15) || '0');
-  const date = value.endsWith('Z')
-    ? new Date(Date.UTC(year, month - 1, day, hour, minute, second))
-    : new Date(year, month - 1, day, hour, minute, second);
-  return { iso: date.toISOString(), allDay: false };
+  if (value.endsWith('Z')) {
+    return { iso: new Date(Date.UTC(year, month - 1, day, hour, minute, second)).toISOString(), allDay: false };
+  }
+  if (params.TZID) {
+    // A TZID-anchored wall time (e.g. Europe/London) — resolve it in that
+    // zone instead of silently reading it as the viewer's local time.
+    const pad = (part: number) => String(part).padStart(2, '0');
+    const wall = `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:${pad(second)}`;
+    return { iso: zonedDateTimeToIso(wall, params.TZID), allDay: false };
+  }
+  // Floating time: RFC 5545 says viewer-local.
+  return { iso: new Date(year, month - 1, day, hour, minute, second).toISOString(), allDay: false };
 };
 
 export const parseIcsText = (content: string, calendarId: string, timeMin: string, timeMax: string): NormalizedEvent[] => {
@@ -66,12 +76,27 @@ export const parseIcsText = (content: string, calendarId: string, timeMin: strin
     end?: ParsedDate;
     url?: string;
   } | null = null;
+  // Depth of nested components (VALARM etc.) inside the current VEVENT.
+  // Their properties (an alarm's DESCRIPTION/SUMMARY/DTSTART) must not
+  // clobber the parent event's fields.
+  let nestedDepth = 0;
 
   for (const line of lines) {
     if (line === 'BEGIN:VEVENT') {
       current = {};
+      nestedDepth = 0;
       continue;
     }
+
+    if (current && line.startsWith('BEGIN:')) {
+      nestedDepth += 1;
+      continue;
+    }
+    if (current && nestedDepth > 0 && line.startsWith('END:') && line !== 'END:VEVENT') {
+      nestedDepth -= 1;
+      continue;
+    }
+    if (current && nestedDepth > 0 && line !== 'END:VEVENT') continue;
 
     if (line === 'END:VEVENT') {
       if (current?.start) {
@@ -92,6 +117,7 @@ export const parseIcsText = (content: string, calendarId: string, timeMin: strin
         }
       }
       current = null;
+      nestedDepth = 0;
       continue;
     }
 

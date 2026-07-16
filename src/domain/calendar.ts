@@ -30,19 +30,75 @@ export const toDedupeKey = (event: Pick<NormalizedEvent, 'provider' | 'calendarI
 
 export const normalizeDateTime = (value: string | Date) => new Date(value).toISOString();
 
+const hasExplicitOffset = (value: string) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value.trim());
+
+// Minutes the given IANA zone is ahead of UTC at `date`.
+const zoneOffsetMs = (date: Date, timeZone: string) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).formatToParts(date).map((part) => [part.type, part.value])
+  );
+  const asUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
+  );
+  return asUtc - date.getTime();
+};
+
+// Graph (and CalDAV TZID values) send wall-clock datetimes with the zone in
+// a separate field. `new Date(value)` would read them in the VIEWER's local
+// zone, shifting every event by the viewer's UTC offset. Resolve the wall
+// time against the stated zone instead; unknown zones fall back to UTC —
+// Graph's default response zone — rather than the viewer's.
+export const zonedDateTimeToIso = (value: string | Date, timeZone?: string) => {
+  if (value instanceof Date) return value.toISOString();
+  if (!timeZone || hasExplicitOffset(value)) return new Date(value).toISOString();
+  const wallAsUtc = new Date(`${value}Z`);
+  if (Number.isNaN(wallAsUtc.getTime())) return new Date(value).toISOString();
+  if (timeZone === 'UTC') return wallAsUtc.toISOString();
+  try {
+    // Two passes so a DST transition between the guess and the real instant
+    // resolves to the correct offset.
+    const first = new Date(wallAsUtc.getTime() - zoneOffsetMs(wallAsUtc, timeZone));
+    return new Date(wallAsUtc.getTime() - zoneOffsetMs(first, timeZone)).toISOString();
+  } catch {
+    return wallAsUtc.toISOString();
+  }
+};
+
 const localNoonFromDateOnly = (dateOnly: string) => {
   const [y, m, d] = dateOnly.split('-').map(Number);
   return new Date(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0).toISOString();
 };
 
-export const normalizeAllDayRange = (startDate: string, endDate?: string) => ({
-  start: { iso: localNoonFromDateOnly(startDate), allDay: true },
-  end: { iso: localNoonFromDateOnly(endDate ?? startDate), allDay: true }
-});
+const previousDay = (dateOnly: string) => {
+  const [y, m, d] = dateOnly.split('-').map(Number);
+  const date = new Date(y, (m ?? 1) - 1, (d ?? 1) - 1);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+export const normalizeAllDayRange = (startDate: string, endDate?: string, endExclusive = false) => {
+  // Google and Microsoft report all-day ends EXCLUSIVE (a one-day event on
+  // the 16th ends on the 17th); rendering that verbatim spans an extra day.
+  let effectiveEnd = endDate ?? startDate;
+  if (endExclusive && endDate) {
+    const inclusive = previousDay(endDate);
+    effectiveEnd = inclusive >= startDate ? inclusive : startDate;
+  }
+  return {
+    start: { iso: localNoonFromDateOnly(startDate), allDay: true },
+    end: { iso: localNoonFromDateOnly(effectiveEnd), allDay: true }
+  };
+};
 
 export const normalizeGoogleEvent = (event: any, calendarId: string): NormalizedEvent => {
   const isAllDay = Boolean(event.start?.date);
-  const allDay = isAllDay ? normalizeAllDayRange(event.start.date, event.end?.date) : undefined;
+  const allDay = isAllDay ? normalizeAllDayRange(event.start.date, event.end?.date, true) : undefined;
 
   return {
     id: event.id,
@@ -64,6 +120,9 @@ export const normalizeMicrosoftEvent = (event: any, calendarId: string): Normali
   const isAllDay = Boolean(event.isAllDay);
   const startValue = event.start?.dateTime ?? event.start?.date;
   const endValue = event.end?.dateTime ?? event.end?.date ?? startValue;
+  const allDay = isAllDay
+    ? normalizeAllDayRange(startValue.slice(0, 10), endValue?.slice(0, 10), true)
+    : undefined;
 
   return {
     id: event.id,
@@ -72,8 +131,10 @@ export const normalizeMicrosoftEvent = (event: any, calendarId: string): Normali
     title: event.subject ?? 'Untitled event',
     description: event.bodyPreview,
     location: event.location?.displayName,
-    start: isAllDay ? normalizeAllDayRange(startValue.slice(0, 10)).start : { iso: normalizeDateTime(startValue), allDay: false },
-    end: isAllDay ? normalizeAllDayRange(endValue.slice(0, 10)).end : { iso: normalizeDateTime(endValue), allDay: false },
+    // Graph sends offset-less wall times zoned by the separate timeZone
+    // field (UTC unless a Prefer header asks otherwise).
+    start: isAllDay ? allDay!.start : { iso: zonedDateTimeToIso(startValue, event.start?.timeZone ?? 'UTC'), allDay: false },
+    end: isAllDay ? allDay!.end : { iso: zonedDateTimeToIso(endValue, event.end?.timeZone ?? 'UTC'), allDay: false },
     organizer: event.organizer?.emailAddress?.address,
     url: event.webLink,
     updatedAtIso: event.lastModifiedDateTime,
@@ -93,6 +154,15 @@ export const normalizeMicrosoftEvent = (event: any, calendarId: string): Normali
 // scope for Phase 1.
 
 const dateOnlyFromIso = (iso: string) => iso.slice(0, 10);
+
+// Normalized all-day ends are INCLUSIVE; Google/Microsoft expect them
+// exclusive, so writes must push the end forward a day again.
+const nextDayFromIso = (iso: string) => {
+  const [y, m, d] = dateOnlyFromIso(iso).split('-').map(Number);
+  const date = new Date(y, (m ?? 1) - 1, (d ?? 1) + 1);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
 
 export type SerializedGoogleEvent = {
   id?: string;
@@ -114,7 +184,7 @@ export const serializeGoogleEvent = (event: NormalizedEvent): SerializedGoogleEv
     description: event.description,
     location: event.location,
     start: allDay ? { date: dateOnlyFromIso(event.start.iso) } : { dateTime: event.start.iso },
-    end: allDay ? { date: dateOnlyFromIso(event.end.iso) } : { dateTime: event.end.iso }
+    end: allDay ? { date: nextDayFromIso(event.end.iso) } : { dateTime: event.end.iso }
   };
 };
 
@@ -139,7 +209,7 @@ export const serializeMicrosoftEvent = (event: NormalizedEvent): SerializedMicro
     location: event.location ? { displayName: event.location } : undefined,
     isAllDay: allDay,
     start: { dateTime: allDay ? dateOnlyFromIso(event.start.iso) : event.start.iso, timeZone: tz },
-    end: { dateTime: allDay ? dateOnlyFromIso(event.end.iso) : event.end.iso, timeZone: tz }
+    end: { dateTime: allDay ? nextDayFromIso(event.end.iso) : event.end.iso, timeZone: tz }
   };
 };
 

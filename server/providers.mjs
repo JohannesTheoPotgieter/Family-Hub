@@ -1,15 +1,6 @@
 import { normalizeGoogleEvent, normalizeMicrosoftEvent } from '../src/domain/calendar.ts';
 import { createHttpError } from './security.mjs';
 
-const localNoonFromDateOnly = (dateOnly) => {
-  const [year, month, day] = dateOnly.split('-').map(Number);
-  return new Date(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0).toISOString();
-};
-const normalizeAllDayRange = (startDate, endDate) => ({
-  start: { iso: localNoonFromDateOnly(startDate), allDay: true },
-  end: { iso: localNoonFromDateOnly(endDate ?? startDate), allDay: true }
-});
-
 export const createProviderService = ({ providerConfig, providerLabel, storage }) => {
   const requireProviderConfig = (provider) => {
     const config = providerConfig[provider];
