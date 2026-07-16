@@ -148,7 +148,7 @@ test('goal_create: applies as a new savings_goals row', skip, async () => {
   }
 });
 
-test('debt_acceleration: bumps min_payment_cents on the debt row', skip, async () => {
+test('debt_acceleration: sets monthly_extra_cents without touching the minimum', skip, async () => {
   const { getPool, closePool, engine, ROLE_PERMISSIONS } = await importModules();
   const pool = getPool();
   const { familyId, momId, dadId } = await seedFamily(pool);
@@ -184,11 +184,14 @@ test('debt_acceleration: bumps min_payment_cents on the debt row', skip, async (
       actorPermissions: ROLE_PERMISSIONS.adult_editor
     });
     const { rows } = await pool.query(
-      `SELECT min_payment_cents FROM debts WHERE id = $1`,
+      `SELECT min_payment_cents, monthly_extra_cents FROM debts WHERE id = $1`,
       [debtId]
     );
-    // Original 500_000 + extra 50_000 = 550_000 cents.
-    assert.equal(Number(rows[0].min_payment_cents), 550_000);
+    // SET semantics: the minimum is untouched and the extra lands in its
+    // own column, so a re-proposed acceleration replaces rather than
+    // compounds.
+    assert.equal(Number(rows[0].min_payment_cents), 500_000);
+    assert.equal(Number(rows[0].monthly_extra_cents), 50_000);
   } finally {
     await cleanup(pool, familyId);
     await closePool();

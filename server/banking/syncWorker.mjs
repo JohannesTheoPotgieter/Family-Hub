@@ -102,12 +102,17 @@ const applyPage = async ({ client, familyId, accountId, page }) => {
   let inserted = 0;
   for (const tx of page.transactions ?? []) {
     if (!tx.externalId || !tx.txDate) continue;
+    // external_id + the partial unique key from migration 0008 make cursor
+    // replays idempotent — without them ON CONFLICT DO NOTHING matched
+    // nothing and every overlapping poll double-counted the family's money.
     const { rowCount } = await client.query(
       `INSERT INTO transactions (
           family_id, title, amount_cents, currency, tx_date, kind,
-          category, source, bank_account_id, statement_import_id
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'bank_link', $8, NULL)
-       ON CONFLICT DO NOTHING`,
+          category, source, bank_account_id, statement_import_id, external_id
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'bank_link', $8, NULL, $9)
+       ON CONFLICT (family_id, bank_account_id, external_id)
+         WHERE external_id IS NOT NULL AND bank_account_id IS NOT NULL
+       DO NOTHING`,
       [
         familyId,
         tx.title,
@@ -116,7 +121,8 @@ const applyPage = async ({ client, familyId, accountId, page }) => {
         tx.txDate,
         tx.kind,
         tx.category ?? 'Uncategorised',
-        accountId
+        accountId,
+        String(tx.externalId)
       ]
     );
     inserted += rowCount;

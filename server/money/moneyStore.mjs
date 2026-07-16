@@ -162,11 +162,12 @@ export const setDebtAcceleration = async ({
 }) =>
   withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
+      // SET semantics: re-proposing an acceleration replaces the previous
+      // extra. (The old additive UPDATE compounded into min_payment_cents
+      // on every approved proposal.)
       const { rowCount, rows } = await client.query(
         `UPDATE debts
-            SET min_payment_cents = (
-                  SELECT min_payment_cents FROM debts WHERE id = $1
-                ) + $2
+            SET monthly_extra_cents = $2
           WHERE id = $1 AND family_id = $3
           RETURNING *`,
         [debtId, monthlyExtraCents, familyId]
