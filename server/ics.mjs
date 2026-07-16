@@ -1,5 +1,8 @@
-import { createHttpError } from './security.mjs';
+import { createHttpError, validateIcsSubscriptionUrl } from './security.mjs';
 import { zonedDateTimeToIso } from '../src/domain/calendar.ts';
+
+const FETCH_TIMEOUT_MS = 15_000;
+const MAX_ICS_BYTES = 5 * 1024 * 1024;
 
 const parseIcsValueLine = (line) => {
   const separatorIndex = line.indexOf(':');
@@ -71,9 +74,33 @@ export const createIcsService = () => {
   const fetchIcsEvents = async (subscription) => {
     const cached = cache.get(subscription.id);
     if (cached && Date.now() - cached.at < 10 * 60_000) return cached.events;
-    const response = await fetch(subscription.url, { headers: { 'User-Agent': 'Family Hub Calendar Sync' }, redirect: 'error' });
+    // Re-validate on every fetch, not just at subscribe time: a hostname that
+    // was public months ago can be re-pointed at a private address (DNS
+    // rebinding). This narrows the window to a per-request TOCTOU rather
+    // than a permanent bypass.
+    await validateIcsSubscriptionUrl(subscription.url);
+    const response = await fetch(subscription.url, {
+      headers: { 'User-Agent': 'Family Hub Calendar Sync' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
     if (!response.ok) throw createHttpError(response.status, 'Could not download the ICS calendar.');
-    const text = await response.text();
+    // Stream with a byte cap so a huge (or endless) feed can't buffer the
+    // process into an OOM.
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_ICS_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw createHttpError(502, 'The ICS calendar is too large to import.');
+      }
+      chunks.push(value);
+    }
+    const text = Buffer.concat(chunks).toString('utf8');
     const events = parseIcsEvents(text, subscription.id);
     cache.set(subscription.id, { at: Date.now(), events });
     return events;

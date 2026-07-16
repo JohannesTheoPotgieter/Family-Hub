@@ -60,6 +60,17 @@ import { listNetWorthHistory, monthlyRollup, netWorth } from '../money/insights.
 import { buildInbox, inboxCounts, searchAuditLog } from '../inbox/inbox.mjs';
 import { findConnectionByChannelId } from '../calendar/syncState.mjs';
 import { enqueueGooglePush } from '../calendar/syncWorker.mjs';
+import { watchChannelToken } from '../calendar/watchChannels.mjs';
+
+// Parse a numeric query param defensively: "?limit=abc" must fall back to
+// the default instead of sending NaN into SQL LIMITs and date math (a 500).
+const intParam = (url, name, fallback, { min = 1, max = 500 } = {}) => {
+  const raw = url.searchParams.get(name);
+  if (raw === null || raw === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+};
 
 export const createRouteHandler = ({
   port,
@@ -228,7 +239,11 @@ export const createRouteHandler = ({
       return;
     }
 
-    const expectedToken = process.env.GOOGLE_WATCH_TOKEN ?? channelId;
+    // HMAC-derived per-channel token (see watchChannelToken): the old
+    // fallback compared two attacker-controlled headers against each other.
+    // Existing channels minted with the legacy channel-id token fail this
+    // check until their weekly rotation re-registers them.
+    const expectedToken = watchChannelToken(channelId);
     if (channelToken !== expectedToken) {
       sendJson(res, clientOrigin, 403, { error: 'token_mismatch' });
       return;
@@ -631,7 +646,7 @@ export const createRouteHandler = ({
     const list = await listAttachments({
       familyId: ctx.member.familyId,
       kind: url.searchParams.get('kind') || undefined,
-      limit: Number(url.searchParams.get('limit') ?? 50),
+      limit: intParam(url, 'limit', 50),
       beforeIso: url.searchParams.get('before') || undefined
     });
     // Attach a read URL per row so the client can <img src=...> immediately.
@@ -728,7 +743,7 @@ export const createRouteHandler = ({
         messages: await listMessages({
           familyId: ctx.member.familyId,
           threadId,
-          limit: Number(url.searchParams.get('limit') ?? 50),
+          limit: intParam(url, 'limit', 50),
           beforeIso: url.searchParams.get('before')
         })
       });
@@ -901,7 +916,7 @@ export const createRouteHandler = ({
       sendJson(res, clientOrigin, 401, { error: 'unauthorized' });
       return;
     }
-    const horizonDays = Number(url.searchParams.get('horizonDays') ?? 7);
+    const horizonDays = intParam(url, 'horizonDays', 7, { min: 1, max: 90 });
     sendJson(
       res,
       clientOrigin,
@@ -950,7 +965,7 @@ export const createRouteHandler = ({
         memberId: ctx.member.id,
         roleKey: ctx.member.roleKey,
         q: url.searchParams.get('q') ?? '',
-        limit: Number(url.searchParams.get('limit') ?? 30)
+        limit: intParam(url, 'limit', 30)
       })
     );
     return;

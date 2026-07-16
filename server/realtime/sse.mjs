@@ -99,7 +99,10 @@ export const openSseStream = ({ req, res, clientOrigin, familyId, memberId, last
   res.write(': stream open\n');
   res.write('retry: 5000\n\n');
 
-  let eventId = lastEventId ? Number(lastEventId) : 0;
+  // A malformed reconnect header ("Last-Event-ID: abc") must not seed NaN —
+  // every subsequent `id: NaN` would break the client's resume cursor.
+  const parsedLastId = Number(lastEventId);
+  let eventId = Number.isFinite(parsedLastId) && parsedLastId >= 0 ? parsedLastId : 0;
   const send = (event) => {
     eventId += 1;
     const payload = JSON.stringify(event);

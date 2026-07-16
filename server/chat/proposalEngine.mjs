@@ -141,7 +141,7 @@ export const proposeChange = async ({
   const expiresAt = new Date(Date.parse(nowIso) + TTL_MS).toISOString();
   const entityKind = proposalEntityKindFor(change.kind);
 
-  return withFamilyContext(familyId, (client) =>
+  const result = await withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
       // Resolve the object thread for the entity. Lazy-creation lives on
       // the entity's own store module so a fresh propose-on-detail-screen
@@ -223,32 +223,32 @@ export const proposeChange = async ({
         [familyId, resolvedThreadId, proposer.id, '[proposal]', proposalRow.id]
       );
 
-      const result = { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
-
-      // Realtime fan-out — every connected client in the family sees the
-      // proposal land immediately, so the [Agree]/[Decline] card renders
-      // in the thread without a refresh.
-      broadcast({
-        type: 'proposal.created',
-        familyId,
-        threadId: resolvedThreadId,
-        proposal: result.proposal,
-        messageId: result.messageId
-      });
-
-      // Push fan-out happens out-of-tx so a slow web-push provider doesn't
-      // block the propose request. Best-effort.
-      fanOutProposalPush({
-        familyId,
-        proposalId: proposalRow.id,
-        proposerName: proposer.displayName,
-        summary: proposalSummary(change),
-        approverIds: required
-      }).catch(() => {});
-
-      return result;
+      return { proposal: rowToProposal(proposalRow), messageId: messageRows[0].id };
     })
   );
+
+  // Fan-out only AFTER the transaction has committed — broadcasting inside
+  // it told clients and push recipients about proposals that could still
+  // roll back.
+  broadcast({
+    type: 'proposal.created',
+    familyId,
+    threadId: result.proposal.threadId,
+    proposal: result.proposal,
+    messageId: result.messageId
+  });
+
+  // Push fan-out stays best-effort so a slow web-push provider doesn't
+  // block the propose request.
+  fanOutProposalPush({
+    familyId,
+    proposalId: result.proposal.id,
+    proposerName: proposer.displayName,
+    summary: proposalSummary(change),
+    approverIds: required
+  }).catch(() => {});
+
+  return result;
 };
 
 const proposalSummary = (change) => {
@@ -304,7 +304,7 @@ export const decideOnProposal = async ({
     throw err;
   }
 
-  return withFamilyContext(familyId, (client) =>
+  const outcome = await withFamilyContext(familyId, (client) =>
     withTransaction(client, async () => {
       const { rows } = await client.query(
         `SELECT * FROM proposals WHERE id = $1 FOR UPDATE`,
@@ -409,20 +409,26 @@ export const decideOnProposal = async ({
         diff
       });
 
-      // Realtime fan-out for the applied transition — connected clients
-      // flip the proposal card from 'open' → 'applied' instantly + can
-      // refresh the underlying entity via the diff payload.
-      broadcast({
-        type: 'proposal.applied',
-        familyId,
-        threadId: row.thread_id,
-        proposalId,
-        diff
-      });
-
-      return { proposal: { ...proposal, status: 'applied', approvals }, diff };
+      return { proposal: { ...proposal, status: 'applied', approvals }, diff, threadId: row.thread_id };
     })
   );
+
+  // Realtime fan-out for the applied transition — connected clients flip
+  // the proposal card from 'open' → 'applied' instantly and can refresh the
+  // underlying entity via the diff payload. Deliberately AFTER the commit:
+  // broadcasting inside the transaction announced applies that could still
+  // roll back.
+  if (outcome.diff) {
+    broadcast({
+      type: 'proposal.applied',
+      familyId,
+      threadId: outcome.threadId,
+      proposalId,
+      diff: outcome.diff
+    });
+  }
+
+  return { proposal: outcome.proposal, diff: outcome.diff };
 };
 
 // --- diff application ----------------------------------------------------

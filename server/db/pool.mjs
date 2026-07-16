@@ -51,19 +51,23 @@ export const withFamilyContext = async (familyId, fn) => {
   }
   const client = await getPool().connect();
   try {
-    // set_config(name, value, is_local=true) scopes the GUC to this transaction
-    // / session. Using parameter binding so a malicious familyId can't escape.
+    // set_config(..., is_local=false) is SESSION-scoped on purpose: fn(client)
+    // is not always inside a transaction, and a transaction-local GUC would
+    // evaporate before the queries run. Parameter binding keeps a malicious
+    // familyId from escaping.
     await client.query("SELECT set_config('app.current_family_id', $1, false)", [familyId]);
     return await fn(client);
   } finally {
     // Reset the GUC before returning the client to the pool so a subsequent
-    // checkout doesn't accidentally inherit a tenant id from this caller.
+    // checkout doesn't inherit this caller's tenant id. If the reset itself
+    // fails, the connection is poisoned — destroy it rather than letting the
+    // next tenant query run under our family_id.
     try {
       await client.query("SELECT set_config('app.current_family_id', '', false)");
-    } catch {
-      // best-effort
+      client.release();
+    } catch (resetErr) {
+      client.release(resetErr instanceof Error ? resetErr : new Error('failed to reset tenant GUC'));
     }
-    client.release();
   }
 };
 

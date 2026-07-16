@@ -10,7 +10,7 @@
 // or a recurring BullMQ job) re-establishes them; renewing in-place isn't
 // supported by the API so we always stop + recreate.
 
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { getCalendarConnection, upsertCalendarConnection } from './connectionStore.mjs';
 import { stopGoogleChannel, watchGoogleCalendar } from './providerClients.mjs';
 import { setWatchChannel } from './syncState.mjs';
@@ -19,6 +19,21 @@ const webhookUrl = () => {
   const base = (process.env.PUBLIC_APP_URL ?? '').replace(/\/$/, '');
   if (!base) throw new Error('PUBLIC_APP_URL is required to register a Google watch channel.');
   return `${base}/api/calendar/webhooks/google`;
+};
+
+/**
+ * Per-channel webhook token. With GOOGLE_WATCH_TOKEN unset the old code fell
+ * back to `token = channelId`, and the webhook compared the token header
+ * against the channel-id header — both attacker-controlled, so the check was
+ * a no-op. Deriving the token from the channel id with a server-side secret
+ * (TOKEN_ENC_KEY, already required for provider tokens) makes it unforgeable
+ * without adding new configuration.
+ */
+export const watchChannelToken = (channelId) => {
+  const configured = process.env.GOOGLE_WATCH_TOKEN;
+  if (configured) return configured;
+  const secret = process.env.TOKEN_ENC_KEY ?? '';
+  return createHmac('sha256', secret).update(String(channelId)).digest('hex').slice(0, 32);
 };
 
 /**
@@ -74,7 +89,7 @@ export const ensureGoogleWatchChannel = async ({ familyId, memberId, encKey }) =
     calendarId: connection.accountLabel ?? 'primary',
     webhookUrl: webhookUrl(),
     channelId,
-    token: process.env.GOOGLE_WATCH_TOKEN ?? channelId,
+    token: watchChannelToken(channelId),
     onTokensRefreshed: handleRefresh
   });
 

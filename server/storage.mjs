@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHttpError } from './security.mjs';
 
@@ -20,14 +20,30 @@ export const createServerStorage = ({ dataFile, encKey }) => {
         providers: parsed?.providers && typeof parsed.providers === 'object' ? parsed.providers : {},
         icsSubscriptions: Array.isArray(parsed?.icsSubscriptions) ? parsed.icsSubscriptions : []
       };
-    } catch {
-      // Keep boot read-only: malformed storage must not be auto-repaired or rewritten during startup.
+    } catch (err) {
+      // Keep boot read-only: malformed storage must not be auto-repaired or
+      // rewritten during startup. Preserve the corrupt file for recovery —
+      // the next save would otherwise silently overwrite the only copy of
+      // the encrypted provider tokens and ICS subscriptions.
+      try {
+        copyFileSync(dataFile, `${dataFile}.corrupt`);
+      } catch {
+        // best-effort backup
+      }
+      console.error(`[storage] ${dataFile} is unreadable (${err?.message}); starting empty. A copy was kept at ${dataFile}.corrupt`);
       return cloneEmptyServerState();
     }
   };
 
   const persistedState = loadPersistedState();
-  const savePersistedState = () => writeFileSync(dataFile, JSON.stringify(persistedState, null, 2));
+  // Write-temp-then-rename so a crash mid-write can't truncate the only
+  // copy of the state file (a truncated file parses as corrupt and the
+  // next boot would start empty).
+  const savePersistedState = () => {
+    const tempFile = `${dataFile}.tmp`;
+    writeFileSync(tempFile, JSON.stringify(persistedState, null, 2));
+    renameSync(tempFile, dataFile);
+  };
   const encrypt = (raw) => {
     const key = requireEncKey();
     const iv = randomBytes(12);
