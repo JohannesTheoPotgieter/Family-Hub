@@ -205,6 +205,7 @@ export type TransactionsRow = {
   statementImportId: Uuid | null;
   statementFileName: string | null;
   bankAccountId: Uuid | null;
+  externalId: string | null; // provider-side id for bank_link dedupe (0008)
   threadId: Uuid | null;
   createdAt: IsoTimestamp;
 };
@@ -251,6 +252,7 @@ export type DebtsRow = {
   principalCents: number;
   aprBps: number; // basis points (e.g. 14.5% APR = 1450)
   minPaymentCents: number;
+  monthlyExtraCents: number; // recurring acceleration on top of the minimum (0008)
   currency: CurrencyCode;
   strategy: 'avalanche' | 'snowball';
   paidOff: boolean;

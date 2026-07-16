@@ -6,6 +6,7 @@ import { TABS, type Tab, type UserId } from './constants';
 import { APP_ROUTES } from '../../config/routes.ts';
 import { resolveActiveTab } from '../../routing/routeHelpers';
 import { encodePin, verifyPin } from './pin';
+import { withSeedTombstone } from './money';
 import { localPersistenceAdapter } from './persistence';
 import { getTabsForUser, hasPermission, resolvePermissionBundle } from './permissions';
 import type { FamilyHubState } from './storage';
@@ -104,7 +105,7 @@ export const useFamilyHubController = () => {
     setPlannerOpeningBalance: (amountCents: number) => patchState((current) => setPlannerOpeningBalance(current, amountCents)),
     deleteBill: (id: string) => patchState((current) => deleteBill(current, id)),
     deleteTransaction: (id: string) => patchState((current) => deleteTransaction(current, id)),
-    deleteBudget: (id: string) => patchState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id) } })),
+    deleteBudget: (id: string) => patchState((current) => ({ ...current, money: { ...current.money, budgets: current.money.budgets.filter((budget) => budget.id !== id), dismissedSeedIds: withSeedTombstone(current.money, id) } })),
     can: (permission: Parameters<typeof hasPermission>[1]) => hasPermission(activeUser, permission, state.settings),
     clearAllCalendarConnections: async () => { await resetCalendarConnections(); }
   };

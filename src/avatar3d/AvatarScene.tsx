@@ -9,6 +9,14 @@ type Props = { companion: AvatarCompanion; reducedMotion: boolean };
 
 export const AvatarScene = ({ companion, reducedMotion }: Props) => {
   const [anim, setAnim] = useState<AvatarAnimation>(moodAnimationMap[companion.mood]);
+  // Mood is only read into state at mount, so a mood change (e.g. after a
+  // care action) would otherwise never update the animation. Track the last
+  // seen mood and re-sync when it changes, while keeping manual overrides.
+  const [lastMood, setLastMood] = useState(companion.mood);
+  if (companion.mood !== lastMood) {
+    setLastMood(companion.mood);
+    setAnim(moodAnimationMap[companion.mood]);
+  }
   const [rotation, setRotation] = useState(0);
   const animation = useMemo(() => (reducedMotion ? 'idle' : anim), [anim, reducedMotion]);
 

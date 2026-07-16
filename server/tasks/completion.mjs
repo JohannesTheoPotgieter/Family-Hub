@@ -43,6 +43,19 @@ export const completeTask = async ({ familyId, actorMemberId, taskId }) =>
       }
       const task = currentRows[0];
 
+      // Idempotency guard: a non-recurring task that is already completed
+      // must not award points again — otherwise a repeated POST (double-tap
+      // or scripted) re-credits reward_points without bound.
+      if (task.completed) {
+        return {
+          task: rowToTask(task),
+          pointsAwarded: 0,
+          completionId: null,
+          newDueDate: null,
+          alreadyCompleted: true
+        };
+      }
+
       const completion = await client.query(
         `INSERT INTO task_completions (task_id, member_id) VALUES ($1, $2) RETURNING id, completed_at`,
         [taskId, actorMemberId]

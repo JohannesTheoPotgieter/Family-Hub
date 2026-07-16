@@ -141,6 +141,13 @@ export const sanitizeAvatar = (
     : fallback.inventory
 });
 
+// Local calendar day, not toISOString()'s UTC day (off by one east of UTC).
+const todayLocalIso = () => {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
 export const sanitizeMoneyState = (
   rawMoney: Partial<MoneyState> & { payments?: any[]; actualTransactions?: any[] }
 ): MoneyState => {
@@ -156,7 +163,7 @@ export const sanitizeMoneyState = (
             ? payment.dueDateIso
             : typeof payment.dueDate === 'string'
               ? payment.dueDate
-              : new Date().toISOString().slice(0, 10),
+              : todayLocalIso(),
         category: typeof payment.category === 'string' ? payment.category : 'Other',
         paid: Boolean(payment.paid),
         paidDateIso:
@@ -183,7 +190,7 @@ export const sanitizeMoneyState = (
             ? tx.dateIso
             : typeof tx.date === 'string'
               ? tx.date
-              : new Date().toISOString().slice(0, 10),
+              : todayLocalIso(),
         kind: (tx.kind === 'inflow' ? 'inflow' : 'outflow') as 'inflow' | 'outflow',
         category: typeof tx.category === 'string' ? tx.category : 'Other',
         notes: typeof tx.notes === 'string' ? tx.notes : undefined,
@@ -259,21 +266,33 @@ export const sanitizeMoneyState = (
       : 0;
 
   return {
-    bills: bills.map((bill: any) => ({
-      ...bill,
-      recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none',
-      recurrenceDay:
-        typeof bill.recurrenceDay === 'number'
-          ? bill.recurrenceDay
-          : Number(bill.dueDateIso.slice(8, 10)),
-      generatedFromBillId:
-        typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined
-    })),
+    // Drop malformed bill entries instead of throwing: loadState treats any
+    // exception here as corrupt storage and resets the WHOLE household state,
+    // so one bad bill must never take everything else down.
+    bills: bills
+      .filter((bill: any) => bill && typeof bill.id === 'string' && typeof bill.title === 'string')
+      .map((bill: any) => {
+        const dueDateIso = typeof bill.dueDateIso === 'string' ? bill.dueDateIso : todayLocalIso();
+        return {
+          ...bill,
+          dueDateIso,
+          recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none',
+          recurrenceDay:
+            typeof bill.recurrenceDay === 'number'
+              ? bill.recurrenceDay
+              : Number(dueDateIso.slice(8, 10)),
+          generatedFromBillId:
+            typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined
+        };
+      }),
     transactions,
     budgets,
     savingsGoals,
     plannerItems,
     plannerOpeningBalance,
+    dismissedSeedIds: Array.isArray((rawMoney as any).dismissedSeedIds)
+      ? (rawMoney as any).dismissedSeedIds.filter((id: any) => typeof id === 'string').slice(0, 1000)
+      : undefined,
     settings: {
       currency: 'ZAR',
       monthlyStartDay:

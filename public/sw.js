@@ -110,8 +110,8 @@ self.addEventListener('push', (event) => {
       tag: payload.tag,
       data: { url: payload.url, proposalId: payload.proposalId, actionToken: payload.actionToken },
       actions,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png'
+      icon: '/icon.svg',
+      badge: '/icon.svg'
     })
   );
 });

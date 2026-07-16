@@ -27,6 +27,7 @@ type Props = {
   externalEvents: NormalizedEvent[];
   tasks: TaskItem[];
   auditLog: Array<{ id: string; type: string; detail: string; createdAtIso: string }>;
+  familyMode: AppSettings['familyMode'];
   onCareAction: (userId: UserId, action: CareAction) => void;
   onChangePin: (currentPin: string, nextPin: string) => Promise<boolean>;
   onAddPlace: (place: Omit<PlaceItem, 'id'>) => void;
@@ -81,6 +82,7 @@ export const MoreScreen = ({
   externalEvents,
   tasks,
   auditLog,
+  familyMode,
   onCareAction,
   onChangePin,
   onAddPlace,
@@ -368,7 +370,7 @@ export const MoreScreen = ({
             <label className="task-field">
               <span>Family tone</span>
               <select
-                defaultValue="balanced"
+                value={familyMode}
                 onChange={(event) => {
                   onUpdateSettings({ familyMode: event.target.value as AppSettings['familyMode'] });
                   setSettingsStatus('Family tone preference saved.');

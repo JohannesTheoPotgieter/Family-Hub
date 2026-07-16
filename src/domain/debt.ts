@@ -90,25 +90,29 @@ export const calculatePayoff = (
     let monthInterestCents = 0;
     let monthPaidCents = 0;
 
-    // 1. Accrue interest on every debt.
+    // 1. Accrue interest on every debt. Remember the accrual per debt so
+    // the payment rows report the real interest charge — recomputing from
+    // the post-accrual balance overstated it (interest on interest).
+    const accruedCentsByDebtId = new Map<string, number>();
     for (const debt of live) {
       if (debt.principalCents === 0) continue;
       const interestCents = Math.round(debt.principalCents * monthlyRate(debt.aprBps));
       debt.principalCents += interestCents;
       monthInterestCents += interestCents;
+      accruedCentsByDebtId.set(debt.id, interestCents);
     }
 
     // 2. Pay the minimum on every debt (capped at outstanding balance).
     for (const debt of live) {
       if (debt.principalCents === 0) continue;
-      const before = debt.principalCents;
+      const interestCents = accruedCentsByDebtId.get(debt.id) ?? 0;
       const pay = Math.min(debt.minPaymentCents, debt.principalCents);
       debt.principalCents -= pay;
       monthPaidCents += pay;
       payments.push({
         debtId: debt.id,
-        interestCents: Math.round(before * monthlyRate(debt.aprBps)),
-        principalCents: pay - Math.round(before * monthlyRate(debt.aprBps)),
+        interestCents,
+        principalCents: pay - interestCents,
         paidCents: pay,
         remainingCents: debt.principalCents,
         paidOff: debt.principalCents === 0

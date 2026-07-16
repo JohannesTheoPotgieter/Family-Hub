@@ -3,23 +3,22 @@ import type { AvatarActivityEvent } from '../../domain/avatarTypes.ts';
 import type { NormalizedCalendar, NormalizedEvent, Provider } from '../../domain/calendar.ts';
 import { toDedupeKey } from '../../domain/calendar.ts';
 import type { Tab, UserId } from './constants.ts';
+import { toLocalDateIso } from './date.ts';
 import { getInitialRouteFromLocation } from '../../routing/routeHelpers.ts';
 import { deleteBillAndLinkedTransaction, deleteTransactionAndUnlinkBills, markBillPaidWithOptionalTransaction, saveBudget, type BudgetSaveResult } from './money.ts';
 import { clearSetupArtifactsForUser, createInitialState, seedMoneyFromSetupProfiles, type Bill, type FamilyHubState, type MoneyTransaction, type PlannerLineItem, type TaskItem, type UserSetupProfile } from './storage.ts';
 
 const addDays = (dateIso: string, days: number) => {
-  const date = new Date(`${dateIso}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const [year, month, day] = dateIso.split('-').map(Number);
+  return toLocalDateIso(new Date(year, month - 1, day + days));
 };
 
 const nextMonthlyDueDate = (dateIso: string, preferredDay?: number) => {
   const [year, month, day] = dateIso.split('-').map(Number);
-  const next = new Date(year, month, 1);
   const targetDay = preferredDay ?? day ?? 1;
-  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
-  next.setDate(Math.min(targetDay, lastDay));
-  return next.toISOString().slice(0, 10);
+  // `month` is 1-based, so it doubles as the 0-based index of the next month.
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return toLocalDateIso(new Date(year, month, Math.min(targetDay, lastDay)));
 };
 
 export const ensureChallenges = (state: FamilyHubState): FamilyHubState => {
@@ -264,7 +263,7 @@ export const markBillPaid = (current: FamilyHubState, id: string, proofFileName:
     }
   }
   if (!bill) return next;
-  const dueSoon = bill.dueDateIso >= new Date().toISOString().slice(0, 10);
+  const dueSoon = bill.dueDateIso >= toLocalDateIso(new Date());
   return rewardActivity(next, { type: dueSoon ? 'APP_PAYMENT_PAID_ON_TIME' : 'APP_PAYMENT_MARKED_PAID', userId: current.activeUserId!, actionId: `bill-${id}-paid`, createdAtIso: new Date().toISOString() });
 };
 

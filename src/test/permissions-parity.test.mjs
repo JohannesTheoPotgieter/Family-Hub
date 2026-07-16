@@ -26,3 +26,9 @@ test('memberHasPermission returns false for unknown roles or null inputs', () =>
   // @ts-expect-error - intentional invalid role
   assert.equal(memberHasPermission('grandparent', 'task_edit'), false);
 });
+
+test('only adults can invite new family members', () => {
+  assert.equal(memberHasPermission('parent_admin', 'member_invite'), true);
+  assert.equal(memberHasPermission('adult_editor', 'member_invite'), true);
+  assert.equal(memberHasPermission('child_limited', 'member_invite'), false);
+});

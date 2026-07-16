@@ -3,6 +3,7 @@ import { ServerCalendarPanel } from './ServerCalendarPanel';
 import type { CalendarEvent } from '../../lib/family-hub/storage';
 import { getCalendarMode, getCalendarProviderClients, hasCalendarOAuthConfig } from '../../integrations/calendar';
 import type { Provider, NormalizedCalendar, NormalizedEvent } from '../../domain/calendar';
+import { toLocalDateIso } from '../../lib/family-hub/date';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Chip } from '../../ui/Chip';
@@ -38,7 +39,7 @@ type DisplayEvent = {
   familyLabel: string;
 };
 
-const formatDayKey = (date: Date) => date.toISOString().slice(0, 10);
+const formatDayKey = (date: Date) => toLocalDateIso(date);
 const fmt = (date: Date, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', opts).format(date);
 const startWeek = (date: Date) => {
   const next = new Date(date);

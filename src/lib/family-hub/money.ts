@@ -1,4 +1,4 @@
-import { getTodayIso } from './date.ts';
+import { getTodayIso, parseLocalDateIso, toLocalDateIso } from './date.ts';
 import type { Bill, Budget, MoneyState, MoneyTransaction } from './storage.ts';
 import { getLineItemAmount } from './planner.ts';
 
@@ -65,9 +65,9 @@ export const getMonthIso = (dateIso: string) => dateIso.slice(0, 7);
 export const getMonthBills = (state: MoneyState, monthIsoYYYYMM: string) => state.bills.filter((bill) => bill.dueDateIso.slice(0, 7) === monthIsoYYYYMM);
 
 export const getDueSoonBills = (bills: Bill[], todayIso = getTodayIso(), days = 7) => {
-  const endDate = new Date(todayIso);
+  const endDate = parseLocalDateIso(todayIso);
   endDate.setDate(endDate.getDate() + days);
-  const endIso = endDate.toISOString().slice(0, 10);
+  const endIso = toLocalDateIso(endDate);
   return bills.filter((bill) => !bill.paid && bill.dueDateIso >= todayIso && bill.dueDateIso <= endIso);
 };
 
@@ -262,6 +262,28 @@ export const markBillPaidWithOptionalTransaction = (
 export const toCents = (value: number) => Math.round(value * 100);
 export const fromCents = (amountCents: number) => amountCents / 100;
 
+// Parse a user-typed amount into a number, or null when unreadable.
+// South African users mix conventions: "1 500" and "1,500" as thousands,
+// "12,50" as a decimal comma, "R 1 250,75" with a currency prefix. A comma
+// (or dot) is only a decimal separator when it is the last separator and
+// has 1-2 trailing digits; everything else is grouping.
+export const parseAmountInput = (raw: string): number | null => {
+  let text = raw.trim().replace(/^r\s*/i, '').replace(/\s+/g, '');
+  if (!text) return null;
+  const lastComma = text.lastIndexOf(',');
+  const lastDot = text.lastIndexOf('.');
+  const separatorAt = Math.max(lastComma, lastDot);
+  if (separatorAt !== -1) {
+    const decimals = text.length - separatorAt - 1;
+    const isDecimal = decimals >= 1 && decimals <= 2 && !/[.,]/.test(text.slice(separatorAt + 1));
+    const head = text.slice(0, separatorAt).replace(/[.,]/g, '');
+    text = isDecimal ? `${head}.${text.slice(separatorAt + 1)}` : head + text.slice(separatorAt + 1).replace(/[.,]/g, '');
+  }
+  if (!/^[-+]?\d+(\.\d+)?$/.test(text)) return null;
+  const parsed = Number.parseFloat(text);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 export const getActiveMonth = (state: MoneyState) => {
   const dates = [
     ...state.transactions.map((tx) => tx.dateIso),
@@ -303,18 +325,27 @@ export const saveBudget = (state: MoneyState, budget: Omit<Budget, 'id'>): Budge
   };
 };
 
+// Setup-seeded rows ("setup-*" ids) are re-created on every load, so their
+// deletion has to leave a tombstone or they resurrect on the next refresh.
+export const withSeedTombstone = (state: MoneyState, deletedId: string): string[] | undefined =>
+  deletedId.startsWith('setup-')
+    ? [...new Set([...(state.dismissedSeedIds ?? []), deletedId])]
+    : state.dismissedSeedIds;
+
 export const deleteBillAndLinkedTransaction = (state: MoneyState, billId: string): MoneyState => {
   const bill = state.bills.find((item) => item.id === billId);
   const linkedTransactionId = bill?.linkedTransactionId;
   return {
     ...state,
     bills: state.bills.filter((item) => item.id !== billId),
-    transactions: linkedTransactionId ? state.transactions.filter((tx) => tx.id !== linkedTransactionId) : state.transactions
+    transactions: linkedTransactionId ? state.transactions.filter((tx) => tx.id !== linkedTransactionId) : state.transactions,
+    dismissedSeedIds: withSeedTombstone(state, billId)
   };
 };
 
 export const deleteTransactionAndUnlinkBills = (state: MoneyState, transactionId: string): MoneyState => ({
   ...state,
   bills: state.bills.map((bill) => bill.linkedTransactionId === transactionId ? { ...bill, linkedTransactionId: undefined } : bill),
-  transactions: state.transactions.filter((tx) => tx.id !== transactionId)
+  transactions: state.transactions.filter((tx) => tx.id !== transactionId),
+  dismissedSeedIds: withSeedTombstone(state, transactionId)
 });

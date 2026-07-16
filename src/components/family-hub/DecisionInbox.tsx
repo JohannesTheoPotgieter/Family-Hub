@@ -15,11 +15,14 @@ import { useState } from 'react';
 import { useSession } from '../../lib/auth/SessionProvider.tsx';
 import { useInbox } from '../../hooks/useInbox.ts';
 import { decideOnProposal, type InboxProposal } from '../../lib/api/inbox.ts';
+import { getTodayIso, toLocalDateIso } from '../../lib/family-hub/date.ts';
 
 const formatRelative = (iso: string | null) => {
   if (!iso) return 'no due date';
-  const day = iso.slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
+  // Timestamps convert to the viewer's local day; date-only strings are
+  // already local days and must not round-trip through UTC.
+  const day = iso.length > 10 ? toLocalDateIso(new Date(iso)) : iso;
+  const today = getTodayIso();
   if (day === today) return 'today';
   if (day < today) return 'overdue';
   return new Date(iso).toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -59,6 +62,7 @@ export const DecisionInbox = () => {
   const enabled = session.kind === 'authenticated';
   const inbox = useInbox({ enabled });
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   if (!enabled) return null;
   if (inbox.kind === 'loading') {
@@ -114,10 +118,13 @@ export const DecisionInbox = () => {
 
   const onDecide = async (proposalId: string, decision: 'agree' | 'decline') => {
     setBusyId(proposalId);
+    setDecisionError(null);
     try {
       await decideOnProposal(proposalId, decision);
       // Realtime broadcast from the server will refresh the inbox; in the
       // meantime the busy state suppresses double-clicks.
+    } catch (err) {
+      setDecisionError(err instanceof Error ? err.message : 'Could not record your decision.');
     } finally {
       setBusyId(null);
     }
@@ -148,6 +155,12 @@ export const DecisionInbox = () => {
           {total} {total === 1 ? 'item' : 'items'}
         </span>
       </header>
+
+      {decisionError && (
+        <div role="alert" style={{ fontSize: 13, color: '#b02a37', background: 'rgba(220,53,69,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+          {decisionError}
+        </div>
+      )}
 
       {proposals.length > 0 && (
         <ul style={listStyle}>

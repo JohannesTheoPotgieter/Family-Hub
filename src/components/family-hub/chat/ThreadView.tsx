@@ -349,11 +349,15 @@ const MessageRowView = ({
 const InlineProposalCard = ({ proposalId, createdAt }: { proposalId: string; createdAt: string }) => {
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<'agreed' | 'declined' | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const onDecide = async (decision: 'agree' | 'decline') => {
     setBusy(true);
+    setError(null);
     try {
       await decideOnProposal(proposalId, decision);
       setOutcome(decision === 'agree' ? 'agreed' : 'declined');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not record your decision.');
     } finally {
       setBusy(false);
     }
@@ -380,13 +384,16 @@ const InlineProposalCard = ({ proposalId, createdAt }: { proposalId: string; cre
       {outcome ? (
         <span style={{ fontSize: 12, opacity: 0.75 }}>{outcome === 'agreed' ? 'Agreed' : 'Declined'}</span>
       ) : (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" disabled={busy} onClick={() => onDecide('agree')} style={primaryButton}>
-            Agree
-          </button>
-          <button type="button" disabled={busy} onClick={() => onDecide('decline')} style={ghostButton}>
-            Decline
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" disabled={busy} onClick={() => onDecide('agree')} style={primaryButton}>
+              Agree
+            </button>
+            <button type="button" disabled={busy} onClick={() => onDecide('decline')} style={ghostButton}>
+              Decline
+            </button>
+          </div>
+          {error && <span role="alert" style={{ fontSize: 11, color: '#b02a37' }}>{error}</span>}
         </div>
       )}
     </div>

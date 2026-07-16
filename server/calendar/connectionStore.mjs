@@ -47,36 +47,21 @@ export const upsertCalendarConnection = async ({
   assertProvider(provider);
   const ciphertext = encryptToken(JSON.stringify(tokens), encKey);
   return withFamilyContext(familyId, async (client) => {
-    // One connection per (family, member, provider) — UPSERT on those three.
+    // One connection per (family, member, provider) — a real UPSERT against
+    // the unique key from migration 0008. (The previous ON CONFLICT targeted
+    // the uuid PRIMARY KEY, which can never conflict, so every token refresh
+    // minted a duplicate row.)
     const { rows } = await client.query(
       `INSERT INTO calendar_connections (family_id, member_id, provider, account_label, tokens_encrypted)
          VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT ON CONSTRAINT calendar_connections_pkey DO NOTHING
+       ON CONFLICT (family_id, member_id, provider)
+       DO UPDATE SET
+         account_label = COALESCE(EXCLUDED.account_label, calendar_connections.account_label),
+         tokens_encrypted = EXCLUDED.tokens_encrypted
        RETURNING id`,
       [familyId, memberId, provider, accountLabel, ciphertext]
     );
-
-    if (rows.length) return rows[0].id;
-
-    // No conflict → either it inserted (handled above) or there was no
-    // matching unique constraint. Fall through to manual upsert by
-    // (family, member, provider).
-    const updated = await client.query(
-      `UPDATE calendar_connections
-          SET account_label = COALESCE($4, account_label),
-              tokens_encrypted = $5
-        WHERE family_id = $1 AND member_id = $2 AND provider = $3
-        RETURNING id`,
-      [familyId, memberId, provider, accountLabel, ciphertext]
-    );
-    if (updated.rows.length) return updated.rows[0].id;
-
-    const inserted = await client.query(
-      `INSERT INTO calendar_connections (family_id, member_id, provider, account_label, tokens_encrypted)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [familyId, memberId, provider, accountLabel, ciphertext]
-    );
-    return inserted.rows[0].id;
+    return rows[0].id;
   });
 };
 
