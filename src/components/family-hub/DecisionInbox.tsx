@@ -62,6 +62,7 @@ export const DecisionInbox = () => {
   const enabled = session.kind === 'authenticated';
   const inbox = useInbox({ enabled });
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
   if (!enabled) return null;
   if (inbox.kind === 'loading') {
@@ -117,10 +118,13 @@ export const DecisionInbox = () => {
 
   const onDecide = async (proposalId: string, decision: 'agree' | 'decline') => {
     setBusyId(proposalId);
+    setDecisionError(null);
     try {
       await decideOnProposal(proposalId, decision);
       // Realtime broadcast from the server will refresh the inbox; in the
       // meantime the busy state suppresses double-clicks.
+    } catch (err) {
+      setDecisionError(err instanceof Error ? err.message : 'Could not record your decision.');
     } finally {
       setBusyId(null);
     }
@@ -151,6 +155,12 @@ export const DecisionInbox = () => {
           {total} {total === 1 ? 'item' : 'items'}
         </span>
       </header>
+
+      {decisionError && (
+        <div role="alert" style={{ fontSize: 13, color: '#b02a37', background: 'rgba(220,53,69,0.08)', borderRadius: 8, padding: '8px 10px' }}>
+          {decisionError}
+        </div>
+      )}
 
       {proposals.length > 0 && (
         <ul style={listStyle}>

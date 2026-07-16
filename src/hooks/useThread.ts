@@ -57,13 +57,15 @@ export const useThread = ({
         | { type?: string; threadId?: string; message?: MessageRow }
         | undefined;
       if (!detail) return;
-      if (detail.threadId && detail.threadId !== threadId) return;
+      if (detail.threadId !== threadId) return;
       if (detail.type === 'message' && detail.message) {
-        setState((prev) =>
-          prev.kind === 'ready'
-            ? { kind: 'ready', messages: [...prev.messages, detail.message!] }
-            : prev
-        );
+        setState((prev) => {
+          if (prev.kind !== 'ready') return prev;
+          // The same message can arrive twice (realtime + refresh, or a
+          // second stream during reconnect) — dedupe by id.
+          if (prev.messages.some((message) => message.id === detail.message!.id)) return prev;
+          return { kind: 'ready', messages: [...prev.messages, detail.message!] };
+        });
         return;
       }
       if (detail.type?.startsWith('proposal.')) {

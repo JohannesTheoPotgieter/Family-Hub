@@ -59,6 +59,11 @@ export const connectRealtime = (handler: RealtimeHandler) => {
       return;
     }
 
+    // disconnect() may have run while the mint was in flight (guaranteed
+    // under StrictMode's mount→cleanup→remount); opening anyway would leak
+    // a zombie EventSource nothing ever closes.
+    if (closed) return;
+
     source = new EventSource(buildStreamUrl(ticket), { withCredentials: true });
     source.onopen = () => {
       backoffMs = 1000; // reset backoff on successful open
