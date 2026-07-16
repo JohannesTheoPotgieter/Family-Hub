@@ -325,18 +325,27 @@ export const saveBudget = (state: MoneyState, budget: Omit<Budget, 'id'>): Budge
   };
 };
 
+// Setup-seeded rows ("setup-*" ids) are re-created on every load, so their
+// deletion has to leave a tombstone or they resurrect on the next refresh.
+export const withSeedTombstone = (state: MoneyState, deletedId: string): string[] | undefined =>
+  deletedId.startsWith('setup-')
+    ? [...new Set([...(state.dismissedSeedIds ?? []), deletedId])]
+    : state.dismissedSeedIds;
+
 export const deleteBillAndLinkedTransaction = (state: MoneyState, billId: string): MoneyState => {
   const bill = state.bills.find((item) => item.id === billId);
   const linkedTransactionId = bill?.linkedTransactionId;
   return {
     ...state,
     bills: state.bills.filter((item) => item.id !== billId),
-    transactions: linkedTransactionId ? state.transactions.filter((tx) => tx.id !== linkedTransactionId) : state.transactions
+    transactions: linkedTransactionId ? state.transactions.filter((tx) => tx.id !== linkedTransactionId) : state.transactions,
+    dismissedSeedIds: withSeedTombstone(state, billId)
   };
 };
 
 export const deleteTransactionAndUnlinkBills = (state: MoneyState, transactionId: string): MoneyState => ({
   ...state,
   bills: state.bills.map((bill) => bill.linkedTransactionId === transactionId ? { ...bill, linkedTransactionId: undefined } : bill),
-  transactions: state.transactions.filter((tx) => tx.id !== transactionId)
+  transactions: state.transactions.filter((tx) => tx.id !== transactionId),
+  dismissedSeedIds: withSeedTombstone(state, transactionId)
 });

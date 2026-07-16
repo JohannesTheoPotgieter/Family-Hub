@@ -155,16 +155,16 @@ export const TasksScreen = ({ tasks, users = USERS, activeUserId, avatarGame, on
 
   const submitTask = () => {
     if (!draft.title.trim()) return;
+    // Only the editable fields: updateTask spreads this over the stored
+    // task, so completionCount/completionHistory must stay untouched or an
+    // edit would reset a chore's history and re-issue old reward ids.
     const payload = {
       title: draft.title.trim(),
       dueDate: draft.dueDate || null,
       shared: draft.shared,
       notes: draft.notes.trim(),
       ownerId: draft.ownerId,
-      recurrence: draft.recurrence as 'none' | 'daily' | 'weekly',
-      archived: false,
-      completionCount: 0,
-      completionHistory: []
+      recurrence: draft.recurrence as 'none' | 'daily' | 'weekly'
     };
     if (editingTaskId) {
       onUpdateTask(editingTaskId, payload);

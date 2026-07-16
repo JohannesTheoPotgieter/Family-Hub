@@ -266,21 +266,33 @@ export const sanitizeMoneyState = (
       : 0;
 
   return {
-    bills: bills.map((bill: any) => ({
-      ...bill,
-      recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none',
-      recurrenceDay:
-        typeof bill.recurrenceDay === 'number'
-          ? bill.recurrenceDay
-          : Number(bill.dueDateIso.slice(8, 10)),
-      generatedFromBillId:
-        typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined
-    })),
+    // Drop malformed bill entries instead of throwing: loadState treats any
+    // exception here as corrupt storage and resets the WHOLE household state,
+    // so one bad bill must never take everything else down.
+    bills: bills
+      .filter((bill: any) => bill && typeof bill.id === 'string' && typeof bill.title === 'string')
+      .map((bill: any) => {
+        const dueDateIso = typeof bill.dueDateIso === 'string' ? bill.dueDateIso : todayLocalIso();
+        return {
+          ...bill,
+          dueDateIso,
+          recurrence: bill.recurrence === 'monthly' ? 'monthly' : 'none',
+          recurrenceDay:
+            typeof bill.recurrenceDay === 'number'
+              ? bill.recurrenceDay
+              : Number(dueDateIso.slice(8, 10)),
+          generatedFromBillId:
+            typeof bill.generatedFromBillId === 'string' ? bill.generatedFromBillId : undefined
+        };
+      }),
     transactions,
     budgets,
     savingsGoals,
     plannerItems,
     plannerOpeningBalance,
+    dismissedSeedIds: Array.isArray((rawMoney as any).dismissedSeedIds)
+      ? (rawMoney as any).dismissedSeedIds.filter((id: any) => typeof id === 'string').slice(0, 1000)
+      : undefined,
     settings: {
       currency: 'ZAR',
       monthlyStartDay:

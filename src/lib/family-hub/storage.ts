@@ -100,6 +100,10 @@ export type MoneyState = {
   savingsGoals: SavingsGoal[];
   plannerItems: PlannerLineItem[];
   plannerOpeningBalance: number;
+  // Tombstones for deleted setup-seeded rows ("setup-*" ids). Seeding runs
+  // on every load, so without these a deleted seeded bill/transaction/budget
+  // would resurrect on the next refresh.
+  dismissedSeedIds?: string[];
   settings: {
     currency: 'ZAR';
     monthlyStartDay?: number;
@@ -213,6 +217,7 @@ export const seedMoneyFromSetupProfiles = (
   const todayIso = getTodayIso();
   const currentMonth = todayIso.slice(0, 7);
   const monthEndIso = getMonthEndIso(currentMonth);
+  const dismissed = new Set(money.dismissedSeedIds ?? []);
 
   const transactions = [...money.transactions];
   const bills = [...money.bills];
@@ -221,7 +226,7 @@ export const seedMoneyFromSetupProfiles = (
   for (const [userId, profile] of entries) {
     if (profile.openingBalance > 0) {
       const id = `setup-opening-${userId}`;
-      if (!transactions.some((tx) => tx.id === id)) {
+      if (!dismissed.has(id) && !transactions.some((tx) => tx.id === id)) {
         transactions.unshift({
           id,
           title: `${USERS.find((user) => user.id === userId)?.name ?? userId} opening balance`,
@@ -237,7 +242,7 @@ export const seedMoneyFromSetupProfiles = (
 
     if (profile.monthlyIncome > 0) {
       const id = `setup-income-${userId}-${currentMonth}`;
-      if (!transactions.some((tx) => tx.id === id)) {
+      if (!dismissed.has(id) && !transactions.some((tx) => tx.id === id)) {
         transactions.unshift({
           id,
           title: `${USERS.find((user) => user.id === userId)?.name ?? userId} monthly income`,
@@ -254,7 +259,7 @@ export const seedMoneyFromSetupProfiles = (
     profile.recurringPayments.forEach((payment) => {
       if (payment.amount <= 0) return;
       const id = `setup-bill-${userId}-${payment.id}-${currentMonth}`;
-      if (!bills.some((bill) => bill.id === id)) {
+      if (!dismissed.has(id) && !bills.some((bill) => bill.id === id)) {
         bills.unshift({
           id,
           title: payment.title,
@@ -271,7 +276,7 @@ export const seedMoneyFromSetupProfiles = (
     profile.budgetCategories.forEach((budget) => {
       if (budget.amount < 0) return;
       const id = `setup-budget-${userId}-${slugify(budget.label)}-${currentMonth}`;
-      if (!budgets.some((item) => item.id === id)) {
+      if (!dismissed.has(id) && !budgets.some((item) => item.id === id)) {
         budgets.unshift({
           id,
           monthIsoYYYYMM: currentMonth,
